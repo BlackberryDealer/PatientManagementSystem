@@ -1,0 +1,70 @@
+<nav class="navbar is-primary" role="navigation" aria-label="main navigation">
+    <div class="navbar-brand">
+        <a class="navbar-item" href="/">
+            <strong>🏥 PMS</strong>
+        </a>
+        <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMain">
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+        </a>
+    </div>
+
+    <div id="navbarMain" class="navbar-menu">
+        <div class="navbar-start">
+            {% if user %}
+                <a class="navbar-item" href="/appointments">
+                    📅 Appointments
+                </a>
+                {% if user.role == "doctor" or user.role == "admin" %}
+                <a class="navbar-item" href="/availability">
+                    🕐 Availability
+                </a>
+                {% endif %}
+                <a class="navbar-item" href="/records">
+                    📋 Medical Records
+                </a>
+                {% if user.role == "admin" %}
+                <a class="navbar-item" href="/billing">
+                    💰 Billing
+                </a>
+                <a class="navbar-item" href="/users">
+                    👥 Users
+                </a>
+                {% endif %}
+                {% if user.role == "patient" %}
+                <a class="navbar-item" href="/billing">
+                    💰 My Invoices
+                </a>
+                {% endif %}
+            {% endif %}
+        </div>
+
+        <div class="navbar-end">
+            <div class="navbar-item">
+                {% if user %}
+                <div class="buttons">
+                    <span class="navbar-item has-text-weight-semibold">
+                        {{ user.username }} <span class="tag is-light ml-2">{{ user.role }}</span>
+                    </span>
+                    <a class="button is-light is-small" href="/users/{{ user.user_id }}">
+                        👤 Profile
+                    </a>
+                    <a class="button is-danger is-light is-small" href="/users/logout">
+                        🚪 Logout
+                    </a>
+                </div>
+                {% else %}
+                <div class="buttons">
+                    <a class="button is-light" href="/users/register">
+                        <strong>Register</strong>
+                    </a>
+                    <a class="button is-link" href="/users/login">
+                        Login
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</nav>

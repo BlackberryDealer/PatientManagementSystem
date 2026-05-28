@@ -1,0 +1,57 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="columns is-centered">
+    <div class="column is-5">
+        <div class="box">
+            <h1 class="title has-text-centered">Register</h1>
+            <form method="POST" action="/users/register">
+                <div class="field">
+                    <label class="label">Full Name</label>
+                    <div class="control">
+                        <input class="input" type="text" name="full_name" placeholder="John Doe" required>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Username</label>
+                    <div class="control">
+                        <input class="input" type="text" name="username" placeholder="johndoe" required>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Email</label>
+                    <div class="control">
+                        <input class="input" type="email" name="email" placeholder="john@example.com" required>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Password</label>
+                    <div class="control">
+                        <input class="input" type="password" name="password" required>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Role</label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select name="role" required>
+                                <option value="patient">Patient</option>
+                                <option value="doctor">Doctor</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="field">
+                    <div class="control">
+                        <button class="button is-primary is-fullwidth" type="submit">Register</button>
+                    </div>
+                </div>
+            </form>
+            <p class="has-text-centered mt-3">
+                Already have an account? <a href="/users/login">Login here</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

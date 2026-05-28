@@ -1,0 +1,52 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="box">
+    <h1 class="title">Appointment #{{ appointment.id }}</h1>
+
+    <div class="columns mt-4">
+        <div class="column is-6">
+            <div class="card">
+                <header class="card-header">
+                    <p class="card-header-title">Details</p>
+                </header>
+                <div class="card-content">
+                    <p><strong>Date:</strong> {{ appointment.appointment_date }}</p>
+                    <p><strong>Time:</strong> {{ appointment.start_time }} – {{ appointment.end_time }}</p>
+                    <p><strong>Status:</strong>
+                        <span class="tag {% if appointment.status == 'scheduled' %}is-primary{% elif appointment.status == 'completed' %}is-success{% else %}is-danger{% endif %}">
+                            {{ appointment.status }}
+                        </span>
+                    </p>
+                    {% if appointment.notes %}
+                    <p><strong>Notes:</strong> {{ appointment.notes }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="column is-6">
+            <div class="card">
+                <header class="card-header">
+                    <p class="card-header-title">People</p>
+                </header>
+                <div class="card-content">
+                    <p><strong>Patient:</strong> {{ appointment.patient_name }}</p>
+                    <p><strong>Doctor:</strong> {{ appointment.doctor_name }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <a class="button is-light" href="/appointments">← Back to Appointments</a>
+        {% if appointment.status == "scheduled" %}
+        <form method="POST" action="/appointments/{{ appointment.id }}/cancel" style="display:inline;">
+            <button class="button is-danger" type="submit" onclick="return confirm('Cancel this appointment?')">
+                Cancel Appointment
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,137 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="box">
+    <h1 class="title">Invoice #{{ invoice.id }}</h1>
+
+    <div class="columns mt-4">
+        <div class="column is-6">
+            <div class="card">
+                <header class="card-header">
+                    <p class="card-header-title">Invoice Details</p>
+                </header>
+                <div class="card-content">
+                    <p><strong>Patient ID:</strong> {{ invoice.patient_id }}</p>
+                    <p><strong>Invoice Date:</strong> {{ invoice.invoice_date }}</p>
+                    <p><strong>Due Date:</strong> {{ invoice.due_date }}</p>
+                    <p><strong>Total:</strong> ${{ "%.2f" | format(invoice.total_amount) }}</p>
+                    <p><strong>Status:</strong>
+                        <span class="tag {% if invoice.status == 'paid' %}is-success{% elif invoice.status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
+                            {{ invoice.status }}
+                        </span>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="column is-6">
+            <div class="card">
+                <header class="card-header">
+                    <p class="card-header-title">Line Items</p>
+                </header>
+                <div class="card-content">
+                    {% if items %}
+                    <table class="table is-fullwidth is-striped">
+                        <thead>
+                            <tr><th>Description</th><th>Qty</th><th>Price</th><th>Total</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for item in items %}
+                            <tr>
+                                <td>{{ item.description }}</td>
+                                <td>{{ item.quantity }}</td>
+                                <td>${{ "%.2f" | format(item.unit_price) }}</td>
+                                <td>${{ "%.2f" | format(item.total_price) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p>No line items.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Payments Section -->
+    <div class="card mt-4">
+        <header class="card-header">
+            <p class="card-header-title">Payments</p>
+        </header>
+        <div class="card-content">
+            {% if payments %}
+            <table class="table is-fullwidth is-striped">
+                <thead>
+                    <tr><th>ID</th><th>Amount</th><th>Date</th><th>Method</th><th>Ref</th></tr>
+                </thead>
+                <tbody>
+                    {% for p in payments %}
+                    <tr>
+                        <td>{{ p.id }}</td>
+                        <td>${{ "%.2f" | format(p.amount) }}</td>
+                        <td>{{ p.payment_date }}</td>
+                        <td>{{ p.payment_method }}</td>
+                        <td>{{ p.transaction_ref | default(value="—") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p>No payments recorded yet.</p>
+            {% endif %}
+
+            <!-- Record Payment Form (admin only) -->
+            {% if invoice.status == "pending" %}
+            <hr>
+            <h3 class="title is-5">Record Payment</h3>
+            <form method="POST" action="/billing/{{ invoice.id }}/pay">
+                <div class="columns">
+                    <div class="column">
+                        <div class="field">
+                            <label class="label">Amount ($)</label>
+                            <div class="control">
+                                <input class="input" type="number" step="0.01" name="amount" value="{{ invoice.total_amount }}" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="field">
+                            <label class="label">Payment Method</label>
+                            <div class="control">
+                                <div class="select is-fullwidth">
+                                    <select name="payment_method" required>
+                                        <option value="Cash">Cash</option>
+                                        <option value="Credit Card">Credit Card</option>
+                                        <option value="Bank Transfer">Bank Transfer</option>
+                                        <option value="Insurance">Insurance</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="field">
+                            <label class="label">Reference (optional)</label>
+                            <div class="control">
+                                <input class="input" type="text" name="transaction_ref" placeholder="TXN-001">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="field">
+                    <div class="control">
+                        <button class="button is-success" type="submit">Record Payment</button>
+                    </div>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <a class="button is-light" href="/billing">← Back to Billing</a>
+        <!-- TODO: PDF Download <a class="button is-info" href="/billing/{{ invoice.id }}/pdf">📄 Download PDF</a> -->
+    </div>
+</div>
+{% endblock %}

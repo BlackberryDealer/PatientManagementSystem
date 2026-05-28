@@ -1,0 +1,37 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<h1 class="title">Create Invoice</h1>
+
+<div class="box">
+    <form method="POST" action="/billing/create">
+        <div class="field">
+            <label class="label">Patient ID</label>
+            <div class="control">
+                <input class="input" type="number" name="patient_id" required>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="label">Due Date</label>
+            <div class="control">
+                <input class="input" type="date" name="due_date" required>
+            </div>
+        </div>
+
+        <!-- Stub: items field (JSON) — implement itemized form in production -->
+        <input type="hidden" name="items" value='[{"description":"Consultation","quantity":1,"unit_price":100.0}]'>
+
+        <div class="notification is-info is-light">
+            <p>📝 The invoice will be created with a stub line item. Itemized billing UI is a future enhancement.</p>
+        </div>
+
+        <div class="field">
+            <div class="control">
+                <button class="button is-primary" type="submit">Create Invoice</button>
+                <a class="button is-light" href="/billing">Cancel</a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

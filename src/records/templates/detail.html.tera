@@ -1,0 +1,36 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="box">
+    <h1 class="title">Medical Record #{{ record.id }}</h1>
+
+    <div class="card mt-4">
+        <header class="card-header">
+            <p class="card-header-title">Record Details</p>
+        </header>
+        <div class="card-content">
+            <p><strong>Patient ID:</strong> {{ record.patient_id }}</p>
+            <p><strong>Doctor ID:</strong> {{ record.doctor_id }}</p>
+            {% if record.appointment_id %}<p><strong>Appointment ID:</strong> {{ record.appointment_id }}</p>{% endif %}
+            <p><strong>Created:</strong> {{ record.created_at }}</p>
+
+            <hr>
+
+            <h3 class="title is-5">Diagnosis</h3>
+            <p>{{ record.diagnosis | default(value="Not specified") }}</p>
+
+            <h3 class="title is-5 mt-3">Treatment</h3>
+            <p>{{ record.treatment | default(value="Not specified") }}</p>
+
+            {% if record.notes %}
+            <h3 class="title is-5 mt-3">Notes</h3>
+            <p>{{ record.notes }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <a class="button is-light" href="/records">← Back to Records</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<h1 class="title">Book an Appointment</h1>
+
+<div class="box">
+    <form method="POST" action="/appointments/book">
+        <div class="field">
+            <label class="label">Select Doctor</label>
+            <div class="control">
+                <div class="select is-fullwidth">
+                    <select name="doctor_id" required>
+                        <option value="">-- Choose a doctor --</option>
+                        {% for d in doctors %}
+                        <option value="{{ d.0 }}">{{ d.1 }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="label">Date</label>
+            <div class="control">
+                <input class="input" type="date" name="appointment_date" required>
+            </div>
+        </div>
+
+        <div class="columns">
+            <div class="column">
+                <div class="field">
+                    <label class="label">Start Time</label>
+                    <div class="control">
+                        <input class="input" type="time" name="start_time" required>
+                    </div>
+                </div>
+            </div>
+            <div class="column">
+                <div class="field">
+                    <label class="label">End Time</label>
+                    <div class="control">
+                        <input class="input" type="time" name="end_time" required>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="label">Notes (optional)</label>
+            <div class="control">
+                <textarea class="textarea" name="notes" placeholder="Reason for visit..."></textarea>
+            </div>
+        </div>
+
+        <div class="field">
+            <div class="control">
+                <button class="button is-primary" type="submit">Book Appointment</button>
+                <a class="button is-light" href="/appointments">Cancel</a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

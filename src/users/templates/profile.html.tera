@@ -1,0 +1,55 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="box">
+    <h1 class="title">{{ profile_user.full_name }}</h1>
+    <h2 class="subtitle">@{{ profile_user.username }} — <span class="tag is-info">{{ profile_user.role }}</span></h2>
+
+    <div class="columns mt-4">
+        <div class="column is-6">
+            <div class="card">
+                <header class="card-header">
+                    <p class="card-header-title">Account Info</p>
+                </header>
+                <div class="card-content">
+                    <p><strong>Email:</strong> {{ profile_user.email }}</p>
+                    <p><strong>Joined:</strong> {{ profile_user.created_at }}</p>
+                    <p><strong>User ID:</strong> {{ profile_user.id }}</p>
+                </div>
+            </div>
+        </div>
+
+        {% if patient %}
+        <div class="column is-6">
+            <div class="card">
+                <header class="card-header">
+                    <p class="card-header-title">Patient Details</p>
+                </header>
+                <div class="card-content">
+                    {% if patient.date_of_birth %}<p><strong>DOB:</strong> {{ patient.date_of_birth }}</p>{% endif %}
+                    {% if patient.phone %}<p><strong>Phone:</strong> {{ patient.phone }}</p>{% endif %}
+                    {% if patient.address %}<p><strong>Address:</strong> {{ patient.address }}</p>{% endif %}
+                    {% if patient.blood_group %}<p><strong>Blood Group:</strong> {{ patient.blood_group }}</p>{% endif %}
+                    {% if patient.emergency_contact %}<p><strong>Emergency Contact:</strong> {{ patient.emergency_contact }}</p>{% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if doctor %}
+        <div class="column is-6">
+            <div class="card">
+                <header class="card-header">
+                    <p class="card-header-title">Doctor Details</p>
+                </header>
+                <div class="card-content">
+                    <p><strong>Specialization:</strong> {{ doctor.specialization }}</p>
+                    <p><strong>License #:</strong> {{ doctor.license_number }}</p>
+                    {% if doctor.phone %}<p><strong>Phone:</strong> {{ doctor.phone }}</p>{% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

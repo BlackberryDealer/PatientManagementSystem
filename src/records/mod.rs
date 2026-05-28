@@ -1,0 +1,16 @@
+pub mod handlers;
+pub mod models;
+pub mod services;
+
+use actix_web::web;
+
+/// Mount all medical-record routes under `/records`.
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/records")
+            .route("", web::get().to(handlers::list_records))
+            .route("/create", web::get().to(handlers::create_record_form))
+            .route("/create", web::post().to(handlers::create_record))
+            .route("/{id}", web::get().to(handlers::record_detail)),
+    );
+}

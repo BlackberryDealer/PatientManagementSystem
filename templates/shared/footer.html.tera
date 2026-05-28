@@ -1,0 +1,12 @@
+<footer class="footer">
+    <div class="content has-text-centered">
+        <p>
+            <strong>Patient Management System</strong> &mdash;
+            CSC1106 Web Programming Project &mdash;
+            University of Glasgow
+        </p>
+        <p class="is-size-7">
+            Built with Rust, Actix Web, Tera &amp; SQLite
+        </p>
+    </div>
+</footer>

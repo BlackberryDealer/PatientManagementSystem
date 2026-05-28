@@ -1,0 +1,51 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="level">
+    <div class="level-left">
+        <h1 class="title">Billing</h1>
+    </div>
+    {% if user.role == "admin" %}
+    <div class="level-right">
+        <a class="button is-primary" href="/billing/create">+ Create Invoice</a>
+    </div>
+    {% endif %}
+</div>
+
+{% if invoices %}
+<table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+        <tr>
+            <th>ID</th>
+            {% if user.role == "admin" %}<th>Patient</th>{% endif %}
+            <th>Date</th>
+            <th>Due Date</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for inv in invoices %}
+        <tr>
+            <td>{{ inv.id }}</td>
+            {% if user.role == "admin" %}<td>{{ inv.patient_name }}</td>{% endif %}
+            <td>{{ inv.invoice_date }}</td>
+            <td>{{ inv.due_date }}</td>
+            <td>${{ "%.2f" | format(inv.total_amount) }}</td>
+            <td>
+                <span class="tag {% if inv.status == 'paid' %}is-success{% elif inv.status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
+                    {{ inv.status }}
+                </span>
+            </td>
+            <td><a class="button is-small is-info" href="/billing/{{ inv.id }}">View</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="notification is-info">
+    <p>No invoices found.</p>
+</div>
+{% endif %}
+{% endblock %}

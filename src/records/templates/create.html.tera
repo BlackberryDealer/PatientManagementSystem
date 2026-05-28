@@ -1,0 +1,51 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<h1 class="title">Create Medical Record</h1>
+
+<div class="box">
+    <form method="POST" action="/records/create">
+        <div class="field">
+            <label class="label">Patient ID</label>
+            <div class="control">
+                <input class="input" type="number" name="patient_id" required>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="label">Appointment ID (optional)</label>
+            <div class="control">
+                <input class="input" type="number" name="appointment_id">
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="label">Diagnosis</label>
+            <div class="control">
+                <textarea class="textarea" name="diagnosis" required placeholder="Enter diagnosis..."></textarea>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="label">Treatment</label>
+            <div class="control">
+                <textarea class="textarea" name="treatment" required placeholder="Enter treatment plan..."></textarea>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="label">Notes (optional)</label>
+            <div class="control">
+                <textarea class="textarea" name="notes" placeholder="Additional notes..."></textarea>
+            </div>
+        </div>
+
+        <div class="field">
+            <div class="control">
+                <button class="button is-primary" type="submit">Save Record</button>
+                <a class="button is-light" href="/records">Cancel</a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

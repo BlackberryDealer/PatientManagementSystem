@@ -1,0 +1,71 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="level">
+    <div class="level-left">
+        <h1 class="title">Medical Records</h1>
+    </div>
+    {% if user.role == "doctor" or user.role == "admin" %}
+    <div class="level-right">
+        <a class="button is-primary" href="/records/create">+ New Record</a>
+    </div>
+    {% endif %}
+</div>
+
+{% if records %}
+<table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Patient ID</th>
+            <th>Doctor ID</th>
+            <th>Diagnosis</th>
+            <th>Date</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in records %}
+        <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.patient_id }}</td>
+            <td>{{ r.doctor_id }}</td>
+            <td>{{ r.diagnosis | default(value="—") | truncate(length=50) }}</td>
+            <td>{{ r.created_at }}</td>
+            <td><a class="button is-small is-info" href="/records/{{ r.id }}">View</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="notification is-info">
+    <p>No medical records found.</p>
+</div>
+{% endif %}
+
+{% if prescriptions %}
+<h2 class="title is-4 mt-5">Prescriptions</h2>
+<table class="table is-fullwidth is-striped">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Medication</th>
+            <th>Dosage</th>
+            <th>Frequency</th>
+            <th>Prescribed</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in prescriptions %}
+        <tr>
+            <td>{{ p.id }}</td>
+            <td>{{ p.medication_name }}</td>
+            <td>{{ p.dosage }}</td>
+            <td>{{ p.frequency }}</td>
+            <td>{{ p.prescribed_at }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

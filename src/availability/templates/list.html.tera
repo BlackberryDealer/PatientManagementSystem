@@ -1,0 +1,54 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="level">
+    <div class="level-left">
+        <h1 class="title">Doctor Availability</h1>
+    </div>
+    <div class="level-right">
+        <a class="button is-primary" href="/availability/set">+ Set Availability</a>
+    </div>
+</div>
+
+{% if slots %}
+<table class="table is-fullwidth is-striped">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Doctor ID</th>
+            <th>Day</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Recurring</th>
+            <th>Specific Date</th>
+            <th>Blocked</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in slots %}
+        <tr>
+            <td>{{ s.id }}</td>
+            <td>{{ s.doctor_id }}</td>
+            <td>
+                {% set days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] %}
+                {{ days[s.day_of_week] }}
+            </td>
+            <td>{{ s.start_time }}</td>
+            <td>{{ s.end_time }}</td>
+            <td>{{ s.is_recurring }}</td>
+            <td>{{ s.specific_date | default(value="—") }}</td>
+            <td>
+                <span class="tag {% if s.is_blocked %}is-danger{% else %}is-success{% endif %}">
+                    {{ s.is_blocked }}
+                </span>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="notification is-warning">
+    <p>No availability slots configured yet.</p>
+</div>
+{% endif %}
+{% endblock %}

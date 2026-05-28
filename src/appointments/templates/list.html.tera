@@ -1,0 +1,60 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="level">
+    <div class="level-left">
+        <h1 class="title">Appointments</h1>
+    </div>
+    <div class="level-right">
+        <a class="button is-primary" href="/appointments/book">+ Book Appointment</a>
+    </div>
+</div>
+
+{% if appointments %}
+<table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+        <tr>
+            <th>ID</th>
+            {% if user.role == "admin" %}<th>Patient</th>{% endif %}
+            {% if user.role == "admin" or user.role == "patient" %}<th>Doctor</th>{% endif %}
+            {% if user.role == "doctor" %}<th>Patient</th>{% endif %}
+            <th>Date</th>
+            <th>Time</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in appointments %}
+        <tr>
+            <td>{{ a.id }}</td>
+            {% if user.role == "admin" %}<td>{{ a.patient_name }}</td>{% endif %}
+            {% if user.role == "admin" or user.role == "patient" %}<td>{{ a.doctor_name }}</td>{% endif %}
+            {% if user.role == "doctor" %}<td>{{ a.patient_name }}</td>{% endif %}
+            <td>{{ a.appointment_date }}</td>
+            <td>{{ a.start_time }} – {{ a.end_time }}</td>
+            <td>
+                <span class="tag {% if a.status == 'scheduled' %}is-primary{% elif a.status == 'completed' %}is-success{% else %}is-danger{% endif %}">
+                    {{ a.status }}
+                </span>
+            </td>
+            <td>
+                <a class="button is-small is-info" href="/appointments/{{ a.id }}">View</a>
+                {% if a.status == "scheduled" %}
+                <form method="POST" action="/appointments/{{ a.id }}/cancel" style="display:inline;">
+                    <button class="button is-small is-danger" type="submit" onclick="return confirm('Cancel this appointment?')">
+                        Cancel
+                    </button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="notification is-info">
+    <p>No appointments found. <a href="/appointments/book">Book your first appointment</a>.</p>
+</div>
+{% endif %}
+{% endblock %}
