@@ -1,0 +1,69 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="level">
+    <div class="level-left">
+        <h1 class="title"><i class="fas fa-calendar-alt mr-2"></i>{{ month_name }} {{ year }}</h1>
+    </div>
+    <div class="level-right">
+        <div class="buttons">
+            <a class="button is-light" href="/appointments/calendar?year={{ prev_year }}&month={{ prev_month }}">
+                <i class="fas fa-chevron-left"></i>
+            </a>
+            <a class="button is-primary" href="/appointments/book">
+                <i class="fas fa-plus mr-1"></i>Book
+            </a>
+            <a class="button is-light" href="/appointments/calendar?year={{ next_year }}&month={{ next_month }}">
+                <i class="fas fa-chevron-right"></i>
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="box fade-in">
+    <table class="table is-fullwidth is-bordered">
+        <thead>
+            <tr>
+                <th class="has-text-centered has-background-light">Mon</th>
+                <th class="has-text-centered has-background-light">Tue</th>
+                <th class="has-text-centered has-background-light">Wed</th>
+                <th class="has-text-centered has-background-light">Thu</th>
+                <th class="has-text-centered has-background-light">Fri</th>
+                <th class="has-text-centered has-background-light">Sat</th>
+                <th class="has-text-centered has-background-light">Sun</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for week in weeks %}
+            <tr>
+                {% for day in week %}
+                <td class="has-text-centered" style="height: 80px; width: 14.28%; vertical-align: top; padding: 6px;
+                    {% if not day.is_current_month %}opacity: 0.3;{% endif %}
+                    {% if day.is_today %}background-color: #e8f4fd;{% endif %}">
+                    {% if day.day > 0 %}
+                    <a href="/appointments?date={{ day.date }}"
+                       style="text-decoration: none; font-weight: {% if day.is_today %}bold{% else %}normal{% endif %};
+                              color: {% if day.is_today %}#3273dc{% else %}inherit{% endif %};">
+                        {{ day.day }}
+                    </a>
+                    {% if day.count > 0 %}
+                    <br>
+                    <span class="tag is-primary is-light is-small mt-1">{{ day.count }}</span>
+                    {% endif %}
+                    {% else %}
+                    &nbsp;
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="has-text-centered">
+    <a class="button is-light" href="/appointments">
+        <i class="fas fa-list mr-1"></i>List View
+    </a>
+</div>
+{% endblock %}

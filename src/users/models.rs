@@ -27,8 +27,27 @@ pub struct RegisterForm {
 
 #[derive(Debug, Deserialize)]
 pub struct LoginForm {
-    pub username: String,
+    pub login: String,    // username or email
     pub password: String,
+}
+
+// ============================================================
+// Edit profile form
+// ============================================================
+
+#[derive(Debug, Deserialize)]
+pub struct EditProfileForm {
+    pub full_name: String,
+    pub email: String,
+    // Patient fields
+    pub date_of_birth: Option<String>,
+    pub phone: Option<String>,
+    pub address: Option<String>,
+    pub blood_group: Option<String>,
+    pub emergency_contact: Option<String>,
+    // Doctor fields
+    pub specialization: Option<String>,
+    pub license_number: Option<String>,
 }
 
 // ============================================================

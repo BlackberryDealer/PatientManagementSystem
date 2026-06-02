@@ -4,7 +4,7 @@ use tera::Context;
 
 use crate::auth::{require_admin, AuthUser, OptionalAuthUser};
 use crate::errors::AppError;
-use crate::users::models::{LoginForm, RegisterForm};
+use crate::users::models::{EditProfileForm, LoginForm, RegisterForm};
 use crate::users::services;
 
 // ============================================================
@@ -123,4 +123,60 @@ pub async fn user_profile(
     ctx.insert("title", &format!("User: {}", profile_user.full_name));
     let rendered = tera.render("users/profile.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
+}
+
+// ============================================================
+// Profile editing
+// ============================================================
+
+/// GET /users/{id}/edit — show edit profile form
+pub async fn edit_profile_form(
+    pool: web::Data<sqlx::SqlitePool>,
+    tera: web::Data<tera::Tera>,
+    path: web::Path<i64>,
+    current_user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    let profile_id = path.into_inner();
+    // Only self or admin can edit
+    if current_user.user_id != profile_id && current_user.role != "admin" {
+        return Err(AppError::Forbidden("You can only edit your own profile".into()));
+    }
+    let profile_user = services::get_user_by_id(pool.get_ref(), profile_id).await?;
+    let patient = services::get_patient_by_user_id(pool.get_ref(), profile_id).await?;
+    let doctor = services::get_doctor_by_user_id(pool.get_ref(), profile_id).await?;
+
+    let mut ctx = Context::new();
+    ctx.insert("user", &current_user);
+    ctx.insert("profile_user", &profile_user);
+    ctx.insert("patient", &patient);
+    ctx.insert("doctor", &doctor);
+    ctx.insert("title", "Edit Profile");
+    let rendered = tera.render("users/edit.html.tera", &ctx)?;
+    Ok(HttpResponse::Ok().body(rendered))
+}
+
+/// POST /users/{id}/edit — process profile update
+pub async fn edit_profile(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    current_user: AuthUser,
+    form: web::Form<EditProfileForm>,
+) -> Result<HttpResponse, AppError> {
+    let profile_id = path.into_inner();
+    if current_user.user_id != profile_id && current_user.role != "admin" {
+        return Err(AppError::Forbidden("You can only edit your own profile".into()));
+    }
+
+    services::update_user(pool.get_ref(), profile_id, &form).await?;
+
+    let profile_user = services::get_user_by_id(pool.get_ref(), profile_id).await?;
+    match profile_user.role.as_str() {
+        "patient" => { services::update_patient(pool.get_ref(), profile_id, &form).await?; }
+        "doctor" => { services::update_doctor(pool.get_ref(), profile_id, &form).await?; }
+        _ => {}
+    }
+
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/users/{}", profile_id)))
+        .finish())
 }
