@@ -16,24 +16,25 @@ The Patient Management System (PMS) is a modular web application designed to sim
 | 1 | **Patient Registration** | `users` module — registration, login, role-based profiles |
 | 2 | **Appointment Scheduling** | `appointments` module — booking engine with conflict resolution |
 | 3 | **Medical Records** | `records` module — diagnosis, treatment, and prescription tracking |
-| 4 | **Billing** | `billing` module — invoices, line items, payments, PDF export |
+| 4 | **Billing** | `billing` module — invoices, line items, payments |
 | 5 | **Doctor Management** | `users` + `availability` modules — doctor profiles, recurring schedules, leave management |
 | 6 | **Prescription Tracking** | `records` module — medication orders linked to appointments |
 
 ### Core Focus
 **Appointment Scheduling & Conflict Resolution** — The system prevents double-booking by checking time-slot overlaps before confirming any appointment. This implements **scheduling algorithms** and **time slot validation** as specified in the project brief.
 
-### Advanced Features
-Each team member implements one advanced feature aligned with the official spec:
+### Advanced Features (Individual)
 
-| Spec Feature | Implementation | Owner |
-|---|---|---|
-| **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage | Lennon |
-| **Time slot validation** | Recurring appointment generator with DST handling | Lennon |
-| **Scheduling algorithms** | Multi-resource scheduling (rooms/equipment) | Dylan |
-| **Patient history timelines** | Drug interaction checker & chronological record view | Raees |
-| **Role-based staff access** | Type-level role enforcement via Rust trait system | Afif |
-| Financial reporting | PDF invoice generation & monthly revenue dashboard | Hanzalah |
+Each team member implements one or more advanced features aligned with the official spec:
+
+| Spec Feature | Implementation | Owner | Status |
+|---|---|---|---|
+| **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage via `BinaryHeap` | Lennon | ✅ Implemented |
+| **Time slot validation** | Conflict detection & earliest-slot suggestion algorithm | Lennon | ✅ Implemented |
+| **Scheduling algorithms** | Multi-resource scheduling (rooms/equipment) | Dylan | ✅ Implemented |
+| **Patient history timelines** | Chronological record view with drug interaction warnings | Raees | 🚧 Planned |
+| **Role-based staff access** | Type-level role enforcement via Rust trait system (`AuthUser`, `require_role`) | Afif | ✅ Implemented |
+| Financial reporting | PDF invoice generation & monthly revenue dashboard | Hanzalah | 🚧 Planned |
 
 > **Note:** Formative Assessment does **not** apply to this project (spec v1.2.2).
 
@@ -147,10 +148,10 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availabili
 | Code Module | Official PMS Module(s) | Advanced Feature (Individual) | Owner |
 |---|---|---|---|
 | `users` + `auth` | Patient Registration, Doctor Management | **Role-based staff access** — type-level role enforcement | Afif |
-| `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist auto-scheduler with priority triage; **Time slot validation** — recurring appointments & DST handling | Lennon |
+| `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist with `BinaryHeap` priority triage; **Time slot validation** — overlap detection & earliest-slot algorithm | Lennon |
 | `availability` | Doctor Management | **Scheduling algorithms** — multi-resource scheduling (rooms, equipment, staff) | Dylan |
-| `records` | Medical Records, Prescription Tracking | **Patient history timelines** — drug interaction checker & chronological record view | Raees |
-| `billing` | Billing | PDF invoice generation & monthly revenue dashboard (financial reporting) | Hanzalah |
+| `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view (🚧 planned: drug interaction checker) | Raees |
+| `billing` | Billing | PDF invoice generation & monthly revenue dashboard (🚧 planned) | Hanzalah |
 
 ---
 
