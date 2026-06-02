@@ -34,7 +34,7 @@ async fn test_create_invoice_admin() {
         let cookie = register_and_login!(app, "billadmin", "admin");
         let req = auth_post("/billing/create", &cookie, serde_json::json!({
             "patient_id": 1, "due_date": "2026-07-01",
-            "items": "[{\"description\":\"Consultation\",\"quantity\":1,\"unit_price\":100.0}]",
+            "items": "Consultation|1|100.0",
         })).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_redirection());
@@ -49,7 +49,7 @@ async fn test_payment() {
         let cookie = register_and_login!(app, "billadmin2", "admin");
         let _ = test::call_service(&app, auth_post("/billing/create", &cookie, serde_json::json!({
             "patient_id": 1, "due_date": "2026-07-01",
-            "items": "[{\"description\":\"X\",\"quantity\":1,\"unit_price\":50.0}]",
+            "items": "Consultation|1|50.0",
         })).to_request()).await;
         let resp = test::call_service(&app, auth_post("/billing/1/pay", &cookie, serde_json::json!({
             "amount": 50.0, "payment_method": "Cash", "transaction_ref": "T1",
