@@ -250,8 +250,18 @@ PatientManagementSystem/
 ├── WALKTHROUGH.md              ← 📚 This file! The comprehensive guide.
 │
 ├── migrations/                 ← 🗄️ Database schema versions
-│   ├── 001_initial_schema.sql  ←    Creates 10 core tables and indexes
-│   └── 002_rooms_priority.sql  ←    Adds rooms, waitlist, priority support
+│   ├── 001_initial_schema.sql  ←    Creates all 12 tables and indexes
+│   └── 002_rooms_priority.sql  ←    Seeds default consultation rooms
+│
+├── tests/                      ← � Integration test suite (47 tests)
+│   ├── common/
+│   │   └── mod.rs              ←    Test macros, in-memory DB, auth helpers
+│   ├── test_auth.rs            ←    Registration, login, role guards (11)
+│   ├── test_algorithms.rs      ←    Scheduling algorithm unit tests (19)
+│   ├── test_appointments.rs    ←    HTTP booking & waitlist tests (9)
+│   ├── test_availability.rs    ←    Availability CRUD tests (3)
+│   ├── test_records.rs         ←    Medical records tests (4)
+│   └── test_billing.rs         ←    Invoice & payment tests (7)
 │
 ├── templates/                  ← 🎨 Root HTML templates (loaded first by Tera)
 │   ├── base.html.tera          ←    The HTML skeleton every page uses
@@ -262,9 +272,13 @@ PatientManagementSystem/
 │
 └── src/                        ← 🦀 All Rust source code
     ├── main.rs                 ←    🚀 Entry point: starts the server
+    ├── lib.rs                  ←    📚 Library crate for integration tests
     ├── db.rs                   ←    🗃️ Database pool creation & migration runner
     ├── errors.rs               ←    ❌ Custom error type for the whole app
     ├── auth.rs                 ←    🔐 Session user extractors & role guards
+    ├── traits.rs               ←    🧬 OOP traits: TimeSlotted, StatusManaged, etc.
+    ├── bin/
+    │   └── seed.rs             ←    🌱 Database seeder (cargo run --bin seed)
     │
     ├── users/                  ← 👤 User management module
     │   ├── mod.rs              ←    Route configuration
@@ -1452,7 +1466,7 @@ tests/
 └── test_billing.rs         # 4 tests — invoices & payments
 ```
 
-**Total: 35 tests across 6 suites — 100% pass rate.**
+**Total: 47 tests across 6 suites — 100% pass rate.**
 
 ### 16.4 The `with_test_app!` Macro
 
@@ -1488,11 +1502,11 @@ Registers a user via POST `/users/register`, asserts a redirect (auto-login), ex
 | Suite | Tests | What's Covered |
 |---|---|---|
 | `test_auth.rs` | 11 | Registration (3 roles), duplicate rejection, login success/failure, logout, role guards, admin access |
-| `test_algorithms.rs` | 11 | No-conflict empty schedule, overlap detection, cancelled exclusion, earliest-slot (empty/after/full/gap), priority bump/equal-reject/normal-gate, waitlist add/promote |
-| `test_appointments.rs` | 3 | Booking form, empty list, waitlist page |
-| `test_availability.rs` | 3 | Doctor availability list, set form, submit |
-| `test_records.rs` | 3 | Records list, create form (doctor), patient blocked |
-| `test_billing.rs` | 4 | Invoice list, admin-only create, payment recording |
+| `test_algorithms.rs` | 19 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after-existing/full/gap/multi-gap), priority (bump/equal-rejected/normal-gate), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers) |
+| `test_appointments.rs` | 9 | Booking form, HTTP booking (success/conflict/invalid-time), priority booking HTTP, cancel HTTP, list after booking, waitlist (doctor/patient), suggest form |
+| `test_availability.rs` | 3 | Doctor availability list, set form, submit + verify persistence |
+| `test_records.rs` | 4 | Records list, create form (doctor), patient blocked, record creation HTTP submit |
+| `test_billing.rs` | 7 | Invoice list, admin-only create, invoice creation (single/multi-item/bad-items), payment recording |
 
 ### 16.7 In-Memory Database
 

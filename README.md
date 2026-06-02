@@ -16,24 +16,25 @@ The Patient Management System (PMS) is a modular web application designed to sim
 | 1 | **Patient Registration** | `users` module — registration, login, role-based profiles |
 | 2 | **Appointment Scheduling** | `appointments` module — booking engine with conflict resolution |
 | 3 | **Medical Records** | `records` module — diagnosis, treatment, and prescription tracking |
-| 4 | **Billing** | `billing` module — invoices, line items, payments, PDF export |
+| 4 | **Billing** | `billing` module — invoices, line items, payments |
 | 5 | **Doctor Management** | `users` + `availability` modules — doctor profiles, recurring schedules, leave management |
 | 6 | **Prescription Tracking** | `records` module — medication orders linked to appointments |
 
 ### Core Focus
 **Appointment Scheduling & Conflict Resolution** — The system prevents double-booking by checking time-slot overlaps before confirming any appointment. This implements **scheduling algorithms** and **time slot validation** as specified in the project brief.
 
-### Advanced Features
-Each team member implements one advanced feature aligned with the official spec:
+### Advanced Features (Individual)
 
-| Spec Feature | Implementation | Owner |
-|---|---|---|
-| **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage | Member B |
-| **Time slot validation** | Recurring appointment generator with DST handling | Member B |
-| **Scheduling algorithms** | Multi-resource scheduling (rooms/equipment) | Member C |
-| **Patient history timelines** | Drug interaction checker & chronological record view | Member D |
-| **Role-based staff access** | Type-level role enforcement via Rust trait system | Member A |
-| Financial reporting | PDF invoice generation & monthly revenue dashboard | Member E |
+Each team member implements one or more advanced features aligned with the official spec:
+
+| Spec Feature | Implementation | Owner | Status |
+|---|---|---|---|
+| **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage via `BinaryHeap` | Lennon | ✅ Implemented |
+| **Time slot validation** | Conflict detection & earliest-slot suggestion algorithm | Lennon | ✅ Implemented |
+| **Scheduling algorithms** | Multi-resource scheduling (rooms/equipment) | Dylan | ✅ Implemented |
+| **Patient history timelines** | Chronological record view with drug interaction warnings | Raees | 🚧 Planned |
+| **Role-based staff access** | Type-level role enforcement via Rust trait system (`AuthUser`, `require_role`) | Afif | ✅ Implemented |
+| Financial reporting | PDF invoice generation & monthly revenue dashboard | Hanzalah | 🚧 Planned |
 
 > **Note:** Formative Assessment does **not** apply to this project (spec v1.2.2).
 
@@ -70,11 +71,23 @@ PatientManagementSystem/
 │   └── shared/
 │       ├── navbar.html.tera
 │       └── footer.html.tera
+├── tests/                   # Integration test suite (47 tests)
+│   ├── common/mod.rs        # Test infrastructure & macros
+│   ├── test_auth.rs         # Authentication & authorization
+│   ├── test_algorithms.rs   # Scheduling algorithms (19 tests)
+│   ├── test_appointments.rs # Appointment booking (9 tests)
+│   ├── test_availability.rs # Doctor availability (3 tests)
+│   ├── test_records.rs      # Medical records (4 tests)
+│   └── test_billing.rs      # Invoices & payments (7 tests)
 └── src/
     ├── main.rs              # Entry point, server config, route mounting
+    ├── lib.rs               # Library crate for integration tests
     ├── db.rs                # Database pool & migration runner
     ├── errors.rs            # Unified AppError type
     ├── auth.rs              # Session-based auth extractors & role guards
+    ├── traits.rs            # OOP traits (TimeSlotted, StatusManaged, etc.)
+    ├── bin/
+    │   └── seed.rs          # Database seeder (`cargo run --bin seed`)
     ├── users/               # User registration, login, profiles
     ├── appointments/        # Scheduling engine (3 algorithms) + waitlist
     ├── availability/        # Doctor recurring & blocked availability
@@ -113,10 +126,20 @@ cargo run
 
 The server starts at **http://localhost:8080**. The SQLite database (`patient_management.db`) is created and migrated automatically on first run.
 
+### Seed Data (Optional)
+
+Populate the database with realistic test data in one command:
+
+```bash
+cargo run --bin seed
+```
+
+Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availability slots, 4 medical records, 4 prescriptions, 3 invoices with payments, and 3 waitlist entries. All accounts use password `password123`.
+
 ### First Steps
-1. Visit **http://localhost:8080/users/register** to create an account
-2. Choose a role: **Patient**, **Doctor**, or **Admin**
-3. Log in and explore the dashboard
+1. Run `cargo run --bin seed` to populate test data
+2. Visit **http://localhost:8080/users/login**
+3. Login with any seeded account (e.g. `john.doe` / `password123`)
 
 ---
 
@@ -125,10 +148,10 @@ The server starts at **http://localhost:8080**. The SQLite database (`patient_ma
 | Code Module | Official PMS Module(s) | Advanced Feature (Individual) | Owner |
 |---|---|---|---|
 | `users` + `auth` | Patient Registration, Doctor Management | **Role-based staff access** — type-level role enforcement | Afif |
-| `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist auto-scheduler with priority triage; **Time slot validation** — recurring appointments & DST handling | Lennon |
+| `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist with `BinaryHeap` priority triage; **Time slot validation** — overlap detection & earliest-slot algorithm | Lennon |
 | `availability` | Doctor Management | **Scheduling algorithms** — multi-resource scheduling (rooms, equipment, staff) | Dylan |
-| `records` | Medical Records, Prescription Tracking | **Patient history timelines** — drug interaction checker & chronological record view | Raees |
-| `billing` | Billing | PDF invoice generation & monthly revenue dashboard (financial reporting) | Hanzalah |
+| `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view (🚧 planned: drug interaction checker) | Raees |
+| `billing` | Billing | PDF invoice generation & monthly revenue dashboard (🚧 planned) | Hanzalah |
 
 ---
 
@@ -172,6 +195,17 @@ See `migrations/001_initial_schema.sql` and `migrations/002_rooms_priority.sql` 
 - **`rooms` table**: 6 seeded rooms (3 consultation, 1 procedure, 1 X-ray, 1 lab). Appointments can optionally assign a room. Room conflicts are checked alongside doctor conflicts.
 - **`waitlist` table**: Tracks bumped patients with priority, status (waiting→offered→accepted→expired), and promotion support. Routes: `GET /appointments/waitlist`, `POST /appointments/waitlist/join`, `POST /appointments/waitlist/{id}/promote`.
 
+### OOP Traits (`src/traits.rs`)
+
+Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
+
+| Trait | Implemented By | What It Provides |
+|---|---|---|
+| `TimeSlotted` | `Appointment`, `WaitlistEntry`, `DoctorAvailability` | Overlap detection, duration calculation — shared scheduling logic across all time-based entities |
+| `StatusManaged` | `Appointment`, `Invoice` | Status checking, Bulma CSS badge classes |
+| `Prioritized` | `Appointment`, `WaitlistEntry` | Priority labels (Emergency/Urgent/Normal/Follow-up), comparison between entities |
+| `Reportable` | `Appointment`, `Invoice`, `MedicalRecord` | Human-readable summary generation for reports and auditing |
+
 ### Other Features
 
 - **Persistent Sessions**: Session encryption key is auto-generated once and saved to `.env` as `SESSION_SECRET`. Survives server restarts — no forced re-login. See `get_or_create_secret_key()` in `main.rs`.
@@ -187,7 +221,7 @@ See `migrations/001_initial_schema.sql` and `migrations/002_rooms_priority.sql` 
 
 | Criterion | Weight | Our Approach |
 |---|---|---|
-| System Architecture & OOP Design | 15% | Modular crate with 5 domains; traits (`FromRequest`, `ResponseError`, `FromRow`); structs with `impl` blocks; separation of concerns (models/services/handlers) |
+| System Architecture & OOP Design | 15% | Modular crate with 5 domains; 4 custom traits (`TimeSlotted`, `StatusManaged`, `Prioritized`, `Reportable`) demonstrating polymorphism; `FromRequest`/`ResponseError`/`FromRow` trait impls; structs with `impl` blocks; separation of concerns (models/services/handlers) |
 | Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 3 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap); transactional priority override; waitlist with promotion; session-based auth; role guards; room/resource scheduling |
 | Database Design & Integration | 10% | 12 normalized tables across 2 migrations; foreign keys with CASCADE/SET NULL; composite indexes on appointments(doctor_id, appointment_date); SQLx migrations |
 | Frontend Design & SSR | 10% | Tera template inheritance (18 templates); Font Awesome 6 icons; Bulma responsive CSS with mobile navbar; hero-style empty states; breadcrumbs; fade-in animations |
@@ -226,17 +260,17 @@ Aligned with the spec v1.2.2 submission structure:
 cargo test
 ```
 
-### Test Coverage (35 tests, 6 suites)
+### Test Coverage (47 tests, 6 suites)
 
 | Test Suite | Tests | Covers |
 |---|---|---|
-| `test_auth.rs` | 11 | Registration (patient/doctor/admin), duplicate rejection, login success/failure, logout, role guards, admin-only routes, profile view |
-| `test_algorithms.rs` | 11 | Empty-schedule no-conflict, overlap detection, cancelled-appointment exclusion, earliest-slot (empty/after-existing/full/gap), priority bump, equal-priority rejection, normal-priority gate, waitlist add/promote |
-| `test_appointments.rs` | 3 | Booking form, empty list, waitlist page |
-| `test_availability.rs` | 3 | Doctor availability page, set-availability form, submit |
-| `test_records.rs` | 3 | Records list, create form (doctor-only guard), patient blocked |
-| `test_billing.rs` | 4 | Invoice list, admin-only create, payment recording |
-| **Total** | **35** | **100% pass rate** |
+| `test_auth.rs` | 11 | Registration (patient/doctor/admin), duplicate rejection, login success/failure, logout, role guards, admin-only routes |
+| `test_algorithms.rs` | 19 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after/full/gap/multi-gap), priority (bump/equal-rejected/normal-gate), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers) |
+| `test_appointments.rs` | 9 | Booking form, HTTP booking (success/conflict/invalid-time), priority booking HTTP, cancel HTTP, list after booking, waitlist (doctor/patient), suggest form |
+| `test_availability.rs` | 3 | Doctor availability page, set-availability form, submit + verify persistence |
+| `test_records.rs` | 4 | Records list, create form (doctor), patient blocked, record creation HTTP submit |
+| `test_billing.rs` | 7 | Invoice list, admin-only create, invoice creation (single/multi-item/bad-items), payment recording |
+| **Total** | **47** | **100% pass rate** |
 
 ### Architecture
 
