@@ -36,5 +36,10 @@ async fn test_set_availability_submit() {
         })).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_redirection());
+
+        // Verify the slot appears in the availability list
+        let list_req = auth_get("/availability", &cookie).to_request();
+        let list_resp = test::call_service(&app, list_req).await;
+        assert!(list_resp.status().is_success(), "Availability page should show new slot");
     });
 }

@@ -215,3 +215,112 @@ async fn test_multi_gap_earliest_slot() {
     }).await.unwrap();
     assert_eq!(slot, Some("09:00".into()));
 }
+
+// ============================================================
+// Edge case tests
+// ============================================================
+
+#[actix_web::test]
+async fn test_book_invalid_time_rejected() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "pinv").await;
+    seed_doctor(&pool, 2, "dinv").await;
+
+    // start > end
+    let f = BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "15:00".into(), end_time: "14:00".into(),
+        room_id: None, priority: Some(3), notes: None,
+    };
+    assert!(services::book_appointment(&pool, 1, &f).await.is_err());
+
+    // start == end
+    let f2 = BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:00".into(),
+        room_id: None, priority: Some(3), notes: None,
+    };
+    assert!(services::book_appointment(&pool, 1, &f2).await.is_err());
+}
+
+#[actix_web::test]
+async fn test_suggest_slot_invalid_duration_rejected() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "pdur").await;
+    seed_doctor(&pool, 2, "ddur").await;
+
+    // 0 minutes
+    assert!(services::find_earliest_slot(&pool, &SuggestSlotForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        duration_minutes: 0, room_id: None,
+    }).await.is_err());
+
+    // Negative
+    assert!(services::find_earliest_slot(&pool, &SuggestSlotForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        duration_minutes: -5, room_id: None,
+    }).await.is_err());
+
+    // Over 480 (more than a workday)
+    assert!(services::find_earliest_slot(&pool, &SuggestSlotForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        duration_minutes: 500, room_id: None,
+    }).await.is_err());
+}
+
+#[actix_web::test]
+async fn test_room_conflict_detected() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "prm1").await;
+    seed_doctor(&pool, 2, "drm").await;
+
+    // Book doctor 1 in room 1 at 10:00-10:30
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: Some(1), priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    // Same doctor, same room, overlapping time — should conflict
+    assert!(services::check_conflict(&pool, 1, "2026-06-01", "10:15", "10:45", Some(1), None).await.unwrap());
+
+    // Same doctor, same time, DIFFERENT room — should NOT conflict
+    assert!(!services::check_conflict(&pool, 1, "2026-06-01", "10:15", "10:45", Some(2), None).await.unwrap());
+
+    // Same doctor, same time, no room filter — SHOULD conflict (doctor is busy regardless of room)
+    assert!(services::check_conflict(&pool, 1, "2026-06-01", "10:00", "10:30", None, None).await.unwrap());
+
+    // Different doctor (2), same room, same time — no conflict (different doctors can use same room at different times, and doctor 2 isn't booked)
+    assert!(!services::check_conflict(&pool, 2, "2026-06-01", "10:00", "10:30", Some(1), None).await.unwrap());
+}
+
+#[actix_web::test]
+async fn test_suggest_slot_respects_existing() {
+    // Suggest slot should return the gap, not overlap existing appointments
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "presp").await;
+    seed_doctor(&pool, 2, "dresp").await;
+
+    // Book 09:00-10:00, 10:30-11:00, 13:00-14:00
+    for (s, e) in [("09:00","10:00"),("10:30","11:00"),("13:00","14:00")] {
+        services::book_appointment(&pool, 1, &BookAppointmentForm {
+            doctor_id: 1, appointment_date: "2026-07-15".into(),
+            start_time: s.into(), end_time: e.into(),
+            room_id: None, priority: Some(3), notes: None,
+        }).await.unwrap();
+    }
+
+    // A 25-minute slot should land at 08:00 (before 09:00)
+    let slot = services::find_earliest_slot(&pool, &SuggestSlotForm {
+        doctor_id: 1, appointment_date: "2026-07-15".into(),
+        duration_minutes: 25, room_id: None,
+    }).await.unwrap();
+    assert_eq!(slot, Some("08:00".into()));
+
+    // A 90-minute slot should land at 11:00 (between 11:00 and 13:00 — the only gap big enough)
+    let slot2 = services::find_earliest_slot(&pool, &SuggestSlotForm {
+        doctor_id: 1, appointment_date: "2026-07-15".into(),
+        duration_minutes: 90, room_id: None,
+    }).await.unwrap();
+    assert_eq!(slot2, Some("11:00".into()));
+}
