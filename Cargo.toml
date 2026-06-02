@@ -2,6 +2,7 @@
 name = "patient-management-system"
 version = "0.1.0"
 edition = "2021"
+default-run = "patient-management-system"
 description = "A Patient Management System built with Rust, Actix Web, Tera, and SQLx for CSC1106 Web Programming."
 
 [dependencies]
