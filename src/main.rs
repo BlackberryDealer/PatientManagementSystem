@@ -10,8 +10,9 @@ mod billing;
 
 use actix_session::{storage::CookieSessionStore, SessionMiddleware};
 use actix_web::{cookie::Key, web, App, HttpResponse, HttpServer};
-use log::info;
+use log::{info, warn};
 use std::fs;
+use std::io::Write;
 
 use crate::auth::OptionalAuthUser;
 
@@ -65,8 +66,33 @@ async fn index(user: OptionalAuthUser) -> HttpResponse {
 }
 
 // ============================================================
-// Main
+// Persistent session key (survives server restarts)
 // ============================================================
+
+/// Get the session signing key from `SESSION_SECRET` env var,
+/// or generate a new one and append it to `.env` for persistence.
+fn get_or_create_secret_key() -> Key {
+    // Re-read .env in case it was updated (dotenv already called in main)
+    if let Ok(secret) = std::env::var("SESSION_SECRET") {
+        if secret.len() >= 64 {
+            return Key::from(secret.as_bytes());
+        }
+        warn!("SESSION_SECRET too short (< 64 chars), generating a new one.");
+    }
+
+    // Generate 64 random bytes → 128 hex chars
+    let mut bytes = [0u8; 64];
+    getrandom::getrandom(&mut bytes).expect("Failed to generate random bytes for session key");
+    let new_secret: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+
+    // Append to .env file for persistence across restarts
+    if let Ok(mut file) = fs::OpenOptions::new().append(true).create(true).open(".env") {
+        let _ = writeln!(file, "\n# Auto-generated session signing key\nSESSION_SECRET={}", new_secret);
+        info!("Generated and saved new SESSION_SECRET to .env");
+    }
+
+    Key::from(new_secret.as_bytes())
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -100,8 +126,8 @@ async fn main() -> std::io::Result<()> {
     // Auto-register tera in debug mode for easy template debugging
     tera.autoescape_on(vec![]); // disable auto-escaping for .tera files (they are HTML)
 
-    // Session encryption key (random per restart — fine for development)
-    let secret_key = Key::generate();
+    // Session encryption key (persisted in .env across restarts)
+    let secret_key = get_or_create_secret_key();
 
     info!("============================================");
     info!("  Patient Management System");
