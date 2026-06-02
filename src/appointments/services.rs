@@ -200,7 +200,7 @@ impl PartialOrd for PriorityItem {
 /// Build a priority queue from waitlist entries for a doctor on a date.
 /// Uses `std::collections::BinaryHeap` with a reversed Ord so that the
 /// most urgent (lowest priority number) is always at the top.
-pub async fn build_priority_queue(
+pub(crate) async fn build_priority_queue(
     pool: &SqlitePool,
     doctor_id: i64,
     appointment_date: &str,
