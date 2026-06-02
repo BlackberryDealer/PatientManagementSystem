@@ -685,7 +685,12 @@ pub async fn get_appointment_by_id(
     .await?
     .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
 
-    Ok(map_to_views(vec![row]).pop().unwrap())
+    // map_to_views always yields exactly one element for a one-row input;
+    // fall back to NotFound instead of panicking with unwrap().
+    map_to_views(vec![row])
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::NotFound("Appointment not found".into()))
 }
 
 fn map_to_views(

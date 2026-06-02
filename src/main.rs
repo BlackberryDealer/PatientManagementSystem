@@ -3,6 +3,11 @@ use pms::auth::OptionalAuthUser;
 use pms::{appointments, availability, billing, db, records, users};
 
 use actix_session::{storage::CookieSessionStore, SessionMiddleware};
+use actix_web::dev::ServiceResponse;
+use actix_web::http::StatusCode;
+use actix_web::middleware::{
+    Compress, ErrorHandlerResponse, ErrorHandlers, Logger, NormalizePath, TrailingSlash,
+};
 use actix_web::{cookie::Key, web, App, HttpResponse, HttpServer};
 use log::{info, warn};
 use std::fs;
@@ -86,6 +91,68 @@ fn get_or_create_secret_key() -> Key {
     Key::from(new_secret.as_bytes())
 }
 
+// ============================================================
+// Custom error pages (ErrorHandlers middleware)
+// ============================================================
+
+/// Replace an error response body with a friendly, SSR-rendered HTML page.
+/// Renders `error.html.tera`; falls back to inline HTML if Tera is unavailable.
+fn render_error_page<B>(
+    res: ServiceResponse<B>,
+    title: &str,
+    message: &str,
+) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
+    let status = res.status();
+
+    let html = res
+        .request()
+        .app_data::<web::Data<tera::Tera>>()
+        .and_then(|tera| {
+            let mut ctx = tera::Context::new();
+            ctx.insert("status_code", &status.as_u16());
+            ctx.insert("error_title", title);
+            ctx.insert("error_message", message);
+            tera.render("error.html.tera", &ctx).ok()
+        })
+        .unwrap_or_else(|| {
+            let code = status.as_u16();
+            format!(
+                "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">\
+                 <title>{code} {title}</title></head>\
+                 <body><h1>{code} {title}</h1><p>{message}</p>\
+                 <a href=\"/\">Return home</a></body></html>"
+            )
+        });
+
+    let new_response = HttpResponse::build(status)
+        .content_type("text/html; charset=utf-8")
+        .body(html);
+
+    Ok(ErrorHandlerResponse::Response(
+        res.into_response(new_response).map_into_right_body(),
+    ))
+}
+
+/// 404 handler — styled "page not found" screen.
+fn handle_not_found<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
+    render_error_page(
+        res,
+        "Page Not Found",
+        "The page you are looking for does not exist or may have been moved.",
+    )
+}
+
+/// 500 handler — styled "internal server error" screen (hides internal details).
+fn handle_internal_error<B>(
+    res: ServiceResponse<B>,
+) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
+    render_error_page(
+        res,
+        "Internal Server Error",
+        "Something went wrong on our end. Please try again later.",
+    )
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Load .env file (silently ignore if missing)
@@ -134,6 +201,20 @@ async fn main() -> std::io::Result<()> {
             // Shared state
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(tera.clone()))
+            // --- Middleware (registered first = innermost = processes response first) ---
+            // ErrorHandlers: replace 404/500 bodies with friendly SSR pages.
+            // Registered first so the new body is produced before Compress runs.
+            .wrap(
+                ErrorHandlers::new()
+                    .handler(StatusCode::NOT_FOUND, handle_not_found)
+                    .handler(StatusCode::INTERNAL_SERVER_ERROR, handle_internal_error),
+            )
+            // Logger: records method, path, status, and response time for every request.
+            .wrap(Logger::default())
+            // Compress: gzip/brotli-compresses responses based on Accept-Encoding.
+            .wrap(Compress::default())
+            // NormalizePath: treats "/appointments" and "/appointments/" as identical.
+            .wrap(NormalizePath::new(TrailingSlash::Trim))
             // Session middleware (signed cookies)
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
