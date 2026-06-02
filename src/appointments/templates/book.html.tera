@@ -53,18 +53,34 @@
             <div class="column is-6">
                 <div class="field">
                     <label class="label"><i class="fas fa-clock mr-1"></i>Start Time</label>
-                    <div class="control">
-                        <input class="input" type="time" name="start_time" required>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="start_time" required>
+                                <option value="">-- Select start --</option>
+                                {% for s in start_slots %}
+                                <option value="{{ s }}">{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-clock"></i></div>
                     </div>
                 </div>
             </div>
             <div class="column is-6">
                 <div class="field">
                     <label class="label"><i class="fas fa-clock mr-1"></i>End Time</label>
-                    <div class="control">
-                        <input class="input" type="time" name="end_time" required>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="end_time" required>
+                                <option value="">-- Select end --</option>
+                                {% for e in end_slots %}
+                                <option value="{{ e }}">{{ e }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-clock"></i></div>
                     </div>
-                    <p class="help">End time must be after start time.</p>
+                    <p class="help">Appointments are booked in fixed 30-minute blocks. Pick a start and end on the grid.</p>
                 </div>
             </div>
         </div>
@@ -113,13 +129,6 @@
             </div>
         </div>
 
-        <div class="field">
-            <label class="label"><i class="fas fa-pencil-alt mr-1"></i>Notes <span class="has-text-grey is-size-7">(optional)</span></label>
-            <div class="control">
-                <textarea class="textarea" name="notes" placeholder="Reason for visit, symptoms, or special requests..." rows="3"></textarea>
-            </div>
-        </div>
-
         <hr>
 
         <div class="field is-grouped">
@@ -147,4 +156,28 @@
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Progressive enhancement: when a start slot is chosen, default the end
+    // slot to 30 minutes later. Works without JS too — both dropdowns only
+    // contain grid-aligned times and the server validates start < end.
+    (function () {
+        const start = document.querySelector('select[name="start_time"]');
+        const end = document.querySelector('select[name="end_time"]');
+        if (!start || !end) return;
+        start.addEventListener('change', function () {
+            if (!start.value) return;
+            const [h, m] = start.value.split(':').map(Number);
+            const next = h * 60 + m + 30;
+            const target = String(Math.floor(next / 60)).padStart(2, '0') + ':' + String(next % 60).padStart(2, '0');
+            if (!end.value || end.value <= start.value) {
+                for (const opt of end.options) {
+                    if (opt.value === target) { end.value = target; break; }
+                }
+            }
+        });
+    })();
+</script>
 {% endblock %}

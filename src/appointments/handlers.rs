@@ -46,6 +46,8 @@ pub async fn book_form(
     ctx.insert("user", &user);
     ctx.insert("doctors", &doctors);
     ctx.insert("rooms", &rooms);
+    ctx.insert("start_slots", &services::start_time_slots());
+    ctx.insert("end_slots", &services::end_time_slots());
     ctx.insert("title", "Book Appointment");
     let rendered = tera.render("appointments/book.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))

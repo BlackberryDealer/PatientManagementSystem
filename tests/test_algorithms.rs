@@ -324,3 +324,149 @@ async fn test_suggest_slot_respects_existing() {
     }).await.unwrap();
     assert_eq!(slot2, Some("11:00".into()));
 }
+
+// ============================================================
+// 30-minute slot grid + occupancy-table (double-booking) tests
+// ============================================================
+
+/// Helper: count occupancy rows for an appointment.
+async fn slot_count(pool: &SqlitePool, appointment_id: i64) -> i64 {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM appointment_slots WHERE appointment_id = ?")
+        .bind(appointment_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    row.0
+}
+
+#[actix_web::test]
+async fn test_unaligned_slot_rejected() {
+    // Booking must land on the 30-minute grid; 10:15–10:45 is off-grid.
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "palign").await;
+    seed_doctor(&pool, 2, "dalign").await;
+    let f = BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "10:15".into(), end_time: "10:45".into(),
+        room_id: None, priority: Some(3), notes: None,
+    };
+    assert!(services::book_appointment(&pool, 1, &f).await.is_err());
+}
+
+#[actix_web::test]
+async fn test_aligned_30min_creates_one_slot() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "p1slot").await;
+    seed_doctor(&pool, 2, "d1slot").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+    // One 30-minute appointment occupies exactly one slot row.
+    assert_eq!(slot_count(&pool, appt.id).await, 1);
+}
+
+#[actix_web::test]
+async fn test_multi_slot_creates_one_row_per_slot() {
+    // A 90-minute appointment (10:00–11:30) occupies three 30-minute slots.
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "pmulti").await;
+    seed_doctor(&pool, 2, "dmulti").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "10:00".into(), end_time: "11:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+    assert_eq!(slot_count(&pool, appt.id).await, 3); // 10:00, 10:30, 11:00
+}
+
+#[actix_web::test]
+async fn test_multi_slot_blocks_overlapping_booking() {
+    // After a 10:00–11:00 booking (slots 10:00, 10:30), a 10:30–11:00 booking
+    // must be rejected because it collides on the 10:30 slot.
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "pova").await;
+    seed_patient(&pool, 3, "povb").await;
+    seed_doctor(&pool, 2, "dov").await;
+
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "10:00".into(), end_time: "11:00".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let clash = services::book_appointment(&pool, 3, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "10:30".into(), end_time: "11:00".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await;
+    assert!(clash.is_err(), "overlapping slot must be rejected");
+
+    // The non-overlapping 11:00–11:30 slot is still bookable.
+    let ok = services::book_appointment(&pool, 3, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "11:00".into(), end_time: "11:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await;
+    assert!(ok.is_ok(), "adjacent free slot should book");
+}
+
+#[actix_web::test]
+async fn test_db_unique_index_is_the_backstop() {
+    // Prove the database itself prevents double-booking, independent of the
+    // application-level check_conflict. We book normally, then attempt a RAW
+    // duplicate slot insert (simulating a lost race that slipped past the
+    // app check). The UNIQUE index must reject it.
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "praw").await;
+    seed_doctor(&pool, 2, "draw").await;
+
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    // Direct insert of the same (doctor_id, date, slot_time) — bypasses all
+    // service-layer checks. The DB UNIQUE index is the last line of defence.
+    let raw = sqlx::query(
+        "INSERT INTO appointment_slots (appointment_id, doctor_id, appointment_date, slot_time)
+         VALUES (999, 1, '2026-06-01', '10:00')",
+    )
+    .execute(&pool)
+    .await;
+
+    assert!(raw.is_err(), "DB UNIQUE index must reject a duplicate slot");
+    let err = raw.unwrap_err();
+    assert!(
+        err.as_database_error().map_or(false, |e| e.is_unique_violation()),
+        "error should be a UNIQUE violation, got: {err}"
+    );
+}
+
+#[actix_web::test]
+async fn test_cancel_releases_slots_for_rebooking() {
+    // Cancelling deletes the occupancy rows so the slot can be rebooked.
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "pfree").await;
+    seed_doctor(&pool, 2, "dfree").await;
+
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-20".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+    assert_eq!(slot_count(&pool, appt.id).await, 1);
+
+    services::cancel_appointment(&pool, appt.id).await.unwrap();
+    assert_eq!(slot_count(&pool, appt.id).await, 0, "slots freed on cancel");
+
+    // The slot is available again.
+    let rebook = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2026-06-20".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await;
+    assert!(rebook.is_ok(), "freed slot should be rebookable");
+}

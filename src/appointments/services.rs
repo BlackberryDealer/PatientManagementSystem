@@ -11,6 +11,12 @@ use std::collections::BinaryHeap;
 // Helper: time helpers
 // ============================================================
 
+/// Scheduling granularity. Appointments are booked on a fixed 30-minute grid,
+/// so every appointment maps cleanly onto whole 30-minute occupancy slots
+/// (see the `appointment_slots` table). This is what lets us enforce
+/// double-booking prevention with a database UNIQUE constraint.
+const SLOT_MINUTES: i32 = 30;
+
 /// Convert "HH:MM" to minutes since midnight for comparison.
 fn time_to_minutes(t: &str) -> Option<i32> {
     let parts: Vec<&str> = t.split(':').collect();
@@ -25,7 +31,13 @@ fn minutes_to_time(mins: i32) -> String {
     format!("{:02}:{:02}", mins / 60, mins % 60)
 }
 
-/// Parse "HH:MM" strings, returning (start_mins, end_mins).
+/// Parse "HH:MM" start/end strings into `(start_mins, end_mins)`.
+///
+/// Enforces the scheduling design rules so the booking can be decomposed into
+/// whole 30-minute slots:
+/// 1. valid `HH:MM` format,
+/// 2. start strictly before end,
+/// 3. both times aligned to the 30-minute grid (`:00` or `:30`).
 fn parse_slot(start: &str, end: &str) -> Result<(i32, i32), AppError> {
     let s = time_to_minutes(start)
         .ok_or_else(|| AppError::BadRequest("Invalid start time format".into()))?;
@@ -33,6 +45,12 @@ fn parse_slot(start: &str, end: &str) -> Result<(i32, i32), AppError> {
         .ok_or_else(|| AppError::BadRequest("Invalid end time format".into()))?;
     if s >= e {
         return Err(AppError::BadRequest("Start time must be before end time".into()));
+    }
+    if s % SLOT_MINUTES != 0 || e % SLOT_MINUTES != 0 {
+        return Err(AppError::BadRequest(
+            "Appointment times must fall on a 30-minute boundary (e.g. 09:00, 09:30, 10:00)."
+                .into(),
+        ));
     }
     Ok((s, e))
 }
@@ -241,7 +259,7 @@ pub async fn book_with_priority(
     patient_user_id: i64,
     form: &BookAppointmentForm,
 ) -> Result<Appointment, AppError> {
-    let (_, _) = parse_slot(&form.start_time, &form.end_time)?;
+    let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
 
     let new_priority = form.priority.unwrap_or(3);
 
@@ -304,6 +322,7 @@ pub async fn book_with_priority(
     let mut tx = pool.begin().await?;
 
     for (conflict_id, _, _, _, c_notes) in &conflicts {
+        // Move the bumped appointment to the waitlist...
         sqlx::query(
             "INSERT INTO waitlist (patient_id, doctor_id, room_id, appointment_date,
              requested_start, requested_end, priority, notes, status)
@@ -316,30 +335,33 @@ pub async fn book_with_priority(
         .execute(&mut *tx)
         .await?;
 
+        // ...cancel it, and free its slots so the urgent booking can take them.
         sqlx::query("UPDATE appointments SET status = 'cancelled' WHERE id = ?")
+            .bind(conflict_id)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
             .bind(conflict_id)
             .execute(&mut *tx)
             .await?;
     }
 
-    // Book the new appointment inside the same transaction
-    let appointment = sqlx::query_as::<_, Appointment>(
-        "INSERT INTO appointments (patient_id, doctor_id, appointment_date,
-         start_time, end_time, status, priority, room_id, notes)
-         VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)
-         RETURNING id, patient_id, doctor_id, appointment_date,
-                   start_time, end_time, status, notes, created_at,
-                   room_id, priority",
+    // Book the new appointment + its slots inside the same transaction.
+    // Slots are freed above before this runs, so the UNIQUE index is satisfied.
+    let appointment = insert_appointment_in_tx(
+        &mut tx,
+        patient_id,
+        form.doctor_id,
+        &form.appointment_date,
+        &form.start_time,
+        &form.end_time,
+        new_priority,
+        form.room_id,
+        &form.notes,
+        start_mins,
+        end_mins,
     )
-    .bind(patient_id)
-    .bind(form.doctor_id)
-    .bind(&form.appointment_date)
-    .bind(&form.start_time)
-    .bind(&form.end_time)
-    .bind(new_priority)
-    .bind(form.room_id)
-    .bind(&form.notes)
-    .fetch_one(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -388,9 +410,57 @@ pub async fn book_appointment(
     ).await
 }
 
-/// Raw INSERT helper used by both booking paths.
-async fn insert_appointment(
-    pool: &SqlitePool,
+/// Translate a slot-insert failure: a UNIQUE-index violation means another
+/// booking grabbed the slot first (a race we lost), surfaced as a clean 400.
+fn map_slot_conflict(e: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(db) = &e {
+        if db.is_unique_violation() {
+            return AppError::BadRequest(
+                "That time slot has just been taken. Please choose another slot.".into(),
+            );
+        }
+    }
+    AppError::DatabaseError(e)
+}
+
+/// Write one occupancy row per 30-minute slot in `[start_mins, end_mins)`
+/// inside the given transaction. The `appointment_slots` UNIQUE index is the
+/// authoritative double-booking guard — if any slot is already taken, the
+/// INSERT fails and the whole transaction rolls back.
+async fn insert_slots(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    appointment_id: i64,
+    doctor_id: i64,
+    date: &str,
+    start_mins: i32,
+    end_mins: i32,
+    room_id: Option<i64>,
+) -> Result<(), AppError> {
+    let mut m = start_mins;
+    while m < end_mins {
+        sqlx::query(
+            "INSERT INTO appointment_slots
+             (appointment_id, doctor_id, appointment_date, slot_time, room_id)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(appointment_id)
+        .bind(doctor_id)
+        .bind(date)
+        .bind(minutes_to_time(m))
+        .bind(room_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_slot_conflict)?;
+        m += SLOT_MINUTES;
+    }
+    Ok(())
+}
+
+/// Insert the appointment row plus its occupancy slots inside an existing
+/// transaction. Used by both the standard and priority booking paths so the
+/// appointment and all its slots commit atomically (all-or-nothing).
+async fn insert_appointment_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     patient_id: i64,
     doctor_id: i64,
     date: &str,
@@ -399,8 +469,10 @@ async fn insert_appointment(
     priority: i32,
     room_id: Option<i64>,
     notes: &Option<String>,
+    start_mins: i32,
+    end_mins: i32,
 ) -> Result<Appointment, AppError> {
-    Ok(sqlx::query_as::<_, Appointment>(
+    let appt = sqlx::query_as::<_, Appointment>(
         "INSERT INTO appointments (patient_id, doctor_id, appointment_date,
          start_time, end_time, status, priority, room_id, notes)
          VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)
@@ -416,8 +488,37 @@ async fn insert_appointment(
     .bind(priority)
     .bind(room_id)
     .bind(notes)
-    .fetch_one(pool)
-    .await?)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    insert_slots(tx, appt.id, doctor_id, date, start_mins, end_mins, room_id).await?;
+    Ok(appt)
+}
+
+/// Book an appointment and its 30-minute occupancy slots atomically.
+/// Opens its own transaction so the appointment row and every slot row commit
+/// together; if any slot is already taken the whole booking rolls back.
+async fn insert_appointment(
+    pool: &SqlitePool,
+    patient_id: i64,
+    doctor_id: i64,
+    date: &str,
+    start: &str,
+    end: &str,
+    priority: i32,
+    room_id: Option<i64>,
+    notes: &Option<String>,
+) -> Result<Appointment, AppError> {
+    let (start_mins, end_mins) = parse_slot(start, end)?;
+
+    let mut tx = pool.begin().await?;
+    let appt = insert_appointment_in_tx(
+        &mut tx, patient_id, doctor_id, date, start, end,
+        priority, room_id, notes, start_mins, end_mins,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(appt)
 }
 
 // ============================================================
@@ -430,6 +531,10 @@ pub async fn add_to_waitlist(
     patient_user_id: i64,
     form: &WaitlistForm,
 ) -> Result<WaitlistEntry, AppError> {
+    // Waitlisted requests must also be grid-aligned, since a promotion books
+    // them as a real appointment (which decomposes into 30-minute slots).
+    parse_slot(&form.requested_start, &form.requested_end)?;
+
     let patient = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
         .bind(patient_user_id)
         .fetch_optional(pool)
@@ -722,10 +827,18 @@ pub async fn cancel_appointment(pool: &SqlitePool, appointment_id: i64) -> Resul
         return Err(AppError::BadRequest("Appointment is already cancelled or completed".into()));
     }
 
+    // Cancel the appointment AND release its occupancy slots in one transaction,
+    // so the freed slots become immediately bookable again.
+    let mut tx = pool.begin().await?;
     sqlx::query("UPDATE appointments SET status = 'cancelled' WHERE id = ?")
         .bind(appointment_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
+        .bind(appointment_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
 
     // Auto-promote the most urgent waitlist entry for the freed slot
     let date_str = appt.2.format("%Y-%m-%d").to_string();
@@ -777,4 +890,27 @@ pub async fn get_all_rooms(pool: &SqlitePool) -> Result<Vec<Room>, AppError> {
     )
     .fetch_all(pool)
     .await?)
+}
+
+// ============================================================
+// Grid slot options for the booking UI
+// ============================================================
+// These power the start/end dropdowns so the user can ONLY pick grid-aligned
+// times — making an off-grid booking impossible to express in the interface.
+// The server still validates alignment in `parse_slot` as defence in depth.
+
+/// Bookable 30-minute START times within clinic working hours (08:00–16:30).
+pub fn start_time_slots() -> Vec<String> {
+    (8 * 60..17 * 60)
+        .step_by(SLOT_MINUTES as usize)
+        .map(minutes_to_time)
+        .collect()
+}
+
+/// Valid END times (08:30–17:00) — one slot after the earliest start, up to close.
+pub fn end_time_slots() -> Vec<String> {
+    ((8 * 60 + SLOT_MINUTES)..=17 * 60)
+        .step_by(SLOT_MINUTES as usize)
+        .map(minutes_to_time)
+        .collect()
 }

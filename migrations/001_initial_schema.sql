@@ -77,6 +77,39 @@ CREATE TABLE IF NOT EXISTS appointments (
     FOREIGN KEY (room_id) REFERENCES rooms(id)
 );
 
+-- Appointment Slots: one row per 30-minute slot that an appointment occupies.
+-- This is the occupancy ledger. A 30-min appointment writes 1 row; a 60-min
+-- appointment writes 2 rows, etc. Appointments are always aligned to the grid.
+--
+-- The UNIQUE index on (doctor_id, appointment_date, slot_time) makes
+-- double-booking IMPOSSIBLE at the database level: a second INSERT for the
+-- same doctor+date+slot fails atomically, immune to the race conditions that
+-- an application-level "check then insert" suffers from. Slot rows are deleted
+-- when an appointment is cancelled, so a freed slot can be rebooked.
+CREATE TABLE IF NOT EXISTS appointment_slots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    appointment_id INTEGER NOT NULL,
+    doctor_id INTEGER NOT NULL,
+    appointment_date DATE NOT NULL,
+    slot_time TEXT NOT NULL,           -- HH:MM, aligned to a 30-minute grid
+    room_id INTEGER,
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
+    FOREIGN KEY (doctor_id) REFERENCES doctors(id),
+    FOREIGN KEY (room_id) REFERENCES rooms(id)
+);
+
+-- A doctor can occupy each slot at most once (the core double-booking guard).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_doctor_unique
+    ON appointment_slots(doctor_id, appointment_date, slot_time);
+
+-- A room (when assigned) can also be occupied at most once per slot.
+-- Partial index: only enforced for rows that actually reserve a room.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_room_unique
+    ON appointment_slots(room_id, appointment_date, slot_time)
+    WHERE room_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_slot_appointment ON appointment_slots(appointment_id);
+
 -- Waitlist: priority queue for patients awaiting an available appointment slot
 CREATE TABLE IF NOT EXISTS waitlist (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
