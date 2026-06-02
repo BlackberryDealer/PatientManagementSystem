@@ -14,7 +14,7 @@
                     <p><strong>Patient ID:</strong> {{ invoice.patient_id }}</p>
                     <p><strong>Invoice Date:</strong> {{ invoice.invoice_date }}</p>
                     <p><strong>Due Date:</strong> {{ invoice.due_date }}</p>
-                    <p><strong>Total:</strong> ${{ "%.2f" | format(invoice.total_amount) }}</p>
+                    <p><strong>Total:</strong> ${{ invoice.total_amount | round(precision=2) }}</p>
                     <p><strong>Status:</strong>
                         <span class="tag {% if invoice.status == 'paid' %}is-success{% elif invoice.status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
                             {{ invoice.status }}
@@ -40,8 +40,8 @@
                             <tr>
                                 <td>{{ item.description }}</td>
                                 <td>{{ item.quantity }}</td>
-                                <td>${{ "%.2f" | format(item.unit_price) }}</td>
-                                <td>${{ "%.2f" | format(item.total_price) }}</td>
+                                <td>${{ item.unit_price | round(precision=2) }}</td>
+                                <td>${{ item.total_price | round(precision=2) }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -69,7 +69,7 @@
                     {% for p in payments %}
                     <tr>
                         <td>{{ p.id }}</td>
-                        <td>${{ "%.2f" | format(p.amount) }}</td>
+                        <td>${{ p.amount | round(precision=2) }}</td>
                         <td>{{ p.payment_date }}</td>
                         <td>{{ p.payment_method }}</td>
                         <td>{{ p.transaction_ref | default(value="—") }}</td>
