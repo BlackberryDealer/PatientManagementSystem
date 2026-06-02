@@ -17,7 +17,12 @@
 8. [Authentication & Sessions — Who Are You?](#8-authentication--sessions--who-are-you)
 9. [Module Deep Dives](#9-module-deep-dives)
    - [9.1 Users Module](#91-users-module)
-   - [9.2 Appointments Module (Core Feature)](#92-appointments-module-core-feature)
+   - [9.2 Appointments Module — Three Scheduling Algorithms](#92-appointments-module-core-feature)
+     - [Algorithm 1: Time Interval Overlap Detection](#algorithm-1-time-interval-overlap-detection)
+     - [Algorithm 2: Earliest Available Slot](#algorithm-2-earliest-available-slot)
+     - [Algorithm 3: Priority-Based Scheduling with BinaryHeap](#algorithm-3-priority-based-scheduling-with-binaryheap)
+   - [9.2b Rooms & Resource Scheduling](#92b-rooms--resource-scheduling)
+   - [9.2c Waitlist & Priority Queue](#92c-waitlist--priority-queue)
    - [9.3 Availability Module](#93-availability-module)
    - [9.4 Medical Records Module](#94-medical-records-module)
    - [9.5 Billing Module](#95-billing-module)
@@ -244,7 +249,8 @@ PatientManagementSystem/
 ├── WALKTHROUGH.md              ← 📚 This file! The comprehensive guide.
 │
 ├── migrations/                 ← 🗄️ Database schema versions
-│   └── 001_initial_schema.sql  ←    Creates all 10 tables and indexes
+│   ├── 001_initial_schema.sql  ←    Creates 10 core tables and indexes
+│   └── 002_rooms_priority.sql  ←    Adds rooms, waitlist, priority support
 │
 ├── templates/                  ← 🎨 Root HTML templates (loaded first by Tera)
 │   ├── base.html.tera          ←    The HTML skeleton every page uses
@@ -272,12 +278,14 @@ PatientManagementSystem/
     │
     ├── appointments/           ← 📅 Appointment scheduling module (CORE)
     │   ├── mod.rs
-    │   ├── models.rs           ←    Appointment, BookAppointmentForm, AppointmentView
-    │   ├── services.rs         ←    Conflict detection, booking, queries
-    │   ├── handlers.rs         ←    List, book, view, cancel endpoints
+    │   ├── models.rs           ←    Appointment, Room, Priority, WaitlistEntry, forms
+    │   ├── services.rs         ←    3 scheduling algorithms, waitlist, priority queue
+    │   ├── handlers.rs         ←    List, book, priority-book, suggest, waitlist, cancel
     │   └── templates/
     │       ├── list.html.tera
     │       ├── book.html.tera
+    │       ├── suggest.html.tera
+    │       ├── waitlist.html.tera
     │       └── detail.html.tera
     │
     ├── availability/           ← 🕐 Doctor schedule module
@@ -423,10 +431,11 @@ The `load_module_templates()` function is interesting. It:
 
 This means `src/appointments/templates/list.html.tera` becomes available as `appointments/list.html.tera` in Tera.
 
-### 5.6 Session Middleware
+### 5.6 Session Middleware (with Persistent Key)
 
 ```rust
-let secret_key = Key::generate();
+// Session encryption key — persisted in .env across server restarts
+let secret_key = get_or_create_secret_key();
 
 HttpServer::new(move || {
     App::new()
@@ -443,15 +452,21 @@ HttpServer::new(move || {
 
 | Component | Purpose |
 |---|---|
-| `Key::generate()` | Creates a random encryption key for signing cookies |
+| `get_or_create_secret_key()` | **Persistent key** — reads `SESSION_SECRET` from `.env`, or generates 64 random bytes (128 hex chars) and saves them to `.env` on first run |
 | `CookieSessionStore` | Stores session data inside encrypted cookies (no server-side storage needed) |
 | `cookie_secure(false)` | Allows cookies over HTTP (in production, this should be `true` for HTTPS) |
-| `web::Data::new(pool.clone())` | Makes the database pool available to all handlers via `web::Data<SqlitePool>` |
-| `web::Data::new(tera.clone())` | Makes Tera available to all handlers via `web::Data<Tera>` |
+
+**Why persist the key?** Without persistence, `Key::generate()` creates a new random key on every server restart. Old browser cookies can't be decrypted, producing warnings like:
+
+```
+WARN  actix_session::middleware] The session cookie failed to pass cryptographic checks
+```
+
+With `get_or_create_secret_key()`, the same key is reused across restarts. Sessions survive — no forced re-login, no warning spam. The key is auto-generated once and stored as `SESSION_SECRET=<128 hex chars>` in `.env`.
 
 > **"Cookie"** = A small piece of data stored in your browser. When you log in, the server tells your browser "remember this session ID." On every subsequent request, your browser automatically sends the cookie back. This is how the server knows you're the same person across different page loads.
 
-> **"Session"** = Server-side data associated with a specific user. Often stored via a cookie containing a session ID. Our project stores the session data directly in a signed, encrypted cookie — no server-side storage needed. The `Key` ensures the cookie can't be forged.
+> **"Session"** = Server-side data associated with a specific user. Our project stores the session data directly in a signed, encrypted cookie — no server-side storage needed. The `Key` ensures the cookie can't be forged.
 
 ### 5.7 Route Mounting
 
@@ -840,11 +855,11 @@ The `Some(u) if condition` is a **match guard** — it only matches `Some(u)` if
 
 ### 9.2 Appointments Module (Core Feature)
 
-**Routes:** `/appointments` (list), `/appointments/book` (form + submit), `/appointments/{id}` (detail), `/appointments/{id}/cancel` (cancel)
+**Routes:** `/appointments` (list), `/appointments/book` (form + submit), `/appointments/book/priority` (priority override), `/appointments/suggest` (find slot), `/appointments/waitlist` (view queue), `/appointments/waitlist/join`, `/appointments/waitlist/{id}/promote`, `/appointments/{id}` (detail), `/appointments/{id}/cancel` (cancel)
 
-This is the most important module — it contains the **conflict detection algorithm** that's the project's core focus.
+This is the most important module — it contains **three scheduling algorithms** implementing the project's core focus.
 
-#### The Conflict Detection Algorithm
+#### Algorithm 1: Time Interval Overlap Detection
 
 ```rust
 pub async fn check_conflict(
@@ -853,96 +868,97 @@ pub async fn check_conflict(
     appointment_date: &str,
     start_time: &str,
     end_time: &str,
+    room_id: Option<i64>,              // NEW: also checks room conflicts
     exclude_appointment_id: Option<i64>,
 ) -> Result<bool, AppError> {
-    let count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM appointments
-         WHERE doctor_id = ?
-           AND appointment_date = ?
-           AND status != 'cancelled'
-           AND start_time < ? AND end_time > ?",
-    )
-    .bind(doctor_id)
-    .bind(appointment_date)
-    .bind(end_time)    // ← Note: these are SWAPPED!
-    .bind(start_time)  // ← This is intentional
-    .fetch_one(pool)
-    .await?;
-
-    Ok(count.0 > 0)
+    // Builds SQL dynamically: always checks doctor + date,
+    // optionally checks room_id and/or excludes a specific appointment
 }
 ```
 
-**Why are `end_time` and `start_time` swapped in the bindings?** This is the clever part. The classic overlap condition for intervals [A_start, A_end) and [B_start, B_end) is:
+**How it works:** The overlap condition is `A_start < B_end AND A_end > B_start`. The SQL binds are intentionally swapped: `end_time` (new) goes to the first `?`, `start_time` (new) goes to the second `?`. This single condition catches ALL three overlap cases (new-starts-during, new-ends-during, new-envelops-existing).
 
-```
-A_start < B_end  AND  A_end > B_start
-```
+**Room support:** When `room_id` is provided, the query also checks `AND room_id = ?`, preventing double-booking of consultation rooms and equipment.
 
-In our query:
-- `start_time` is the database column (existing appointment's start = A_start)
-- `end_time` is the database column (existing appointment's end = A_end)
-- The first `?` receives `form.end_time` (new appointment's end = B_end) — so `start_time < B_end` ✓
-- The second `?` receives `form.start_time` (new appointment's start = B_start) — so `end_time > B_start` ✓
-
-This single condition catches ALL overlap cases:
-
-```
-Case 1: New appointment starts during existing    ✓ caught
-    [Exist======]      start_time < B_end ✓  end_time > B_start ✓
-        [New=====]
-
-Case 2: New appointment ends during existing      ✓ caught
-    [Exist======]      start_time < B_end ✓  end_time > B_start ✓
-  [New=====]
-
-Case 3: New appointment envelops existing         ✓ caught
-    [Exist==]          start_time < B_end ✓  end_time > B_start ✓
-  [New=========]
-```
-
-#### The Booking Flow
+#### Algorithm 2: Earliest Available Slot
 
 ```rust
-pub async fn book_appointment(
+pub async fn find_earliest_slot(
+    pool: &SqlitePool,
+    form: &SuggestSlotForm,
+) -> Result<Option<String>, AppError> {
+    // 1. Fetch all scheduled appointments for the doctor on that date
+    // 2. Sort by start_time (handled by ORDER BY in SQL)
+    // 3. Walk through the gaps, cursor starts at 08:00
+    // 4. For each appointment: if cursor + duration ≤ appointment_start, return cursor
+    // 5. Move cursor past the appointment
+    // 6. Check end-of-day gap (up to 17:00)
+    // 7. Return None if fully booked
+}
+```
+
+**Why this algorithm?** Rather than rejecting a conflicting request with "try again," it proactively helps the user find an open slot. The working hours are hardcoded as 08:00–17:00 (480–1020 minutes since midnight). The `time_to_minutes()` and `minutes_to_time()` helpers convert between "HH:MM" strings and integer minutes for clean comparison.
+
+> **O(n) complexity**: The algorithm does a single pass over the day's appointments. No nested loops, no backtracking. For a typical doctor's schedule (10-30 appointments/day), this is instantaneous.
+
+#### Algorithm 3: Priority-Based Scheduling with BinaryHeap
+
+```rust
+pub async fn book_with_priority(
     pool: &SqlitePool,
     patient_user_id: i64,
     form: &BookAppointmentForm,
 ) -> Result<Appointment, AppError> {
-    // 1. Validate: start must be before end
-    if form.start_time >= form.end_time {
-        return Err(AppError::BadRequest("Start time must be before end time".into()));
-    }
-
-    // 2. Find patient's internal ID from user ID
-    let patient = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
-        .bind(patient_user_id)
-        .fetch_optional(pool).await?
-        .ok_or_else(|| AppError::BadRequest("Patient profile not found".into()))?;
-
-    // 3. Check for scheduling conflicts
-    let has_conflict = check_conflict(
-        pool, form.doctor_id, &form.appointment_date,
-        &form.start_time, &form.end_time, None,
-    ).await?;
-
-    if has_conflict {
-        return Err(AppError::BadRequest(
-            "The requested time slot conflicts with an existing appointment.".into()
-        ));
-    }
-
-    // 4. All clear — insert the appointment
-    let appointment = sqlx::query_as::<_, Appointment>(
-        "INSERT INTO appointments (patient_id, doctor_id, appointment_date, ... )
-         VALUES (?, ?, ?, ...) RETURNING ..."
-    )
-    .bind(patient.0).bind(form.doctor_id) /* ... */
-    .fetch_one(pool).await?;
-
-    Ok(appointment)
+    // 1. Validate: only Emergency (1) or Urgent (2) can trigger override
+    // 2. Check for conflicts
+    // 3. If no conflict → simple booking
+    // 4. If conflict → find ALL overlapping appointments
+    // 5. Verify new priority is higher than ALL conflicting ones
+    // 6. BEGIN TRANSACTION
+    //    a. Move bumped appointments to waitlist (INSERT INTO waitlist SELECT...)
+    //    b. Cancel bumped appointments (UPDATE status = 'cancelled')
+    //    c. Book the emergency appointment (INSERT INTO appointments)
+    // 7. COMMIT
 }
 ```
+
+**Priority levels** (lower number = higher urgency):
+
+| Level | Name | Can Bump | Visual |
+|---|---|---|---|
+| 1 | Emergency | Urgent, Normal, Follow-up | 🔴 Red badge |
+| 2 | Urgent | Normal, Follow-up | 🟡 Yellow badge |
+| 3 | Normal | Follow-up only via standard booking | 🔵 Blue badge |
+| 4 | Follow-up | Nothing | 🟢 Green badge |
+
+**The `BinaryHeap<PriorityItem>`** is Rust's standard priority queue (a max-heap). To make the most urgent patient come out first, we **reverse** the `Ord` implementation: `other.priority.cmp(&self.priority)`. This flips the heap so the lowest priority number (most urgent) is at the top. Tie-breaking uses `created_at` — oldest waitlist entry wins.
+
+**Transaction safety:** All mutations (cancelling bumped appointments, inserting waitlist rows, booking the new appointment) run inside `pool.begin()...tx.commit()`. If ANY step fails, the entire operation rolls back — no half-cancelled appointments left dangling.
+
+> **"BinaryHeap"** = A tree-based data structure where the "largest" (or in our case, "most urgent") element is always at the top. Insertion and extraction are O(log n). We use it to efficiently retrieve the highest-priority patient from the waitlist.
+
+### 9.2b Rooms & Resource Scheduling
+
+The `rooms` table (migration 002) adds resource coordination to the system. Six rooms are seeded automatically:
+
+| Room | Type | Floor |
+|---|---|---|
+| Consultation Room A, B, C | consultation | Floor 1, 1, 2 |
+| Procedure Room | procedure | Floor 2 |
+| X-Ray Suite | equipment | Floor 3 |
+| Lab Room | lab | Floor 3 |
+
+Appointments can optionally assign a room via the booking form's room dropdown. When a room is specified, `check_conflict` also verifies that the room isn't double-booked at that time — same overlap logic, same SQL, just with an additional `AND room_id = ?` clause.
+
+### 9.2c Waitlist & Priority Queue
+
+The `waitlist` table tracks patients who were bumped (or manually added) while waiting for a slot:
+
+- **Status workflow:** `waiting` → `offered` (slot found) → `accepted` (booked) or `expired`
+- **Promotion:** Doctors/admins can promote waitlist entries via `/appointments/waitlist/{id}/promote`. If the slot is now free, the patient is automatically booked and the waitlist entry marked accepted.
+- **Ordering:** The waitlist view is ORDER BY `priority ASC, created_at ASC` — most urgent patients first, then oldest entries first.
+
+
 
 ### 9.3 Availability Module
 
@@ -1382,6 +1398,21 @@ impl From<SomeNewErrorType> for AppError {
 
 **Fix:** This shouldn't happen under normal development load. If it does, check for queries that aren't being `.await`ed (leaking connections) or increase `max_connections`.
 
+### 14.6 `The session cookie failed to pass cryptographic checks`
+
+**Meaning:** The server's session encryption key changed (typically because the server restarted and generated a new `Key`), but the browser still has an old cookie signed with the previous key.
+
+**Fix:** Our project now persists the key automatically. If you still see this:
+1. Delete `SESSION_SECRET` from `.env` and restart — a fresh key will be generated
+2. Clear your browser cookies for `localhost:8080`
+3. The warning is harmless — it just means the old cookie was ignored and a new one will be created on the next page load
+
+### 14.7 `no such column: room_id` / `no such table: rooms`
+
+**Meaning:** Migration 002 hasn't run yet, or the database was created before migration 002 was added. The `appointments` table is missing the `room_id` and `priority` columns.
+
+**Fix:** Delete `patient_management.db` and restart. All migrations run fresh on the next `cargo run`.
+
 ---
 
 ## 15. Glossary of Jargon
@@ -1391,12 +1422,13 @@ impl From<SomeNewErrorType> for AppError {
 | **API (Application Programming Interface)** | A set of rules for how software components communicate. Our HTTP endpoints are our API. |
 | **Async/Await** | A way to write code that doesn't block while waiting for slow operations (database, network). |
 | **Backend** | The server-side code that handles business logic, database access, and generates pages. |
+| **BinaryHeap** | Rust's priority queue data structure. A tree where the "largest" element is always at the top. We use it to serve the most urgent patient first by reversing the comparison. O(log n) insert/extract. |
 | **Cargo** | Rust's package manager and build tool. Like npm for JavaScript or pip for Python. |
 | **CDN (Content Delivery Network)** | A network of servers that deliver static content (like CSS files) from locations close to users. |
 | **Cookie** | A small piece of data stored in the browser, sent with every request to the same server. |
 | **CRUD** | Create, Read, Update, Delete — the four basic database operations. |
-| **CSRF (Cross-Site Request Forgery)** | An attack where a malicious site tricks a user's browser into making unwanted requests. |
 | **Database Index** | A data structure that speeds up database lookups, like a book's index. |
+| **Database Transaction** | A group of database operations that either ALL succeed or ALL fail (atomicity). Our priority booking uses transactions to prevent half-cancelled appointments. |
 | **Dependency** | An external library your project uses. Listed in `Cargo.toml`. |
 | **Endpoint** | A specific URL path and HTTP method combination (e.g., `POST /users/login`). |
 | **Enum** | A type that can be one of several variants. Rust's enums can hold data in each variant. |

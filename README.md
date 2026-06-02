@@ -62,7 +62,8 @@ PatientManagementSystem/
 ├── .gitignore
 ├── README.md
 ├── migrations/
-│   └── 001_initial_schema.sql
+│   ├── 001_initial_schema.sql
+│   └── 002_rooms_priority.sql
 ├── templates/
 │   ├── base.html.tera
 │   ├── layout.html.tera
@@ -75,7 +76,7 @@ PatientManagementSystem/
     ├── errors.rs            # Unified AppError type
     ├── auth.rs              # Session-based auth extractors & role guards
     ├── users/               # User registration, login, profiles
-    ├── appointments/        # Scheduling engine with conflict detection
+    ├── appointments/        # Scheduling engine (3 algorithms) + waitlist
     ├── availability/        # Doctor recurring & blocked availability
     ├── records/             # Medical records & prescriptions
     └── billing/             # Invoices, line items, payments (PDF stub)
@@ -142,29 +143,41 @@ The server starts at **http://localhost:8080**. The SQLite database (`patient_ma
 
 ## 📊 Database Schema
 
-The schema is fully normalized with 10 tables:
+The schema is fully normalized with 12 tables across 2 migrations:
 
 - `users` — authentication & role (patient/doctor/admin)
 - `patients`, `doctors` — role-specific profile tables
 - `doctor_availability` — recurring weekly slots + blocked dates
-- `appointments` — scheduled meetings with status tracking
+- `appointments` — scheduled meetings with priority (1-4) and room assignment
+- `rooms` — consultation rooms, procedure rooms, and equipment resources
+- `waitlist` — priority queue for patients awaiting slots
 - `medical_records` — diagnosis & treatment per appointment
 - `prescriptions` — medication orders
 - `invoices`, `invoice_items`, `payments` — billing module
 
-See `migrations/001_initial_schema.sql` for the full DDL.
+See `migrations/001_initial_schema.sql` and `migrations/002_rooms_priority.sql` for the full DDL.
 
 ---
 
 ## 📝 Development Notes
 
-- **Conflict Detection (Scheduling Algorithms)**: The `check_conflict()` function in `appointments/services.rs` uses an overlap query (`start_time < ? AND end_time > ?`) to prevent double-booking. This is the core **time slot validation** implementation.
-- **Queue Management System**: Planned individual feature — waitlist auto-scheduler that promotes patients from a queue when slots become available, with **priority triage** based on urgency flags.
-- **Role-Based Staff Access**: Implemented via Rust's trait system — `AuthUser` extractor with `require_role()`, `require_admin()`, `require_doctor()` guards. Role enforcement is type-level, not string-level, preventing accidental privilege escalation.
-- **Patient History Timelines**: Planned for `records` module — chronological view of all medical records, prescriptions, and appointments for a patient, with date-based filtering and drug interaction warnings.
-- **PDF Generation & Revenue Dashboard**: Billing module has a stub for PDF invoice generation. The individual extension adds a monthly revenue summary with SQL aggregation (`SUM`, `GROUP BY`, date filtering) for financial/operational reporting.
-- **Template Loading**: Module templates are loaded from `src/{module}/templates/` at startup via `load_module_templates()` in `main.rs`.
-- **Database**: Defaults to SQLite for zero-config setup. Switch to PostgreSQL by changing `DATABASE_URL` and the `sqlx` features in `Cargo.toml`.
+### Scheduling Algorithms (All Implemented)
+
+- **Algorithm 1 — Time Interval Overlap Detection**: `check_conflict()` prevents double-booking using the overlap condition `start_time < ? AND end_time > ?`. Supports both doctor and room conflict checking. Returns `bool` — `true` if a conflict exists.
+- **Algorithm 2 — Earliest Available Slot**: `find_earliest_slot()` scans a doctor's schedule for a given date, walks through the gaps between existing appointments, and returns the first free slot ≥ the requested duration. Working hours: 08:00–17:00. Route: `GET/POST /appointments/suggest`.
+- **Algorithm 3 — Priority-Based Scheduling**: `book_with_priority()` allows Emergency (1) and Urgent (2) appointments to bump lower-priority ones to the waitlist. Uses Rust's `BinaryHeap<PriorityItem>` for the priority queue (reversed `Ord` implementation). Bumping is transactional — all mutations run inside `pool.begin()...tx.commit()`. Route: `POST /appointments/book/priority`.
+
+### Room & Resource Scheduling
+
+- **`rooms` table**: 6 seeded rooms (3 consultation, 1 procedure, 1 X-ray, 1 lab). Appointments can optionally assign a room. Room conflicts are checked alongside doctor conflicts.
+- **`waitlist` table**: Tracks bumped patients with priority, status (waiting→offered→accepted→expired), and promotion support. Routes: `GET /appointments/waitlist`, `POST /appointments/waitlist/join`, `POST /appointments/waitlist/{id}/promote`.
+
+### Other Features
+
+- **Persistent Sessions**: Session encryption key is auto-generated once and saved to `.env` as `SESSION_SECRET`. Survives server restarts — no forced re-login. See `get_or_create_secret_key()` in `main.rs`.
+- **Role-Based Access**: `AuthUser` extractor with `require_role()`, `require_admin()`, `require_doctor()` guards. Type-level role enforcement prevents accidental privilege escalation.
+- **Frontend Polish**: Font Awesome 6 icons, Bulma components, mobile-responsive navbar with hamburger toggle, fade-in animations, hero-style empty states, breadcrumbs on detail pages.
+- **Database**: SQLite for zero-config setup. 12 tables across 2 migrations. Switch to PostgreSQL via `DATABASE_URL` and `sqlx` features in `Cargo.toml`.
 
 ---
 
@@ -175,9 +188,9 @@ See `migrations/001_initial_schema.sql` for the full DDL.
 | Criterion | Weight | Our Approach |
 |---|---|---|
 | System Architecture & OOP Design | 15% | Modular crate with 5 domains; traits (`FromRequest`, `ResponseError`, `FromRow`); structs with `impl` blocks; separation of concerns (models/services/handlers) |
-| Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; conflict detection algorithm; session-based auth; role guards; payment processing |
-| Database Design & Integration | 10% | 10 normalized tables; foreign keys with CASCADE/SET NULL; composite indexes; SQLx migrations |
-| Frontend Design & SSR | 10% | Tera template inheritance; Bulma responsive CSS; role-aware navigation; consistent form layouts |
+| Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 3 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap); transactional priority override; waitlist with promotion; session-based auth; role guards; room/resource scheduling |
+| Database Design & Integration | 10% | 12 normalized tables across 2 migrations; foreign keys with CASCADE/SET NULL; composite indexes on appointments(doctor_id, appointment_date); SQLx migrations |
+| Frontend Design & SSR | 10% | Tera template inheritance (18 templates); Font Awesome 6 icons; Bulma responsive CSS with mobile navbar; hero-style empty states; breadcrumbs; fade-in animations |
 | Documentation, Presentation & Demo | 10% | Professional README; WALKTHROUGH.md guide; inline code documentation; clear setup instructions |
 
 ### Individual Extended Features (40%)
@@ -185,7 +198,7 @@ See `migrations/001_initial_schema.sql` for the full DDL.
 | Criterion | Weight | Evidence |
 |---|---|---|
 | Extended Feature Development | 15% | Each member's advanced feature (see table above) — independently implemented with measurable complexity |
-| Technical Complexity & Problem Solving | 15% | Conflict-detection algorithm; async database operations; trait-based extractors; SQL aggregation for revenue dashboard |
+| Technical Complexity & Problem Solving | 15% | 3 scheduling algorithms with O(log n) BinaryHeap priority queue; transactional database mutations; trait-based FromRequest extractors; async/await throughout; time-to-minutes parsing pipeline |
 | Individual Understanding & Contribution | 10% | Clear explanation during demo; documented in report; visible commit history per module |
 
 ---
