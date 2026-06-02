@@ -28,12 +28,12 @@ Each team member implements one advanced feature aligned with the official spec:
 
 | Spec Feature | Implementation | Owner |
 |---|---|---|
-| **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage | Member B |
-| **Time slot validation** | Recurring appointment generator with DST handling | Member B |
-| **Scheduling algorithms** | Multi-resource scheduling (rooms/equipment) | Member C |
-| **Patient history timelines** | Drug interaction checker & chronological record view | Member D |
-| **Role-based staff access** | Type-level role enforcement via Rust trait system | Member A |
-| Financial reporting | PDF invoice generation & monthly revenue dashboard | Member E |
+| **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage | Lennon |
+| **Time slot validation** | Recurring appointment generator with DST handling | Lennon |
+| **Scheduling algorithms** | Multi-resource scheduling (rooms/equipment) | Dylan |
+| **Patient history timelines** | Drug interaction checker & chronological record view | Raees |
+| **Role-based staff access** | Type-level role enforcement via Rust trait system | Afif |
+| Financial reporting | PDF invoice generation & monthly revenue dashboard | Hanzalah |
 
 > **Note:** Formative Assessment does **not** apply to this project (spec v1.2.2).
 
