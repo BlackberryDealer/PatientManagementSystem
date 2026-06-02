@@ -1,49 +1,79 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<h1 class="title">Create Medical Record</h1>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/records"><i class="fas fa-notes-medical mr-1"></i>Medical Records</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Create</a></li>
+    </ul>
+</nav>
 
-<div class="box">
+<h1 class="title"><i class="fas fa-plus-circle mr-2"></i>Create Medical Record</h1>
+<p class="subtitle is-6 has-text-grey mb-5">Document a new diagnosis, treatment plan, and clinical notes for a patient.</p>
+
+<div class="box fade-in">
     <form method="POST" action="/records/create">
-        <div class="field">
-            <label class="label">Patient ID</label>
-            <div class="control">
-                <input class="input" type="number" name="patient_id" required>
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-user mr-1"></i>Patient ID</label>
+                    <div class="control has-icons-left">
+                        <input class="input" type="number" name="patient_id" placeholder="Enter patient ID number" required>
+                        <span class="icon is-small is-left"><i class="fas fa-hashtag"></i></span>
+                    </div>
+                    <p class="help">The patient's unique ID from their profile.</p>
+                </div>
+
+                <div class="field">
+                    <label class="label"><i class="fas fa-calendar-check mr-1"></i>Appointment ID <span class="has-text-grey">(optional)</span></label>
+                    <div class="control has-icons-left">
+                        <input class="input" type="number" name="appointment_id" placeholder="Link to an appointment">
+                        <span class="icon is-small is-left"><i class="fas fa-link"></i></span>
+                    </div>
+                    <p class="help">Linking to an appointment provides context for the consultation.</p>
+                </div>
+            </div>
+            <div class="column is-6">
+                <div class="notification is-success is-light">
+                    <p><i class="fas fa-lightbulb mr-1"></i><strong>Best Practice</strong></p>
+                    <p class="is-size-7 mt-1">Be specific and thorough in your diagnosis and treatment plan. These records become part of the patient's permanent medical history.</p>
+                </div>
             </div>
         </div>
 
         <div class="field">
-            <label class="label">Appointment ID (optional)</label>
+            <label class="label"><i class="fas fa-stethoscope mr-1"></i>Diagnosis</label>
             <div class="control">
-                <input class="input" type="number" name="appointment_id">
+                <textarea class="textarea" name="diagnosis" rows="3" required placeholder="Enter the clinical diagnosis... (e.g., 'Acute bronchitis, viral etiology')"></textarea>
             </div>
         </div>
 
         <div class="field">
-            <label class="label">Diagnosis</label>
+            <label class="label"><i class="fas fa-procedures mr-1"></i>Treatment Plan</label>
             <div class="control">
-                <textarea class="textarea" name="diagnosis" required placeholder="Enter diagnosis..."></textarea>
+                <textarea class="textarea" name="treatment" rows="3" required placeholder="Describe the prescribed treatment... (e.g., 'Amoxicillin 500mg TID for 7 days, rest, increased fluids')"></textarea>
             </div>
         </div>
 
         <div class="field">
-            <label class="label">Treatment</label>
+            <label class="label"><i class="fas fa-pencil-alt mr-1"></i>Additional Notes <span class="has-text-grey">(optional)</span></label>
             <div class="control">
-                <textarea class="textarea" name="treatment" required placeholder="Enter treatment plan..."></textarea>
+                <textarea class="textarea" name="notes" rows="2" placeholder="Any additional observations, follow-up instructions, or warnings..."></textarea>
             </div>
         </div>
 
-        <div class="field">
-            <label class="label">Notes (optional)</label>
-            <div class="control">
-                <textarea class="textarea" name="notes" placeholder="Additional notes..."></textarea>
-            </div>
-        </div>
+        <hr>
 
-        <div class="field">
+        <div class="field is-grouped">
             <div class="control">
-                <button class="button is-primary" type="submit">Save Record</button>
-                <a class="button is-light" href="/records">Cancel</a>
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-save mr-1"></i>Save Record
+                </button>
+            </div>
+            <div class="control">
+                <a class="button is-light is-medium" href="/records">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </a>
             </div>
         </div>
     </form>

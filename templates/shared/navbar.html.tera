@@ -1,7 +1,8 @@
-<nav class="navbar is-primary" role="navigation" aria-label="main navigation">
+<nav class="navbar is-primary is-fixed-top" role="navigation" aria-label="main navigation">
     <div class="navbar-brand">
         <a class="navbar-item" href="/">
-            <strong>🏥 PMS</strong>
+            <i class="fas fa-hospital-alt mr-2"></i>
+            <strong>PatientMS</strong>
         </a>
         <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMain">
             <span aria-hidden="true"></span>
@@ -14,27 +15,27 @@
         <div class="navbar-start">
             {% if user %}
                 <a class="navbar-item" href="/appointments">
-                    📅 Appointments
+                    <i class="fas fa-calendar-check mr-1"></i> Appointments
                 </a>
                 {% if user.role == "doctor" or user.role == "admin" %}
                 <a class="navbar-item" href="/availability">
-                    🕐 Availability
+                    <i class="fas fa-clock mr-1"></i> Availability
                 </a>
                 {% endif %}
                 <a class="navbar-item" href="/records">
-                    📋 Medical Records
+                    <i class="fas fa-notes-medical mr-1"></i> Medical Records
                 </a>
                 {% if user.role == "admin" %}
                 <a class="navbar-item" href="/billing">
-                    💰 Billing
+                    <i class="fas fa-file-invoice-dollar mr-1"></i> Billing
                 </a>
                 <a class="navbar-item" href="/users">
-                    👥 Users
+                    <i class="fas fa-users mr-1"></i> Users
                 </a>
                 {% endif %}
                 {% if user.role == "patient" %}
                 <a class="navbar-item" href="/billing">
-                    💰 My Invoices
+                    <i class="fas fa-receipt mr-1"></i> My Invoices
                 </a>
                 {% endif %}
             {% endif %}
@@ -43,24 +44,31 @@
         <div class="navbar-end">
             <div class="navbar-item">
                 {% if user %}
-                <div class="buttons">
-                    <span class="navbar-item has-text-weight-semibold">
-                        {{ user.username }} <span class="tag is-light ml-2">{{ user.role }}</span>
+                <div class="is-flex is-align-items-center">
+                    <span class="mr-3 has-text-weight-semibold has-text-white">
+                        <i class="fas fa-user-circle mr-1"></i>{{ user.username }}
                     </span>
-                    <a class="button is-light is-small" href="/users/{{ user.user_id }}">
-                        👤 Profile
+                    <span class="tag
+                        {% if user.role == 'admin' %}is-danger
+                        {% elif user.role == 'doctor' %}is-info
+                        {% else %}is-success{% endif %}
+                        is-light mr-2" style="text-transform: capitalize;">
+                        {{ user.role }}
+                    </span>
+                    <a class="button is-light is-small mr-1" href="/users/{{ user.user_id }}">
+                        <i class="fas fa-id-card mr-1"></i>Profile
                     </a>
                     <a class="button is-danger is-light is-small" href="/users/logout">
-                        🚪 Logout
+                        <i class="fas fa-sign-out-alt mr-1"></i>Logout
                     </a>
                 </div>
                 {% else %}
                 <div class="buttons">
                     <a class="button is-light" href="/users/register">
-                        <strong>Register</strong>
+                        <i class="fas fa-user-plus mr-1"></i><strong>Register</strong>
                     </a>
                     <a class="button is-link" href="/users/login">
-                        Login
+                        <i class="fas fa-sign-in-alt mr-1"></i>Login
                     </a>
                 </div>
                 {% endif %}

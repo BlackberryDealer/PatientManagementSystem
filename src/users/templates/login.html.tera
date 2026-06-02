@@ -1,32 +1,47 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<div class="columns is-centered">
+<div class="columns is-centered mt-5">
     <div class="column is-5">
-        <div class="box">
-            <h1 class="title has-text-centered">Login</h1>
+        <div class="box p-6 fade-in">
+            <div class="has-text-centered mb-5">
+                <span class="icon is-large has-text-link">
+                    <i class="fas fa-user-lock fa-3x"></i>
+                </span>
+                <h1 class="title mt-3">Welcome Back</h1>
+                <p class="subtitle is-6 has-text-grey">Sign in to your account</p>
+            </div>
+
             <form method="POST" action="/users/login">
                 <div class="field">
-                    <label class="label">Username</label>
-                    <div class="control">
-                        <input class="input" type="text" name="username" placeholder="johndoe" required>
+                    <label class="label"><i class="fas fa-user mr-1"></i>Username</label>
+                    <div class="control has-icons-left">
+                        <input class="input is-medium" type="text" name="username" placeholder="Enter your username" required autofocus>
+                        <span class="icon is-small is-left"><i class="fas fa-user"></i></span>
                     </div>
                 </div>
                 <div class="field">
-                    <label class="label">Password</label>
-                    <div class="control">
-                        <input class="input" type="password" name="password" required>
+                    <label class="label"><i class="fas fa-lock mr-1"></i>Password</label>
+                    <div class="control has-icons-left">
+                        <input class="input is-medium" type="password" name="password" placeholder="Enter your password" required>
+                        <span class="icon is-small is-left"><i class="fas fa-lock"></i></span>
                     </div>
                 </div>
-                <div class="field">
+                <div class="field mt-5">
                     <div class="control">
-                        <button class="button is-link is-fullwidth" type="submit">Login</button>
+                        <button class="button is-link is-medium is-fullwidth" type="submit">
+                            <i class="fas fa-sign-in-alt mr-2"></i>Login
+                        </button>
                     </div>
                 </div>
             </form>
-            <p class="has-text-centered mt-3">
-                Don't have an account? <a href="/users/register">Register here</a>
-            </p>
+
+            <div class="has-text-centered mt-4">
+                <p class="has-text-grey">
+                    Don't have an account?
+                    <a class="has-text-weight-bold" href="/users/register">Register here</a>
+                </p>
+            </div>
         </div>
     </div>
 </div>

@@ -1,56 +1,81 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<div class="columns is-centered">
+<div class="columns is-centered mt-5">
     <div class="column is-5">
-        <div class="box">
-            <h1 class="title has-text-centered">Register</h1>
+        <div class="box p-6 fade-in">
+            <div class="has-text-centered mb-5">
+                <span class="icon is-large has-text-primary">
+                    <i class="fas fa-user-plus fa-3x"></i>
+                </span>
+                <h1 class="title mt-3">Create Account</h1>
+                <p class="subtitle is-6 has-text-grey">Join the Patient Management System</p>
+            </div>
+
             <form method="POST" action="/users/register">
                 <div class="field">
-                    <label class="label">Full Name</label>
-                    <div class="control">
+                    <label class="label"><i class="fas fa-id-badge mr-1"></i>Full Name</label>
+                    <div class="control has-icons-left">
                         <input class="input" type="text" name="full_name" placeholder="John Doe" required>
+                        <span class="icon is-small is-left"><i class="fas fa-id-badge"></i></span>
                     </div>
                 </div>
+
                 <div class="field">
-                    <label class="label">Username</label>
-                    <div class="control">
+                    <label class="label"><i class="fas fa-user mr-1"></i>Username</label>
+                    <div class="control has-icons-left">
                         <input class="input" type="text" name="username" placeholder="johndoe" required>
+                        <span class="icon is-small is-left"><i class="fas fa-at"></i></span>
                     </div>
                 </div>
+
                 <div class="field">
-                    <label class="label">Email</label>
-                    <div class="control">
+                    <label class="label"><i class="fas fa-envelope mr-1"></i>Email</label>
+                    <div class="control has-icons-left">
                         <input class="input" type="email" name="email" placeholder="john@example.com" required>
+                        <span class="icon is-small is-left"><i class="fas fa-envelope"></i></span>
                     </div>
                 </div>
+
                 <div class="field">
-                    <label class="label">Password</label>
-                    <div class="control">
-                        <input class="input" type="password" name="password" required>
+                    <label class="label"><i class="fas fa-lock mr-1"></i>Password</label>
+                    <div class="control has-icons-left">
+                        <input class="input" type="password" name="password" placeholder="Min. 8 characters" required minlength="8">
+                        <span class="icon is-small is-left"><i class="fas fa-key"></i></span>
                     </div>
+                    <p class="help">Must be at least 8 characters. Use a mix of letters, numbers, and symbols.</p>
                 </div>
+
                 <div class="field">
-                    <label class="label">Role</label>
+                    <label class="label"><i class="fas fa-user-tag mr-1"></i>Role</label>
                     <div class="control">
                         <div class="select is-fullwidth">
                             <select name="role" required>
-                                <option value="patient">Patient</option>
-                                <option value="doctor">Doctor</option>
-                                <option value="admin">Admin</option>
+                                <option value="">-- Select your role --</option>
+                                <option value="patient">🩺 Patient — Book appointments & view records</option>
+                                <option value="doctor">👨‍⚕️ Doctor — Manage patients & schedule</option>
+                                <option value="admin">⚙️ Admin — Full system access</option>
                             </select>
                         </div>
                     </div>
+                    <p class="help">Choose the role that matches your position in the clinic.</p>
                 </div>
-                <div class="field">
+
+                <div class="field mt-5">
                     <div class="control">
-                        <button class="button is-primary is-fullwidth" type="submit">Register</button>
+                        <button class="button is-primary is-medium is-fullwidth" type="submit">
+                            <i class="fas fa-user-check mr-2"></i>Create Account
+                        </button>
                     </div>
                 </div>
             </form>
-            <p class="has-text-centered mt-3">
-                Already have an account? <a href="/users/login">Login here</a>
-            </p>
+
+            <div class="has-text-centered mt-4">
+                <p class="has-text-grey">
+                    Already have an account?
+                    <a class="has-text-weight-bold" href="/users/login">Login here</a>
+                </p>
+            </div>
         </div>
     </div>
 </div>

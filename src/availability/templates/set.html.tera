@@ -1,23 +1,43 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<h1 class="title">Set Availability</h1>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/availability"><i class="fas fa-clock mr-1"></i>Availability</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Set</a></li>
+    </ul>
+</nav>
 
-<div class="box">
+<h1 class="title"><i class="fas fa-plus-circle mr-2"></i>Set Availability</h1>
+<p class="subtitle is-6 has-text-grey mb-5">Define when you are available for appointments. Recurring slots apply every week.</p>
+
+<div class="box fade-in">
     <form method="POST" action="/availability/set">
-        <div class="field">
-            <label class="label">Day of Week</label>
-            <div class="control">
-                <div class="select is-fullwidth">
-                    <select name="day_of_week" required>
-                        <option value="0">Sunday</option>
-                        <option value="1">Monday</option>
-                        <option value="2">Tuesday</option>
-                        <option value="3">Wednesday</option>
-                        <option value="4">Thursday</option>
-                        <option value="5">Friday</option>
-                        <option value="6">Saturday</option>
-                    </select>
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-calendar-day mr-1"></i>Day of Week</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="day_of_week" required>
+                                <option value="1">Monday</option>
+                                <option value="2">Tuesday</option>
+                                <option value="3">Wednesday</option>
+                                <option value="4">Thursday</option>
+                                <option value="5">Friday</option>
+                                <option value="6">Saturday</option>
+                                <option value="0">Sunday</option>
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-calendar-day"></i></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="column is-6">
+                <div class="notification is-info is-light">
+                    <p><i class="fas fa-info-circle mr-1"></i><strong>How It Works</strong></p>
+                    <p class="is-size-7 mt-1">Recurring slots repeat every week on the selected day. One-off slots apply only to a specific date. Blocked dates prevent appointments (e.g., holidays or leave).</p>
                 </div>
             </div>
         </div>
@@ -25,47 +45,60 @@
         <div class="columns">
             <div class="column">
                 <div class="field">
-                    <label class="label">Start Time</label>
+                    <label class="label"><i class="fas fa-clock mr-1"></i>Start Time</label>
                     <div class="control">
-                        <input class="input" type="time" name="start_time" required>
+                        <input class="input" type="time" name="start_time" value="09:00" required>
                     </div>
                 </div>
             </div>
             <div class="column">
                 <div class="field">
-                    <label class="label">End Time</label>
+                    <label class="label"><i class="fas fa-clock mr-1"></i>End Time</label>
                     <div class="control">
-                        <input class="input" type="time" name="end_time" required>
+                        <input class="input" type="time" name="end_time" value="17:00" required>
                     </div>
                 </div>
             </div>
         </div>
 
+        <hr>
+
         <div class="field">
             <label class="checkbox">
                 <input type="checkbox" name="is_recurring" value="on" checked>
-                Recurring weekly
+                <strong>Recurring weekly</strong>
             </label>
+            <p class="help">This slot repeats every week on the selected day. Uncheck for a one-off slot.</p>
         </div>
 
         <div class="field">
-            <label class="label">Specific Date (optional — for one-off blocked dates)</label>
+            <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Specific Date <span class="has-text-grey">(optional)</span></label>
             <div class="control">
                 <input class="input" type="date" name="specific_date">
             </div>
+            <p class="help">Required for one-off slots or blocked dates. Leave empty for recurring slots.</p>
         </div>
 
         <div class="field">
             <label class="checkbox">
                 <input type="checkbox" name="is_blocked" value="on">
-                Block this slot (leave / unavailable)
+                <strong>Block this slot</strong> <span class="has-text-danger">(leave / unavailable)</span>
             </label>
+            <p class="help">Use this to mark holidays, personal leave, or days you cannot work.</p>
         </div>
 
-        <div class="field">
+        <hr>
+
+        <div class="field is-grouped">
             <div class="control">
-                <button class="button is-primary" type="submit">Save Availability</button>
-                <a class="button is-light" href="/availability">Cancel</a>
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-save mr-1"></i>Save Availability
+                </button>
+            </div>
+            <div class="control">
+                <a class="button is-light is-medium" href="/availability">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </a>
             </div>
         </div>
     </form>

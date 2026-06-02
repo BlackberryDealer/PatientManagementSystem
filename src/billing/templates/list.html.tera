@@ -3,49 +3,81 @@
 {% block content %}
 <div class="level">
     <div class="level-left">
-        <h1 class="title">Billing</h1>
+        <div>
+            <h1 class="title"><i class="fas fa-file-invoice-dollar mr-2"></i>Billing</h1>
+            <p class="subtitle is-6 has-text-grey">
+                {% if user.role == "patient" %}Your invoices and payment history
+                {% else %}Manage invoices, payments, and financial records{% endif %}
+            </p>
+        </div>
     </div>
     {% if user.role == "admin" %}
     <div class="level-right">
-        <a class="button is-primary" href="/billing/create">+ Create Invoice</a>
+        <div class="buttons">
+            <p class="button is-static has-text-grey"><i class="fas fa-file-invoice mr-1"></i>{{ invoices | length }}</p>
+            <a class="button is-primary" href="/billing/create"><i class="fas fa-plus mr-1"></i>Create Invoice</a>
+        </div>
     </div>
     {% endif %}
 </div>
 
 {% if invoices %}
-<table class="table is-fullwidth is-striped is-hoverable">
-    <thead>
-        <tr>
-            <th>ID</th>
-            {% if user.role == "admin" %}<th>Patient</th>{% endif %}
-            <th>Date</th>
-            <th>Due Date</th>
-            <th>Amount</th>
-            <th>Status</th>
-            <th></th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for inv in invoices %}
-        <tr>
-            <td>{{ inv.id }}</td>
-            {% if user.role == "admin" %}<td>{{ inv.patient_name }}</td>{% endif %}
-            <td>{{ inv.invoice_date }}</td>
-            <td>{{ inv.due_date }}</td>
-            <td>${{ "%.2f" | format(inv.total_amount) }}</td>
-            <td>
-                <span class="tag {% if inv.status == 'paid' %}is-success{% elif inv.status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
-                    {{ inv.status }}
-                </span>
-            </td>
-            <td><a class="button is-small is-info" href="/billing/{{ inv.id }}">View</a></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-container fade-in">
+    <table class="table is-fullwidth is-striped is-hoverable">
+        <thead>
+            <tr>
+                <th><abbr title="Invoice ID">#</abbr></th>
+                {% if user.role == "admin" %}<th><i class="fas fa-user mr-1"></i>Patient</th>{% endif %}
+                <th><i class="fas fa-calendar-alt mr-1"></i>Issued</th>
+                <th><i class="fas fa-hourglass-end mr-1"></i>Due</th>
+                <th><i class="fas fa-dollar-sign mr-1"></i>Amount</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for inv in invoices %}
+            <tr>
+                <td class="has-text-grey is-size-7">#{{ inv.id }}</td>
+                {% if user.role == "admin" %}<td><strong>{{ inv.patient_name }}</strong></td>{% endif %}
+                <td class="is-size-7">{{ inv.invoice_date }}</td>
+                <td class="is-size-7">{{ inv.due_date }}</td>
+                <td class="has-text-weight-semibold">${{ inv.total_amount }}</td>
+                <td>
+                    <span class="tag
+                        {% if inv.status == 'paid' %}is-success
+                        {% elif inv.status == 'pending' %}is-warning
+                        {% else %}is-danger{% endif %} is-light">
+                        <i class="fas
+                            {% if inv.status == 'paid' %}fa-check-circle
+                            {% elif inv.status == 'pending' %}fa-clock
+                            {% else %}fa-ban{% endif %} mr-1"></i>
+                        {{ inv.status }}
+                    </span>
+                </td>
+                <td>
+                    <a class="button is-small is-info is-light" href="/billing/{{ inv.id }}">
+                        <i class="fas fa-eye mr-1"></i>View
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<div class="notification is-info">
-    <p>No invoices found.</p>
+<div class="hero is-medium has-text-centered has-text-grey fade-in">
+    <div class="hero-body">
+        <span class="icon is-large has-text-grey-lighter"><i class="fas fa-receipt fa-4x"></i></span>
+        <p class="title is-4 has-text-grey mt-4">No Invoices Found</p>
+        <p class="subtitle is-6">
+            {% if user.role == "patient" %}You have no invoices yet.
+            {% else %}Create the first invoice to get started.{% endif %}
+        </p>
+        {% if user.role == "admin" %}
+        <a class="button is-primary mt-3" href="/billing/create"><i class="fas fa-plus mr-1"></i>Create Invoice</a>
+        {% endif %}
+    </div>
 </div>
 {% endif %}
 {% endblock %}

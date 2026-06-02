@@ -1,36 +1,88 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<div class="box">
-    <h1 class="title">{{ profile_user.full_name }}</h1>
-    <h2 class="subtitle">@{{ profile_user.username }} — <span class="tag is-info">{{ profile_user.role }}</span></h2>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/users"><i class="fas fa-users mr-1"></i>Users</a></li>
+        <li class="is-active"><a href="#" aria-current="page">{{ profile_user.username }}</a></li>
+    </ul>
+</nav>
+
+<div class="box fade-in">
+    <div class="media mb-5">
+        <div class="media-left">
+            <span class="icon is-large has-text-{% if profile_user.role == 'admin' %}danger{% elif profile_user.role == 'doctor' %}info{% else %}success{% endif %}">
+                <i class="fas fa-user-circle fa-3x"></i>
+            </span>
+        </div>
+        <div class="media-content">
+            <h1 class="title is-4 mb-1">{{ profile_user.full_name }}</h1>
+            <p class="is-size-6 has-text-grey mb-2">@{{ profile_user.username }}</p>
+            <span class="tag is-medium
+                {% if profile_user.role == 'admin' %}is-danger
+                {% elif profile_user.role == 'doctor' %}is-info
+                {% else %}is-success{% endif %} is-light" style="text-transform: capitalize;">
+                <i class="fas
+                    {% if profile_user.role == 'admin' %}fa-shield-alt
+                    {% elif profile_user.role == 'doctor' %}fa-stethoscope
+                    {% else %}fa-user{% endif %} mr-1"></i>
+                {{ profile_user.role }}
+            </span>
+        </div>
+    </div>
 
     <div class="columns mt-4">
         <div class="column is-6">
-            <div class="card">
-                <header class="card-header">
-                    <p class="card-header-title">Account Info</p>
+            <div class="card card-equal-height">
+                <header class="card-header has-background-light">
+                    <p class="card-header-title">
+                        <i class="fas fa-info-circle mr-2"></i>Account Information
+                    </p>
                 </header>
                 <div class="card-content">
-                    <p><strong>Email:</strong> {{ profile_user.email }}</p>
-                    <p><strong>Joined:</strong> {{ profile_user.created_at }}</p>
-                    <p><strong>User ID:</strong> {{ profile_user.id }}</p>
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal"><label class="label">Email</label></div>
+                        <div class="field-body"><p class="mt-1"><i class="fas fa-envelope has-text-grey mr-2"></i>{{ profile_user.email }}</p></div>
+                    </div>
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal"><label class="label">Joined</label></div>
+                        <div class="field-body"><p class="mt-1"><i class="fas fa-calendar has-text-grey mr-2"></i>{{ profile_user.created_at }}</p></div>
+                    </div>
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal"><label class="label">User #</label></div>
+                        <div class="field-body"><p class="mt-1"><span class="tag is-light">#{{ profile_user.id }}</span></p></div>
+                    </div>
                 </div>
             </div>
         </div>
 
         {% if patient %}
         <div class="column is-6">
-            <div class="card">
-                <header class="card-header">
-                    <p class="card-header-title">Patient Details</p>
+            <div class="card card-equal-height">
+                <header class="card-header has-background-success-light">
+                    <p class="card-header-title">
+                        <i class="fas fa-notes-medical mr-2"></i>Patient Details
+                    </p>
                 </header>
                 <div class="card-content">
-                    {% if patient.date_of_birth %}<p><strong>DOB:</strong> {{ patient.date_of_birth }}</p>{% endif %}
-                    {% if patient.phone %}<p><strong>Phone:</strong> {{ patient.phone }}</p>{% endif %}
-                    {% if patient.address %}<p><strong>Address:</strong> {{ patient.address }}</p>{% endif %}
-                    {% if patient.blood_group %}<p><strong>Blood Group:</strong> {{ patient.blood_group }}</p>{% endif %}
-                    {% if patient.emergency_contact %}<p><strong>Emergency Contact:</strong> {{ patient.emergency_contact }}</p>{% endif %}
+                    {% if patient.date_of_birth %}
+                    <p class="mb-2"><i class="fas fa-birthday-cake has-text-grey mr-2"></i><strong>DOB:</strong> {{ patient.date_of_birth }}</p>
+                    {% endif %}
+                    {% if patient.phone %}
+                    <p class="mb-2"><i class="fas fa-phone has-text-grey mr-2"></i><strong>Phone:</strong> {{ patient.phone }}</p>
+                    {% endif %}
+                    {% if patient.address %}
+                    <p class="mb-2"><i class="fas fa-map-marker-alt has-text-grey mr-2"></i><strong>Address:</strong> {{ patient.address }}</p>
+                    {% endif %}
+                    {% if patient.blood_group %}
+                    <p class="mb-2"><i class="fas fa-tint has-text-danger mr-2"></i><strong>Blood Group:</strong> {{ patient.blood_group }}</p>
+                    {% endif %}
+                    {% if patient.emergency_contact %}
+                    <p class="mb-2"><i class="fas fa-phone-alt has-text-warning mr-2"></i><strong>Emergency:</strong> {{ patient.emergency_contact }}</p>
+                    {% endif %}
+                    {% if not patient.date_of_birth and not patient.phone and not patient.address and not patient.blood_group and not patient.emergency_contact %}
+                    <p class="has-text-grey"><i class="fas fa-info-circle mr-2"></i>No details recorded yet.</p>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -38,18 +90,28 @@
 
         {% if doctor %}
         <div class="column is-6">
-            <div class="card">
-                <header class="card-header">
-                    <p class="card-header-title">Doctor Details</p>
+            <div class="card card-equal-height">
+                <header class="card-header has-background-info-light">
+                    <p class="card-header-title">
+                        <i class="fas fa-stethoscope mr-2"></i>Doctor Details
+                    </p>
                 </header>
                 <div class="card-content">
-                    <p><strong>Specialization:</strong> {{ doctor.specialization }}</p>
-                    <p><strong>License #:</strong> {{ doctor.license_number }}</p>
-                    {% if doctor.phone %}<p><strong>Phone:</strong> {{ doctor.phone }}</p>{% endif %}
+                    <p class="mb-2"><i class="fas fa-graduation-cap has-text-grey mr-2"></i><strong>Specialization:</strong> {{ doctor.specialization }}</p>
+                    <p class="mb-2"><i class="fas fa-id-card has-text-grey mr-2"></i><strong>License #:</strong> {{ doctor.license_number }}</p>
+                    {% if doctor.phone %}
+                    <p class="mb-2"><i class="fas fa-phone has-text-grey mr-2"></i><strong>Phone:</strong> {{ doctor.phone }}</p>
+                    {% endif %}
                 </div>
             </div>
         </div>
         {% endif %}
+    </div>
+
+    <div class="mt-5">
+        <a class="button is-light" href="{% if user.role == 'admin' %}/users{% else %}/appointments{% endif %}">
+            <i class="fas fa-arrow-left mr-2"></i>Back
+        </a>
     </div>
 </div>
 {% endblock %}
