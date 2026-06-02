@@ -1,20 +1,12 @@
-mod auth;
-mod db;
-mod errors;
-
-mod users;
-mod appointments;
-mod availability;
-mod records;
-mod billing;
+use patient_management_system as pms;
+use pms::auth::OptionalAuthUser;
+use pms::{appointments, availability, billing, db, records, users};
 
 use actix_session::{storage::CookieSessionStore, SessionMiddleware};
 use actix_web::{cookie::Key, web, App, HttpResponse, HttpServer};
 use log::{info, warn};
 use std::fs;
 use std::io::Write;
-
-use crate::auth::OptionalAuthUser;
 
 // ============================================================
 // Template loader: loads all .tera files from modules' templates/

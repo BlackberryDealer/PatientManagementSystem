@@ -1,0 +1,12 @@
+//! Patient Management System library crate.
+//! Re-exports all modules for integration testing.
+
+pub mod auth;
+pub mod db;
+pub mod errors;
+
+pub mod users;
+pub mod appointments;
+pub mod availability;
+pub mod records;
+pub mod billing;

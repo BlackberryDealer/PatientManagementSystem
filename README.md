@@ -218,6 +218,32 @@ Aligned with the spec v1.2.2 submission structure:
 
 ---
 
-## �📄 License
+## 🧪 Testing
+
+### Run the Test Suite
+
+```bash
+cargo test
+```
+
+### Test Coverage (35 tests, 6 suites)
+
+| Test Suite | Tests | Covers |
+|---|---|---|
+| `test_auth.rs` | 11 | Registration (patient/doctor/admin), duplicate rejection, login success/failure, logout, role guards, admin-only routes, profile view |
+| `test_algorithms.rs` | 11 | Empty-schedule no-conflict, overlap detection, cancelled-appointment exclusion, earliest-slot (empty/after-existing/full/gap), priority bump, equal-priority rejection, normal-priority gate, waitlist add/promote |
+| `test_appointments.rs` | 3 | Booking form, empty list, waitlist page |
+| `test_availability.rs` | 3 | Doctor availability page, set-availability form, submit |
+| `test_records.rs` | 3 | Records list, create form (doctor-only guard), patient blocked |
+| `test_billing.rs` | 4 | Invoice list, admin-only create, payment recording |
+| **Total** | **35** | **100% pass rate** |
+
+### Architecture
+
+Tests use **in-memory SQLite** (`sqlite::memory:`) with full migrations for zero-config, isolated test runs. The `with_test_app!` macro builds a complete Actix app with all routes, session middleware, and stub Tera templates. `register_and_login!` provides authenticated sessions without duplicating registration boilerplate. Both macros avoid `actix-http` version conflicts by letting Rust infer all `Service` trait types.
+
+---
+
+## 📄 License
 
 This project is developed as part of the CSC1106 Web Programming coursework at the University of Glasgow.
