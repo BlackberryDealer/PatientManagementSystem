@@ -97,6 +97,7 @@ pub async fn suggest_slot_form(
     ctx.insert("user", &user);
     ctx.insert("doctors", &doctors);
     ctx.insert("rooms", &rooms);
+    ctx.insert("suggested_slot", &Option::<String>::None);
     ctx.insert("title", "Find Available Slot");
     let rendered = tera.render("appointments/suggest.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
