@@ -1,61 +1,75 @@
 use crate::billing::models::{CreateInvoiceForm, Invoice, InvoiceItem, InvoiceView, Payment, RecordPaymentForm};
+use crate::db;
 use crate::errors::AppError;
 use sqlx::SqlitePool;
-
-/// Get the patient's internal ID from user ID.
-async fn get_patient_id(pool: &SqlitePool, user_id: i64) -> Result<i64, AppError> {
-    let row = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Patient profile not found".into()))?;
-    Ok(row.0)
-}
 
 // ============================================================
 // Invoice CRUD
 // ============================================================
 
-/// Create an invoice with a single default line item.
-/// TODO: Support multiple items from form input (currently uses a stub item).
-/// TODO: PDF generation using a crate like `printpdf` or `wkhtmltopdf`.
+/// Create an invoice with itemized line items parsed from the form.
+/// The `items` field must contain one item per line in the format:
+///   "Description|quantity|unit_price"
+/// At least one valid line is required; malformed lines are skipped.
 pub async fn create_invoice(
     pool: &SqlitePool,
     form: &CreateInvoiceForm,
 ) -> Result<Invoice, AppError> {
+    // Parse itemized line items from the submitted text
+    let line_items: Vec<(String, i32, f64)> = form
+        .items
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(3, '|').collect();
+            if parts.len() != 3 { return None; }
+            let description = parts[0].trim().to_string();
+            let quantity: i32 = parts[1].trim().parse().ok()?;
+            let unit_price: f64 = parts[2].trim().parse().ok()?;
+            if description.is_empty() || quantity <= 0 || unit_price < 0.0 { return None; }
+            Some((description, quantity, unit_price))
+        })
+        .collect();
+
+    if line_items.is_empty() {
+        return Err(AppError::BadRequest(
+            "At least one valid line item is required. Format: Description|quantity|unit_price"
+                .into(),
+        ));
+    }
+
+    let grand_total: f64 = line_items
+        .iter()
+        .map(|(_, qty, price)| (*qty as f64) * price)
+        .sum();
+
     // Create the invoice header
     let invoice = sqlx::query_as::<_, Invoice>(
         "INSERT INTO invoices (patient_id, due_date, total_amount, status)
-         VALUES (?, ?, 0.0, 'pending')
+         VALUES (?, ?, ?, 'pending')
          RETURNING id, patient_id, invoice_date, due_date, total_amount, status, created_at",
     )
     .bind(form.patient_id)
     .bind(&form.due_date)
+    .bind(grand_total)
     .fetch_one(pool)
     .await?;
 
-    // Add a stub line item (placeholder)
-    // In production, items would be parsed from the form's JSON array
-    let item_total = 100.0; // stub amount
-    sqlx::query(
-        "INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, total_price)
-         VALUES (?, ?, 1, ?, ?)",
-    )
-    .bind(invoice.id)
-    .bind("Consultation Fee (stub — implement itemized billing)")
-    .bind(item_total)
-    .bind(item_total)
-    .execute(pool)
-    .await?;
-
-    // Update total
-    sqlx::query("UPDATE invoices SET total_amount = ? WHERE id = ?")
-        .bind(item_total)
+    // Insert each line item
+    for (description, quantity, unit_price) in &line_items {
+        let total_price = (*quantity as f64) * unit_price;
+        sqlx::query(
+            "INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, total_price)
+             VALUES (?, ?, ?, ?, ?)",
+        )
         .bind(invoice.id)
+        .bind(description)
+        .bind(quantity)
+        .bind(unit_price)
+        .bind(total_price)
         .execute(pool)
         .await?;
+    }
 
-    // Return with updated total
     get_invoice_by_id(pool, invoice.id).await
 }
 
@@ -84,7 +98,7 @@ pub async fn get_invoices_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
 ) -> Result<Vec<InvoiceView>, AppError> {
-    let patient_id = get_patient_id(pool, patient_user_id).await?;
+    let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
     let rows = sqlx::query_as::<_, (i64, String, chrono::NaiveDate, chrono::NaiveDate, f64, String)>(
         "SELECT i.id, u.full_name AS patient_name, i.invoice_date, i.due_date, i.total_amount, i.status
@@ -188,16 +202,3 @@ pub async fn record_payment(
     Ok(payment)
 }
 
-// ============================================================
-// PDF Generation Stub
-// ============================================================
-// TODO: Implement PDF invoice generation using a crate such as:
-//   - `genpdf` — pure Rust, simple API
-//   - `printpdf` — low-level PDF construction
-//   - `wkhtmltopdf` — render HTML to PDF via external binary
-//
-// The entry point would be a handler like:
-//   GET /billing/{id}/pdf
-// which calls:
-//   pub async fn generate_invoice_pdf(pool: &SqlitePool, invoice_id: i64) -> Result<Vec<u8>, AppError>
-// and returns the PDF bytes with Content-Type: application/pdf.

@@ -1,3 +1,4 @@
+use crate::traits::TimeSlotted;
 use serde::{Deserialize, Serialize};
 
 /// Represents a doctor's availability slot — either a recurring
@@ -14,6 +15,11 @@ pub struct DoctorAvailability {
     pub is_recurring: i32,      // 1 = recurring weekly, 0 = one-off
     pub specific_date: Option<chrono::NaiveDate>,
     pub is_blocked: i32,        // 1 = blocked/unavailable, 0 = available
+}
+
+impl TimeSlotted for DoctorAvailability {
+    fn start_time(&self) -> &str { &self.start_time }
+    fn end_time(&self) -> &str { &self.end_time }
 }
 
 /// Form submitted by a doctor to set their availability.

@@ -63,6 +63,17 @@ pub async fn invoice_detail(
 ) -> Result<HttpResponse, AppError> {
     let invoice_id = path.into_inner();
     let invoice = services::get_invoice_by_id(pool.get_ref(), invoice_id).await?;
+
+    // Patients may only view their own invoices
+    if user.role == "patient" {
+        let patient_id = crate::db::get_patient_id(pool.get_ref(), user.user_id).await?;
+        if invoice.patient_id != patient_id {
+            return Err(AppError::Forbidden(
+                "You do not have permission to view this invoice.".into(),
+            ));
+        }
+    }
+
     let items = services::get_invoice_items(pool.get_ref(), invoice_id).await?;
     let payments = services::get_invoice_payments(pool.get_ref(), invoice_id).await?;
 
@@ -76,17 +87,29 @@ pub async fn invoice_detail(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /billing/{id}/pay — record a payment
+/// POST /billing/{id}/pay — record a payment against an invoice.
+/// Admins can record payments for any invoice.
+/// Patients may pay their own invoices only.
 pub async fn record_payment(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,
     user: AuthUser,
     form: web::Form<RecordPaymentForm>,
 ) -> Result<HttpResponse, AppError> {
-    // Admin can record payments; patients could also in production
-    require_admin(&user)?;
-
     let invoice_id = path.into_inner();
+
+    if user.role == "patient" {
+        let patient_id = crate::db::get_patient_id(pool.get_ref(), user.user_id).await?;
+        let invoice = services::get_invoice_by_id(pool.get_ref(), invoice_id).await?;
+        if invoice.patient_id != patient_id {
+            return Err(AppError::Forbidden(
+                "You can only pay your own invoices.".into(),
+            ));
+        }
+    } else {
+        require_admin(&user)?;
+    }
+
     services::record_payment(pool.get_ref(), invoice_id, &form).await?;
 
     Ok(HttpResponse::SeeOther()

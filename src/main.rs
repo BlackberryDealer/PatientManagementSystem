@@ -1,6 +1,7 @@
 mod auth;
 mod db;
 mod errors;
+pub mod traits;
 
 mod users;
 mod appointments;
@@ -124,7 +125,9 @@ async fn main() -> std::io::Result<()> {
     load_module_templates(&mut tera).expect("Failed to load module templates");
 
     // Auto-register tera in debug mode for easy template debugging
-    tera.autoescape_on(vec![]); // disable auto-escaping for .tera files (they are HTML)
+    // Enable auto-escaping for all .tera templates to prevent XSS.
+    // Use the `| safe` filter in templates only for trusted, pre-escaped HTML.
+    tera.autoescape_on(vec![".tera"]);
 
     // Session encryption key (persisted in .env across restarts)
     let secret_key = get_or_create_secret_key();

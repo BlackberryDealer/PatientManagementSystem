@@ -3,6 +3,7 @@ use crate::appointments::models::{
     SuggestSlotForm, WaitlistEntry, WaitlistForm,
 };
 use crate::errors::AppError;
+use crate::traits::{Prioritized, TimeSlotted};
 use sqlx::SqlitePool;
 use std::collections::BinaryHeap;
 
@@ -111,16 +112,31 @@ pub async fn find_earliest_slot(
         return Err(AppError::BadRequest("Duration must be 1–480 minutes".into()));
     }
 
-    // Fetch existing appointments for doctor on that date, sorted by start_time
-    let existing = sqlx::query_as::<_, (String, String)>(
-        "SELECT start_time, end_time FROM appointments
-         WHERE doctor_id = ? AND appointment_date = ? AND status != 'cancelled'
-         ORDER BY start_time",
-    )
-    .bind(form.doctor_id)
-    .bind(&form.appointment_date)
-    .fetch_all(pool)
-    .await?;
+    // Fetch existing appointments for the doctor on that date, sorted by start time.
+    // Also include any room conflicts if a room was specified.
+    let existing = if let Some(rid) = form.room_id {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT start_time, end_time FROM appointments
+             WHERE (doctor_id = ? OR room_id = ?) AND appointment_date = ?
+               AND status != 'cancelled'
+             ORDER BY start_time",
+        )
+        .bind(form.doctor_id)
+        .bind(rid)
+        .bind(&form.appointment_date)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT start_time, end_time FROM appointments
+             WHERE doctor_id = ? AND appointment_date = ? AND status != 'cancelled'
+             ORDER BY start_time",
+        )
+        .bind(form.doctor_id)
+        .bind(&form.appointment_date)
+        .fetch_all(pool)
+        .await?
+    };
 
     // Work hours: 08:00 to 17:00
     let day_start = 8 * 60;   // 480 mins
@@ -158,7 +174,6 @@ pub async fn find_earliest_slot(
 /// A waitlist item ordered by priority for the BinaryHeap.
 /// Lower priority number = higher urgency (flipped for max-heap behaviour).
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) struct PriorityItem {
     waitlist_id: i64,
     patient_id: i64,
@@ -183,7 +198,8 @@ impl PartialOrd for PriorityItem {
 }
 
 /// Build a priority queue from waitlist entries for a doctor on a date.
-#[allow(dead_code)]
+/// Uses `std::collections::BinaryHeap` with a reversed Ord so that the
+/// most urgent (lowest priority number) is always at the top.
 pub async fn build_priority_queue(
     pool: &SqlitePool,
     doctor_id: i64,
@@ -439,7 +455,7 @@ pub async fn add_to_waitlist(
     .await?)
 }
 
-/// Get waitlist for a doctor (or all, if admin).
+/// Get waitlist for a doctor.
 pub async fn get_waitlist_for_doctor(
     pool: &SqlitePool,
     doctor_id: i64,
@@ -451,6 +467,83 @@ pub async fn get_waitlist_for_doctor(
     .bind(doctor_id)
     .fetch_all(pool)
     .await?)
+}
+
+/// Get all waitlist entries for a specific patient (by user_id).
+pub async fn get_waitlist_for_patient(
+    pool: &SqlitePool,
+    patient_user_id: i64,
+) -> Result<Vec<WaitlistEntry>, AppError> {
+    Ok(sqlx::query_as::<_, WaitlistEntry>(
+        "SELECT w.* FROM waitlist w
+         JOIN patients p ON w.patient_id = p.id
+         WHERE p.user_id = ? AND w.status = 'waiting'
+         ORDER BY w.priority ASC, w.created_at ASC",
+    )
+    .bind(patient_user_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Get all pending waitlist entries (admin view).
+pub async fn get_all_waitlist(pool: &SqlitePool) -> Result<Vec<WaitlistEntry>, AppError> {
+    Ok(sqlx::query_as::<_, WaitlistEntry>(
+        "SELECT * FROM waitlist WHERE status = 'waiting' ORDER BY priority ASC, created_at ASC",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Automatically promote the highest-priority waitlist entry for a freed slot.
+/// Called after an appointment is cancelled to fill the gap immediately.
+///
+/// Uses Algorithm 3 (BinaryHeap priority queue) to select the most urgent
+/// waiting patient, then promotes them if the slot is now conflict-free.
+pub async fn auto_promote_waitlist(
+    pool: &SqlitePool,
+    doctor_id: i64,
+    appointment_date: &str,
+) -> Result<Option<Appointment>, AppError> {
+    let heap = build_priority_queue(pool, doctor_id, appointment_date).await?;
+
+    for item in heap.into_sorted_vec() {
+        let entry = sqlx::query_as::<_, WaitlistEntry>(
+            "SELECT * FROM waitlist WHERE id = ? AND status = 'waiting'",
+        )
+        .bind(item.waitlist_id)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some(entry) = entry {
+            // Use TimeSlotted trait to check conflict before querying DB
+            let conflict = check_conflict(
+                pool, entry.doctor_id,
+                appointment_date,
+                entry.start_time(), // from TimeSlotted trait
+                entry.end_time(),   // from TimeSlotted trait
+                entry.room_id, None,
+            ).await?;
+
+            if !conflict {
+                let appt = insert_appointment(
+                    pool, entry.patient_id, entry.doctor_id,
+                    appointment_date,
+                    entry.start_time(), entry.end_time(),
+                    entry.priority_level(), // from Prioritized trait
+                    entry.room_id, &entry.notes,
+                ).await?;
+
+                sqlx::query("UPDATE waitlist SET status = 'accepted' WHERE id = ?")
+                    .bind(item.waitlist_id)
+                    .execute(pool)
+                    .await?;
+
+                return Ok(Some(appt));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 /// Promote a waitlist entry: if its slot is now free, book it.
@@ -608,19 +701,59 @@ fn map_to_views(
 }
 
 /// Cancel an appointment.
+/// After cancellation, automatically attempts to promote the highest-priority
+/// waitlist entry into the freed slot using the BinaryHeap priority queue.
 pub async fn cancel_appointment(pool: &SqlitePool, appointment_id: i64) -> Result<(), AppError> {
-    let rows = sqlx::query(
-        "UPDATE appointments SET status = 'cancelled' WHERE id = ? AND status = 'scheduled'",
+    // Fetch the appointment first so we can use its date/doctor for waitlist promotion
+    let appt = sqlx::query_as::<_, (i64, String, chrono::NaiveDate)>(
+        "SELECT doctor_id, status, appointment_date FROM appointments WHERE id = ?",
     )
     .bind(appointment_id)
-    .execute(pool)
+    .fetch_optional(pool)
     .await?
-    .rows_affected();
+    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
 
-    if rows == 0 {
-        return Err(AppError::NotFound("Appointment not found or already cancelled/completed".into()));
+    if appt.1 != "scheduled" {
+        return Err(AppError::BadRequest("Appointment is already cancelled or completed".into()));
     }
+
+    sqlx::query("UPDATE appointments SET status = 'cancelled' WHERE id = ?")
+        .bind(appointment_id)
+        .execute(pool)
+        .await?;
+
+    // Auto-promote the most urgent waitlist entry for the freed slot
+    let date_str = appt.2.format("%Y-%m-%d").to_string();
+    let _ = auto_promote_waitlist(pool, appt.0, &date_str).await;
+
     Ok(())
+}
+
+/// Cancel an appointment, enforcing ownership for patients.
+/// Patients may only cancel their own appointments; doctors and admins can cancel any.
+pub async fn cancel_appointment_checked(
+    pool: &SqlitePool,
+    appointment_id: i64,
+    user_id: i64,
+    role: &str,
+) -> Result<(), AppError> {
+    if role == "patient" {
+        let patient_id = crate::db::get_patient_id(pool, user_id).await?;
+        let owns: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
+        )
+        .bind(appointment_id)
+        .bind(patient_id)
+        .fetch_one(pool)
+        .await?;
+
+        if owns.0 == 0 {
+            return Err(AppError::Forbidden(
+                "You can only cancel your own appointments.".into(),
+            ));
+        }
+    }
+    cancel_appointment(pool, appointment_id).await
 }
 
 /// Get all doctors for dropdowns.

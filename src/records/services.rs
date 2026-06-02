@@ -1,26 +1,7 @@
+use crate::db;
 use crate::errors::AppError;
 use crate::records::models::{CreateRecordForm, MedicalRecord, Prescription};
 use sqlx::SqlitePool;
-
-/// Get the doctor's internal ID from user ID.
-async fn get_doctor_id(pool: &SqlitePool, user_id: i64) -> Result<i64, AppError> {
-    let row = sqlx::query_as::<_, (i64,)>("SELECT id FROM doctors WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Doctor profile not found".into()))?;
-    Ok(row.0)
-}
-
-/// Get the patient's internal ID from user ID.
-async fn get_patient_id(pool: &SqlitePool, user_id: i64) -> Result<i64, AppError> {
-    let row = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Patient profile not found".into()))?;
-    Ok(row.0)
-}
 
 /// Create a new medical record (doctor only).
 pub async fn create_record(
@@ -28,7 +9,7 @@ pub async fn create_record(
     doctor_user_id: i64,
     form: &CreateRecordForm,
 ) -> Result<MedicalRecord, AppError> {
-    let doctor_id = get_doctor_id(pool, doctor_user_id).await?;
+    let doctor_id = db::get_doctor_id(pool, doctor_user_id).await?;
 
     Ok(sqlx::query_as::<_, MedicalRecord>(
         "INSERT INTO medical_records (patient_id, doctor_id, appointment_id, diagnosis, treatment, notes)
@@ -50,7 +31,7 @@ pub async fn get_records_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
 ) -> Result<Vec<MedicalRecord>, AppError> {
-    let patient_id = get_patient_id(pool, patient_user_id).await?;
+    let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
     Ok(sqlx::query_as::<_, MedicalRecord>(
         "SELECT * FROM medical_records WHERE patient_id = ? ORDER BY created_at DESC",
@@ -88,7 +69,7 @@ pub async fn get_prescriptions_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
 ) -> Result<Vec<Prescription>, AppError> {
-    let patient_id = get_patient_id(pool, patient_user_id).await?;
+    let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
     Ok(sqlx::query_as::<_, Prescription>(
         "SELECT * FROM prescriptions WHERE patient_id = ? ORDER BY prescribed_at DESC",

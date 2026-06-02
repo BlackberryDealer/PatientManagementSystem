@@ -1,3 +1,4 @@
+use crate::traits::{Prioritized, Reportable, StatusManaged, TimeSlotted};
 use serde::{Deserialize, Serialize};
 
 // ============================================================
@@ -6,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 /// Priority levels matching hospital triage standards.
 /// 1 = Emergency (life-threatening), 2 = Urgent, 3 = Normal, 4 = Follow-up.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Priority {
     Emergency = 1,
@@ -15,7 +15,6 @@ pub enum Priority {
     FollowUp = 4,
 }
 
-#[allow(dead_code)]
 impl Priority {
     pub fn from_i32(v: i32) -> Self {
         match v {
@@ -26,7 +25,7 @@ impl Priority {
         }
     }
 
-    pub fn label(&self) -> &str {
+    pub fn label(&self) -> &'static str {
         match self {
             Priority::Emergency => "Emergency",
             Priority::Urgent => "Urgent",
@@ -35,7 +34,7 @@ impl Priority {
         }
     }
 
-    pub fn css_class(&self) -> &str {
+    pub fn css_class(&self) -> &'static str {
         match self {
             Priority::Emergency => "is-danger",
             Priority::Urgent => "is-warning",
@@ -95,9 +94,8 @@ pub struct BookAppointmentForm {
 pub struct SuggestSlotForm {
     pub doctor_id: i64,
     pub appointment_date: String,
-    pub duration_minutes: i32,  // how long the appointment should be
-    #[allow(dead_code)]
-    pub room_id: Option<i64>,   // reserved for room-aware slot finding
+    pub duration_minutes: i32,
+    pub room_id: Option<i64>,
 }
 
 /// Joined view: appointment with patient/doctor names and room for display.
@@ -144,4 +142,68 @@ pub struct WaitlistForm {
     pub priority: i32,
     pub room_id: Option<i64>,
     pub notes: Option<String>,
+}
+
+// ============================================================
+// Trait implementations — OOP via Rust traits (Tutorial 05)
+// ============================================================
+
+impl TimeSlotted for Appointment {
+    fn start_time(&self) -> &str { &self.start_time }
+    fn end_time(&self) -> &str { &self.end_time }
+}
+
+impl StatusManaged for Appointment {
+    fn current_status(&self) -> &str { &self.status }
+
+    fn is_active(&self) -> bool { self.status == "scheduled" }
+
+    fn status_badge_class(&self) -> &str {
+        match self.status.as_str() {
+            "scheduled" => "is-info",
+            "completed" => "is-success",
+            "cancelled" => "is-danger",
+            _           => "is-light",
+        }
+    }
+}
+
+impl Prioritized for Appointment {
+    fn priority_level(&self) -> i32 { self.priority }
+
+    // Override defaults to delegate to the Priority enum, keeping the enum in use
+    fn priority_label(&self) -> &str {
+        Priority::from_i32(self.priority).label()
+    }
+
+    fn priority_badge_class(&self) -> &str {
+        Priority::from_i32(self.priority).css_class()
+    }
+}
+
+impl Reportable for Appointment {
+    fn generate_summary(&self) -> String {
+        format!(
+            "Appointment on {} from {}–{} | Status: {} | Priority: {}",
+            self.appointment_date, self.start_time, self.end_time,
+            self.status, self.priority_label()
+        )
+    }
+}
+
+impl TimeSlotted for WaitlistEntry {
+    fn start_time(&self) -> &str { &self.requested_start }
+    fn end_time(&self) -> &str { &self.requested_end }
+}
+
+impl Prioritized for WaitlistEntry {
+    fn priority_level(&self) -> i32 { self.priority }
+
+    fn priority_label(&self) -> &str {
+        Priority::from_i32(self.priority).label()
+    }
+
+    fn priority_badge_class(&self) -> &str {
+        Priority::from_i32(self.priority).css_class()
+    }
 }

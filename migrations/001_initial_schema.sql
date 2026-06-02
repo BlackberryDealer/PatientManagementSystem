@@ -36,16 +36,26 @@ CREATE TABLE IF NOT EXISTS doctors (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Rooms: consultation rooms and medical equipment resources
+CREATE TABLE IF NOT EXISTS rooms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    room_type TEXT NOT NULL DEFAULT 'consultation',
+    floor TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    notes TEXT
+);
+
 -- Doctor Availability: recurring weekly slots and blocked/leave dates
 CREATE TABLE IF NOT EXISTS doctor_availability (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     doctor_id INTEGER NOT NULL,
     day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
-    start_time TEXT NOT NULL,        -- HH:MM format
-    end_time TEXT NOT NULL,          -- HH:MM format
-    is_recurring BOOLEAN NOT NULL DEFAULT 1,
-    specific_date DATE,              -- non-null for blocked/override dates
-    is_blocked BOOLEAN NOT NULL DEFAULT 0,
+    start_time TEXT NOT NULL,          -- HH:MM format
+    end_time TEXT NOT NULL,            -- HH:MM format
+    is_recurring INTEGER NOT NULL DEFAULT 1,
+    specific_date DATE,                -- non-null for blocked/override dates
+    is_blocked INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE
 );
 
@@ -55,13 +65,34 @@ CREATE TABLE IF NOT EXISTS appointments (
     patient_id INTEGER NOT NULL,
     doctor_id INTEGER NOT NULL,
     appointment_date DATE NOT NULL,
-    start_time TEXT NOT NULL,        -- HH:MM format
-    end_time TEXT NOT NULL,          -- HH:MM format
+    start_time TEXT NOT NULL,          -- HH:MM format
+    end_time TEXT NOT NULL,            -- HH:MM format
     status TEXT NOT NULL CHECK (status IN ('scheduled', 'completed', 'cancelled')) DEFAULT 'scheduled',
     notes TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    room_id INTEGER,
+    priority INTEGER NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 4),
     FOREIGN KEY (patient_id) REFERENCES patients(id),
-    FOREIGN KEY (doctor_id) REFERENCES doctors(id)
+    FOREIGN KEY (doctor_id) REFERENCES doctors(id),
+    FOREIGN KEY (room_id) REFERENCES rooms(id)
+);
+
+-- Waitlist: priority queue for patients awaiting an available appointment slot
+CREATE TABLE IF NOT EXISTS waitlist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id INTEGER NOT NULL,
+    doctor_id INTEGER NOT NULL,
+    room_id INTEGER,
+    appointment_date DATE NOT NULL,
+    requested_start TEXT NOT NULL,     -- HH:MM format
+    requested_end TEXT NOT NULL,       -- HH:MM format
+    priority INTEGER NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 4),
+    notes TEXT,
+    status TEXT NOT NULL CHECK (status IN ('waiting', 'offered', 'accepted', 'expired')) DEFAULT 'waiting',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (patient_id) REFERENCES patients(id),
+    FOREIGN KEY (doctor_id) REFERENCES doctors(id),
+    FOREIGN KEY (room_id) REFERENCES rooms(id)
 );
 
 -- Medical Records: diagnosis and treatment linked to appointments
@@ -144,6 +175,11 @@ CREATE INDEX IF NOT EXISTS idx_appointments_doctor_id ON appointments(doctor_id)
 CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(appointment_date);
 CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
 CREATE INDEX IF NOT EXISTS idx_appointments_doctor_date ON appointments(doctor_id, appointment_date);
+CREATE INDEX IF NOT EXISTS idx_appointments_room ON appointments(room_id);
+CREATE INDEX IF NOT EXISTS idx_waitlist_doctor_id ON waitlist(doctor_id);
+CREATE INDEX IF NOT EXISTS idx_waitlist_patient_id ON waitlist(patient_id);
+CREATE INDEX IF NOT EXISTS idx_waitlist_status ON waitlist(status);
+CREATE INDEX IF NOT EXISTS idx_waitlist_priority ON waitlist(priority, created_at);
 CREATE INDEX IF NOT EXISTS idx_medical_records_patient_id ON medical_records(patient_id);
 CREATE INDEX IF NOT EXISTS idx_medical_records_appointment_id ON medical_records(appointment_id);
 CREATE INDEX IF NOT EXISTS idx_prescriptions_patient_id ON prescriptions(patient_id);

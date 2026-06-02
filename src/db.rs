@@ -1,6 +1,8 @@
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use log::info;
 
+use crate::errors::AppError;
+
 /// Create a connection pool for the SQLite database.
 pub async fn create_pool(database_url: &str) -> SqlitePool {
     info!("Connecting to database: {}", database_url);
@@ -19,4 +21,28 @@ pub async fn run_migrations(pool: &SqlitePool) {
         .await
         .expect("Failed to run database migrations. Check your migration SQL files.");
     info!("Database migrations completed successfully.");
+}
+
+// ============================================================
+// Shared ID-lookup helpers (avoid duplication across modules)
+// ============================================================
+
+/// Resolve the internal patient row ID from a user ID.
+pub async fn get_patient_id(pool: &SqlitePool, user_id: i64) -> Result<i64, AppError> {
+    sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .map(|(id,)| id)
+        .ok_or_else(|| AppError::NotFound("Patient profile not found".into()))
+}
+
+/// Resolve the internal doctor row ID from a user ID.
+pub async fn get_doctor_id(pool: &SqlitePool, user_id: i64) -> Result<i64, AppError> {
+    sqlx::query_as::<_, (i64,)>("SELECT id FROM doctors WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .map(|(id,)| id)
+        .ok_or_else(|| AppError::NotFound("Doctor profile not found".into()))
 }

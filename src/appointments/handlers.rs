@@ -1,11 +1,9 @@
 use actix_web::{web, HttpResponse};
 use tera::Context;
 
-use crate::appointments::models::{
-    BookAppointmentForm, SuggestSlotForm, WaitlistForm,
-};
+use crate::appointments::models::{BookAppointmentForm, SuggestSlotForm, WaitlistForm};
 use crate::appointments::services;
-use crate::auth::AuthUser;
+use crate::auth::{require_doctor, AuthUser};
 use crate::errors::AppError;
 
 // ============================================================
@@ -142,31 +140,17 @@ pub async fn list_waitlist(
 ) -> Result<HttpResponse, AppError> {
     let (waitlist, doctor_label) = match user.role.as_str() {
         "patient" => {
-            (vec![], String::from("Your waitlist"))
+            let entries = services::get_waitlist_for_patient(pool.get_ref(), user.user_id).await?;
+            (entries, String::from("Your Waitlist"))
         }
         "admin" => {
-            // Admin always sees all waitlisted patients, regardless of doctor status
-            let all = sqlx::query_as::<_, crate::appointments::models::WaitlistEntry>(
-                "SELECT * FROM waitlist WHERE status = 'waiting' ORDER BY priority ASC, created_at ASC"
-            )
-            .fetch_all(pool.get_ref())
-            .await?;
+            let all = services::get_all_waitlist(pool.get_ref()).await?;
             (all, String::from("All Waitlisted Patients"))
         }
         "doctor" => {
-            let entries = sqlx::query_as::<_, (i64,)>(
-                "SELECT id FROM doctors WHERE user_id = ?"
-            )
-            .bind(user.user_id)
-            .fetch_optional(pool.get_ref())
-            .await?;
-
-            if let Some((doc_id,)) = entries {
-                (services::get_waitlist_for_doctor(pool.get_ref(), doc_id).await?,
-                 String::from("Patient Waitlist"))
-            } else {
-                (vec![], String::from("Waitlist"))
-            }
+            let doc_id = crate::db::get_doctor_id(pool.get_ref(), user.user_id).await?;
+            let entries = services::get_waitlist_for_doctor(pool.get_ref(), doc_id).await?;
+            (entries, String::from("Patient Waitlist"))
         }
         _ => (vec![], String::new()),
     };
@@ -202,8 +186,9 @@ pub async fn join_waitlist(
 pub async fn promote_waitlist(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,
-    _user: AuthUser,
+    user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
+    require_doctor(&user)?;
     let waitlist_id = path.into_inner();
     let result = services::promote_from_waitlist(pool.get_ref(), waitlist_id).await?;
 
@@ -245,10 +230,12 @@ pub async fn appointment_detail(
 pub async fn cancel_appointment(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,
-    _user: AuthUser,
+    user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let appointment_id = path.into_inner();
-    services::cancel_appointment(pool.get_ref(), appointment_id).await?;
+    services::cancel_appointment_checked(
+        pool.get_ref(), appointment_id, user.user_id, &user.role,
+    ).await?;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", "/appointments"))
         .finish())

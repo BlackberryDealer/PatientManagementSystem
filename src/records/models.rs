@@ -1,3 +1,4 @@
+use crate::traits::Reportable;
 use serde::{Deserialize, Serialize};
 
 /// Medical record: diagnosis and treatment linked to an appointment.
@@ -11,6 +12,21 @@ pub struct MedicalRecord {
     pub treatment: Option<String>,
     pub notes: Option<String>,
     pub created_at: chrono::NaiveDateTime,
+}
+
+// ============================================================
+// Trait implementations — OOP via Rust traits (Tutorial 05)
+// ============================================================
+
+impl Reportable for MedicalRecord {
+    fn generate_summary(&self) -> String {
+        format!(
+            "Record #{} | Diagnosis: {} | Treatment: {}",
+            self.id,
+            self.diagnosis.as_deref().unwrap_or("N/A"),
+            self.treatment.as_deref().unwrap_or("N/A"),
+        )
+    }
 }
 
 /// Form for creating a new medical record.
