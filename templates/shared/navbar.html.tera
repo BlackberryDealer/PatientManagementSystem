@@ -17,6 +17,9 @@
                 <a class="navbar-item" href="/appointments">
                     <i class="fas fa-calendar-check mr-1"></i> Appointments
                 </a>
+                <a class="navbar-item" href="/appointments/calendar">
+                    <i class="fas fa-calendar-alt mr-1"></i> Calendar
+                </a>
                 {% if user.role == "doctor" or user.role == "admin" %}
                 <a class="navbar-item" href="/availability">
                     <i class="fas fa-clock mr-1"></i> Availability

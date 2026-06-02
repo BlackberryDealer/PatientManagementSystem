@@ -14,6 +14,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/login", web::post().to(handlers::login))
             .route("/logout", web::get().to(handlers::logout))
             .route("", web::get().to(handlers::list_users))
-            .route("/{id}", web::get().to(handlers::user_profile)),
+            .route("/{id}", web::get().to(handlers::user_profile))
+            .route("/{id}/edit", web::get().to(handlers::edit_profile_form))
+            .route("/{id}/edit", web::post().to(handlers::edit_profile)),
     );
 }

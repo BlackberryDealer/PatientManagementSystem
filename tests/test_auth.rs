@@ -71,7 +71,7 @@ async fn test_login_success() {
     with_test_app!(pool, app, {
         let _cookie = register_and_login!(app, "logintest", "patient");
         let req = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"username": "logintest", "password": "password123"})).to_request();
+            .set_form(&serde_json::json!({"login": "logintest", "password": "password123"})).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_redirection());
     });
@@ -83,7 +83,7 @@ async fn test_login_wrong_password() {
     with_test_app!(pool, app, {
         let _cookie = register_and_login!(app, "badpw", "patient");
         let req = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"username": "badpw", "password": "wrong"})).to_request();
+            .set_form(&serde_json::json!({"login": "badpw", "password": "wrong"})).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_client_error());
     });
@@ -94,7 +94,7 @@ async fn test_login_nonexistent() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let req = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"username": "nobody", "password": "x"})).to_request();
+            .set_form(&serde_json::json!({"login": "nobody", "password": "x"})).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_client_error());
     });

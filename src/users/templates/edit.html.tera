@@ -1,0 +1,124 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/users/{{ profile_user.id }}"><i class="fas fa-user mr-1"></i>{{ profile_user.username }}</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Edit</a></li>
+    </ul>
+</nav>
+
+<h1 class="title"><i class="fas fa-edit mr-2"></i>Edit Profile</h1>
+<p class="subtitle is-6 has-text-grey mb-5">Update your account and profile details.</p>
+
+<div class="box fade-in">
+    <form method="POST" action="/users/{{ profile_user.id }}/edit">
+        <h2 class="title is-5 mb-3"><i class="fas fa-user-circle mr-2"></i>Account Details</h2>
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label">Full Name</label>
+                    <div class="control">
+                        <input class="input" type="text" name="full_name" value="{{ profile_user.full_name }}" required>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label">Email</label>
+                    <div class="control">
+                        <input class="input" type="email" name="email" value="{{ profile_user.email }}" required>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <p class="help mb-4">Username and role cannot be changed.</p>
+
+        {% if patient %}
+        <hr>
+        <h2 class="title is-5 mb-3"><i class="fas fa-notes-medical mr-2"></i>Patient Details</h2>
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label">Date of Birth</label>
+                    <div class="control">
+                        <input class="input" type="date" name="date_of_birth"
+                               value="{{ patient.date_of_birth | default(value='') }}">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Phone</label>
+                    <div class="control">
+                        <input class="input" type="text" name="phone" value="{{ patient.phone | default(value='') }}">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Blood Group</label>
+                    <div class="control">
+                        <input class="input" type="text" name="blood_group" value="{{ patient.blood_group | default(value='') }}">
+                    </div>
+                </div>
+            </div>
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label">Address</label>
+                    <div class="control">
+                        <textarea class="textarea" name="address" rows="2">{{ patient.address | default(value='') }}</textarea>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Emergency Contact</label>
+                    <div class="control">
+                        <input class="input" type="text" name="emergency_contact" value="{{ patient.emergency_contact | default(value='') }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if doctor %}
+        <hr>
+        <h2 class="title is-5 mb-3"><i class="fas fa-stethoscope mr-2"></i>Doctor Details</h2>
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label">Specialization</label>
+                    <div class="control">
+                        <input class="input" type="text" name="specialization" value="{{ doctor.specialization }}">
+                    </div>
+                </div>
+            </div>
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label">License Number</label>
+                    <div class="control">
+                        <input class="input" type="text" name="license_number" value="{{ doctor.license_number }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <label class="label">Phone</label>
+            <div class="control">
+                <input class="input" type="text" name="phone" value="{{ doctor.phone | default(value='') }}">
+            </div>
+        </div>
+        {% endif %}
+
+        <hr>
+        <div class="field is-grouped">
+            <div class="control">
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-save mr-1"></i>Save Changes
+                </button>
+            </div>
+            <div class="control">
+                <a class="button is-light is-medium" href="/users/{{ profile_user.id }}">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

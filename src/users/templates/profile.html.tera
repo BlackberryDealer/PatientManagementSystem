@@ -108,10 +108,15 @@
         {% endif %}
     </div>
 
-    <div class="mt-5">
+    <div class="mt-5 is-flex is-align-items-center" style="gap: 0.75rem;">
         <a class="button is-light" href="{% if user.role == 'admin' %}/users{% else %}/appointments{% endif %}">
             <i class="fas fa-arrow-left mr-2"></i>Back
         </a>
+        {% if user.user_id == profile_user.id or user.role == 'admin' %}
+        <a class="button is-warning" href="/users/{{ profile_user.id }}/edit">
+            <i class="fas fa-edit mr-2"></i>Edit Profile
+        </a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

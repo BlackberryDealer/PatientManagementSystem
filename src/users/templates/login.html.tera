@@ -14,9 +14,9 @@
 
             <form method="POST" action="/users/login">
                 <div class="field">
-                    <label class="label"><i class="fas fa-user mr-1"></i>Username</label>
+                    <label class="label"><i class="fas fa-user mr-1"></i>Username or Email</label>
                     <div class="control has-icons-left">
-                        <input class="input is-medium" type="text" name="username" placeholder="Enter your username" required autofocus>
+                        <input class="input is-medium" type="text" name="login" placeholder="johndoe or john@email.com" required autofocus>
                         <span class="icon is-small is-left"><i class="fas fa-user"></i></span>
                     </div>
                 </div>
