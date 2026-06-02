@@ -15,6 +15,9 @@
     <div class="level-right">
         <div class="buttons">
             <p class="button is-static has-text-grey"><i class="fas fa-list mr-1"></i>{{ appointments | length }}</p>
+            {% if user.role == "doctor" or user.role == "admin" %}
+            <a class="button is-info is-light" href="/appointments/waitlist"><i class="fas fa-list-ol mr-1"></i>Waitlist</a>
+            {% endif %}
             <a class="button is-primary" href="/appointments/book"><i class="fas fa-plus mr-1"></i>Book Appointment</a>
         </div>
     </div>
@@ -31,6 +34,8 @@
                 {% if user.role == "doctor" %}<th>Patient</th>{% endif %}
                 <th><i class="fas fa-calendar-alt mr-1"></i>Date</th>
                 <th><i class="fas fa-clock mr-1"></i>Time</th>
+                <th>Room</th>
+                <th>Priority</th>
                 <th>Status</th>
                 <th></th>
             </tr>
@@ -50,6 +55,24 @@
                 {% endif %}
                 <td><strong>{{ a.appointment_date }}</strong></td>
                 <td>{{ a.start_time }} – {{ a.end_time }}</td>
+                <td>
+                    {% if a.room_name %}
+                    <span class="tag is-light"><i class="fas fa-door-open mr-1"></i>{{ a.room_name }}</span>
+                    {% else %}
+                    <span class="has-text-grey-light">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if a.priority == 1 %}
+                    <span class="tag is-danger is-light"><i class="fas fa-ambulance mr-1"></i>Emergency</span>
+                    {% elif a.priority == 2 %}
+                    <span class="tag is-warning is-light"><i class="fas fa-exclamation-triangle mr-1"></i>Urgent</span>
+                    {% elif a.priority == 4 %}
+                    <span class="tag is-success is-light">Follow-up</span>
+                    {% else %}
+                    <span class="tag is-info is-light">Normal</span>
+                    {% endif %}
+                </td>
                 <td>
                     <span class="tag
                         {% if a.status == 'scheduled' %}is-primary

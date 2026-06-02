@@ -1,0 +1,86 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/appointments"><i class="fas fa-calendar-check mr-1"></i>Appointments</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Find Slot</a></li>
+    </ul>
+</nav>
+
+<h1 class="title"><i class="fas fa-search mr-2"></i>Find Available Slot</h1>
+<p class="subtitle is-6 has-text-grey mb-5">The system will scan the doctor's schedule and suggest the earliest available time.</p>
+
+<div class="box fade-in">
+    <form method="POST" action="/appointments/suggest">
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-user-md mr-1"></i>Select Doctor</label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select name="doctor_id" required>
+                                <option value="">-- Choose a doctor --</option>
+                                {% for d in doctors %}
+                                <option value="{{ d.0 }}" {% if form_doctor_id and form_doctor_id == d.0 %}selected{% endif %}>{{ d.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Date</label>
+                    <div class="control">
+                        <input class="input" type="date" name="appointment_date" required
+                               {% if form_date %}value="{{ form_date }}"{% endif %}>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label"><i class="fas fa-hourglass-half mr-1"></i>Duration (minutes)</label>
+                    <div class="control">
+                        <input class="input" type="number" name="duration_minutes" value="{{ form_duration | default(value=30) }}" min="10" max="480" step="5" required>
+                    </div>
+                    <p class="help">How long should the appointment be? (10–480 minutes)</p>
+                </div>
+            </div>
+
+            <div class="column is-6">
+                <div class="notification is-info is-light">
+                    <p><i class="fas fa-lightbulb mr-1"></i><strong>How It Works</strong></p>
+                    <p class="is-size-7 mt-1">The <strong>Earliest Available Slot Algorithm</strong> scans all existing appointments for the selected doctor on that date, finds the first gap that fits your requested duration, and suggests it. Working hours are 08:00–17:00.</p>
+                </div>
+
+                {% if suggested_slot is defined %}
+                <div class="notification {% if suggested_slot %}is-success{% else %}is-warning{% endif %} is-light mt-4">
+                    {% if suggested_slot %}
+                    <p><i class="fas fa-check-circle mr-1"></i><strong>Slot Found!</strong></p>
+                    <p class="is-size-5 mt-2 has-text-weight-bold">{{ suggested_slot }}</p>
+                    <p class="is-size-7 mt-2">You can now <a href="/appointments/book">book an appointment</a> starting at this time.</p>
+                    {% else %}
+                    <p><i class="fas fa-exclamation-triangle mr-1"></i><strong>No Slots Available</strong></p>
+                    <p class="is-size-7 mt-1">This doctor is fully booked on this date. Try a different date, or <a href="/appointments/waitlist">join the waitlist</a>.</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <hr>
+
+        <div class="field is-grouped">
+            <div class="control">
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-search mr-1"></i>Find Earliest Slot
+                </button>
+            </div>
+            <div class="control">
+                <a class="button is-light is-medium" href="/appointments">
+                    <i class="fas fa-arrow-left mr-1"></i>Back
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

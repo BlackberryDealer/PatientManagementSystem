@@ -1,7 +1,9 @@
 use actix_web::{web, HttpResponse};
 use tera::Context;
 
-use crate::appointments::models::BookAppointmentForm;
+use crate::appointments::models::{
+    BookAppointmentForm, SuggestSlotForm, WaitlistForm,
+};
 use crate::appointments::services;
 use crate::auth::AuthUser;
 use crate::errors::AppError;
@@ -16,12 +18,8 @@ pub async fn list_appointments(
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let appointments = match user.role.as_str() {
-        "patient" => {
-            services::get_appointments_for_patient(pool.get_ref(), user.user_id).await?
-        }
-        "doctor" => {
-            services::get_appointments_for_doctor(pool.get_ref(), user.user_id).await?
-        }
+        "patient" => services::get_appointments_for_patient(pool.get_ref(), user.user_id).await?,
+        "doctor" => services::get_appointments_for_doctor(pool.get_ref(), user.user_id).await?,
         "admin" => services::get_all_appointments(pool.get_ref()).await?,
         _ => vec![],
     };
@@ -44,17 +42,19 @@ pub async fn book_form(
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let doctors = services::get_all_doctors(pool.get_ref()).await?;
+    let rooms = services::get_all_rooms(pool.get_ref()).await?;
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("doctors", &doctors);
+    ctx.insert("rooms", &rooms);
     ctx.insert("title", "Book Appointment");
     let rendered = tera.render("appointments/book.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
 }
 
 // ============================================================
-// POST /appointments/book — process booking (with conflict check)
+// POST /appointments/book — standard booking
 // ============================================================
 
 pub async fn book_appointment(
@@ -62,12 +62,159 @@ pub async fn book_appointment(
     user: AuthUser,
     form: web::Form<BookAppointmentForm>,
 ) -> Result<HttpResponse, AppError> {
-    let appointment =
-        services::book_appointment(pool.get_ref(), user.user_id, &form).await?;
-
+    let appointment = services::book_appointment(pool.get_ref(), user.user_id, &form).await?;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))
         .finish())
+}
+
+// ============================================================
+// POST /appointments/book/priority — priority-based booking
+// ============================================================
+
+pub async fn book_with_priority(
+    pool: web::Data<sqlx::SqlitePool>,
+    user: AuthUser,
+    form: web::Form<BookAppointmentForm>,
+) -> Result<HttpResponse, AppError> {
+    let appointment = services::book_with_priority(pool.get_ref(), user.user_id, &form).await?;
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/appointments/{}", appointment.id)))
+        .finish())
+}
+
+// ============================================================
+// GET /appointments/suggest — show suggestion form
+// ============================================================
+
+pub async fn suggest_slot_form(
+    pool: web::Data<sqlx::SqlitePool>,
+    tera: web::Data<tera::Tera>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    let doctors = services::get_all_doctors(pool.get_ref()).await?;
+    let rooms = services::get_all_rooms(pool.get_ref()).await?;
+
+    let mut ctx = Context::new();
+    ctx.insert("user", &user);
+    ctx.insert("doctors", &doctors);
+    ctx.insert("rooms", &rooms);
+    ctx.insert("title", "Find Available Slot");
+    let rendered = tera.render("appointments/suggest.html.tera", &ctx)?;
+    Ok(HttpResponse::Ok().body(rendered))
+}
+
+// ============================================================
+// POST /appointments/suggest — run earliest-slot algorithm
+// ============================================================
+
+pub async fn suggest_slot(
+    pool: web::Data<sqlx::SqlitePool>,
+    tera: web::Data<tera::Tera>,
+    user: AuthUser,
+    form: web::Form<SuggestSlotForm>,
+) -> Result<HttpResponse, AppError> {
+    let result = services::find_earliest_slot(pool.get_ref(), &form).await?;
+    let doctors = services::get_all_doctors(pool.get_ref()).await?;
+    let rooms = services::get_all_rooms(pool.get_ref()).await?;
+
+    let mut ctx = Context::new();
+    ctx.insert("user", &user);
+    ctx.insert("doctors", &doctors);
+    ctx.insert("rooms", &rooms);
+    ctx.insert("suggested_slot", &result);
+    ctx.insert("form_doctor_id", &form.doctor_id);
+    ctx.insert("form_date", &form.appointment_date);
+    ctx.insert("form_duration", &form.duration_minutes);
+    ctx.insert("title", "Find Available Slot");
+    let rendered = tera.render("appointments/suggest.html.tera", &ctx)?;
+    Ok(HttpResponse::Ok().body(rendered))
+}
+
+// ============================================================
+// GET /appointments/waitlist — view waitlist
+// ============================================================
+
+pub async fn list_waitlist(
+    pool: web::Data<sqlx::SqlitePool>,
+    tera: web::Data<tera::Tera>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    let (waitlist, doctor_label) = match user.role.as_str() {
+        "patient" => {
+            (vec![], String::from("Your waitlist"))
+        }
+        "admin" => {
+            // Admin always sees all waitlisted patients, regardless of doctor status
+            let all = sqlx::query_as::<_, crate::appointments::models::WaitlistEntry>(
+                "SELECT * FROM waitlist WHERE status = 'waiting' ORDER BY priority ASC, created_at ASC"
+            )
+            .fetch_all(pool.get_ref())
+            .await?;
+            (all, String::from("All Waitlisted Patients"))
+        }
+        "doctor" => {
+            let entries = sqlx::query_as::<_, (i64,)>(
+                "SELECT id FROM doctors WHERE user_id = ?"
+            )
+            .bind(user.user_id)
+            .fetch_optional(pool.get_ref())
+            .await?;
+
+            if let Some((doc_id,)) = entries {
+                (services::get_waitlist_for_doctor(pool.get_ref(), doc_id).await?,
+                 String::from("Patient Waitlist"))
+            } else {
+                (vec![], String::from("Waitlist"))
+            }
+        }
+        _ => (vec![], String::new()),
+    };
+
+    let mut ctx = Context::new();
+    ctx.insert("user", &user);
+    ctx.insert("waitlist", &waitlist);
+    ctx.insert("doctor_label", &doctor_label);
+    ctx.insert("title", "Waitlist");
+    let rendered = tera.render("appointments/waitlist.html.tera", &ctx)?;
+    Ok(HttpResponse::Ok().body(rendered))
+}
+
+// ============================================================
+// POST /appointments/waitlist/join — join the waitlist
+// ============================================================
+
+pub async fn join_waitlist(
+    pool: web::Data<sqlx::SqlitePool>,
+    user: AuthUser,
+    form: web::Form<WaitlistForm>,
+) -> Result<HttpResponse, AppError> {
+    services::add_to_waitlist(pool.get_ref(), user.user_id, &form).await?;
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", "/appointments/waitlist"))
+        .finish())
+}
+
+// ============================================================
+// POST /appointments/waitlist/{id}/promote — promote from waitlist
+// ============================================================
+
+pub async fn promote_waitlist(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    _user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    let waitlist_id = path.into_inner();
+    let result = services::promote_from_waitlist(pool.get_ref(), waitlist_id).await?;
+
+    match result {
+        Some(appt) => Ok(HttpResponse::SeeOther()
+            .append_header(("Location", format!("/appointments/{}", appt.id)))
+            .finish()),
+        None => Ok(HttpResponse::SeeOther()
+            .append_header(("Location", "/appointments/waitlist"))
+            .finish()),
+    }
 }
 
 // ============================================================
@@ -101,11 +248,7 @@ pub async fn cancel_appointment(
     _user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let appointment_id = path.into_inner();
-
-    // Only patient who owns the appointment, the doctor, or an admin can cancel
-    // (simplified: allow any authenticated user for now — tighten in production)
     services::cancel_appointment(pool.get_ref(), appointment_id).await?;
-
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", "/appointments"))
         .finish())

@@ -1,0 +1,86 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/appointments"><i class="fas fa-calendar-check mr-1"></i>Appointments</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Waitlist</a></li>
+    </ul>
+</nav>
+
+<h1 class="title"><i class="fas fa-list-ol mr-2"></i>{{ doctor_label | default(value="Waitlist") }}</h1>
+<p class="subtitle is-6 has-text-grey mb-5">
+    Patients waiting for appointment slots. Ordered by priority — Emergency patients are served first.
+</p>
+
+{% if waitlist %}
+<div class="table-container fade-in">
+    <table class="table is-fullwidth is-striped is-hoverable">
+        <thead>
+            <tr>
+                <th><abbr title="Position">#</abbr></th>
+                <th>Patient ID</th>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in waitlist %}
+            <tr>
+                <td class="has-text-grey is-size-7">#{{ w.id }}</td>
+                <td>
+                    <span class="has-text-weight-semibold"><i class="fas fa-user has-text-success mr-1"></i>Patient #{{ w.patient_id }}</span>
+                </td>
+                <td>{{ w.appointment_date }}</td>
+                <td>{{ w.requested_start }} – {{ w.requested_end }}</td>
+                <td>
+                    {% if w.priority == 1 %}
+                    <span class="tag is-danger is-light"><i class="fas fa-ambulance mr-1"></i>Emergency</span>
+                    {% elif w.priority == 2 %}
+                    <span class="tag is-warning is-light"><i class="fas fa-exclamation-triangle mr-1"></i>Urgent</span>
+                    {% elif w.priority == 4 %}
+                    <span class="tag is-success is-light"><i class="fas fa-redo mr-1"></i>Follow-up</span>
+                    {% else %}
+                    <span class="tag is-info is-light"><i class="fas fa-clock mr-1"></i>Normal</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="tag is-light">{{ w.status }}</span>
+                </td>
+                <td>
+                    {% if w.status == "waiting" %}
+                    <form method="POST" action="/appointments/waitlist/{{ w.id }}/promote" style="display:inline;">
+                        <button class="button is-small is-success is-light" type="submit"
+                                title="Promote this patient if the slot is now free">
+                            <i class="fas fa-arrow-up mr-1"></i>Promote
+                        </button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="hero is-medium has-text-centered has-text-grey fade-in">
+    <div class="hero-body">
+        <span class="icon is-large has-text-grey-lighter"><i class="fas fa-clipboard-list fa-4x"></i></span>
+        <p class="title is-4 has-text-grey mt-4">Waitlist Empty</p>
+        <p class="subtitle is-6">No patients are currently waiting for slots.</p>
+    </div>
+</div>
+{% endif %}
+
+<div class="mt-5">
+    <a class="button is-light" href="/appointments">
+        <i class="fas fa-arrow-left mr-1"></i>Back to Appointments
+    </a>
+    <a class="button is-primary" href="/appointments/book">
+        <i class="fas fa-plus mr-1"></i>Book Appointment
+    </a>
+</div>
+{% endblock %}

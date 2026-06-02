@@ -1,6 +1,65 @@
 use serde::{Deserialize, Serialize};
 
 // ============================================================
+// Priority Levels (lower number = higher priority)
+// ============================================================
+
+/// Priority levels matching hospital triage standards.
+/// 1 = Emergency (life-threatening), 2 = Urgent, 3 = Normal, 4 = Follow-up.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Priority {
+    Emergency = 1,
+    Urgent = 2,
+    Normal = 3,
+    FollowUp = 4,
+}
+
+#[allow(dead_code)]
+impl Priority {
+    pub fn from_i32(v: i32) -> Self {
+        match v {
+            1 => Priority::Emergency,
+            2 => Priority::Urgent,
+            4 => Priority::FollowUp,
+            _ => Priority::Normal,
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        match self {
+            Priority::Emergency => "Emergency",
+            Priority::Urgent => "Urgent",
+            Priority::Normal => "Normal",
+            Priority::FollowUp => "Follow-up",
+        }
+    }
+
+    pub fn css_class(&self) -> &str {
+        match self {
+            Priority::Emergency => "is-danger",
+            Priority::Urgent => "is-warning",
+            Priority::Normal => "is-info",
+            Priority::FollowUp => "is-success",
+        }
+    }
+}
+
+// ============================================================
+// Room — consultation room or equipment resource
+// ============================================================
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Room {
+    pub id: i64,
+    pub name: String,
+    pub room_type: String,
+    pub floor: Option<String>,
+    pub is_active: i32,
+    pub notes: Option<String>,
+}
+
+// ============================================================
 // Appointment — core scheduling entity
 // ============================================================
 
@@ -10,11 +69,13 @@ pub struct Appointment {
     pub patient_id: i64,
     pub doctor_id: i64,
     pub appointment_date: chrono::NaiveDate,
-    pub start_time: String, // HH:MM
-    pub end_time: String,   // HH:MM
-    pub status: String,     // scheduled | completed | cancelled
+    pub start_time: String,    // HH:MM
+    pub end_time: String,      // HH:MM
+    pub status: String,        // scheduled | completed | cancelled
     pub notes: Option<String>,
     pub created_at: chrono::NaiveDateTime,
+    pub room_id: Option<i64>,
+    pub priority: i32,         // 1=Emergency, 2=Urgent, 3=Normal, 4=Follow-up
 }
 
 /// Form data submitted when a patient books an appointment.
@@ -24,10 +85,22 @@ pub struct BookAppointmentForm {
     pub appointment_date: String, // YYYY-MM-DD
     pub start_time: String,       // HH:MM
     pub end_time: String,         // HH:MM
+    pub room_id: Option<i64>,
+    pub priority: Option<i32>,
     pub notes: Option<String>,
 }
 
-/// Joined view: appointment with patient and doctor names for display.
+/// Form for the "suggest slot" feature — find next available time.
+#[derive(Debug, Deserialize)]
+pub struct SuggestSlotForm {
+    pub doctor_id: i64,
+    pub appointment_date: String,
+    pub duration_minutes: i32,  // how long the appointment should be
+    #[allow(dead_code)]
+    pub room_id: Option<i64>,   // reserved for room-aware slot finding
+}
+
+/// Joined view: appointment with patient/doctor names and room for display.
 #[derive(Debug, Serialize)]
 pub struct AppointmentView {
     pub id: i64,
@@ -37,5 +110,38 @@ pub struct AppointmentView {
     pub start_time: String,
     pub end_time: String,
     pub status: String,
+    pub notes: Option<String>,
+    pub room_name: Option<String>,
+    pub priority: i32,
+}
+
+// ============================================================
+// Waitlist — priority queue entry
+// ============================================================
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct WaitlistEntry {
+    pub id: i64,
+    pub patient_id: i64,
+    pub doctor_id: i64,
+    pub room_id: Option<i64>,
+    pub appointment_date: chrono::NaiveDate,
+    pub requested_start: String,
+    pub requested_end: String,
+    pub priority: i32,
+    pub notes: Option<String>,
+    pub status: String,        // waiting | offered | accepted | expired
+    pub created_at: chrono::NaiveDateTime,
+}
+
+/// Form to add a patient to the waitlist.
+#[derive(Debug, Deserialize)]
+pub struct WaitlistForm {
+    pub doctor_id: i64,
+    pub appointment_date: String,
+    pub requested_start: String,
+    pub requested_end: String,
+    pub priority: i32,
+    pub room_id: Option<i64>,
     pub notes: Option<String>,
 }

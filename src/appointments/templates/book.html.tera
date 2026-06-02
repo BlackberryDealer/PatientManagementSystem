@@ -78,15 +78,70 @@
 
         <hr>
 
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-door-open mr-1"></i>Room <span class="has-text-grey">(optional)</span></label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select name="room_id">
+                                <option value="">-- No specific room --</option>
+                                {% for r in rooms %}
+                                <option value="{{ r.id }}">{{ r.name }} ({{ r.room_type }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <p class="help">Assign a consultation room. Room conflicts are also checked.</p>
+                </div>
+            </div>
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-flag mr-1"></i>Priority</label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select name="priority">
+                                <option value="3" selected>Normal (Standard)</option>
+                                <option value="4">Follow-up</option>
+                                <option value="2">Urgent</option>
+                                <option value="1">Emergency</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p class="help">Emergency/Urgent bookings can bump lower-priority appointments to the waitlist.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="label"><i class="fas fa-pencil-alt mr-1"></i>Notes <span class="has-text-grey is-size-7">(optional)</span></label>
+            <div class="control">
+                <textarea class="textarea" name="notes" placeholder="Reason for visit, symptoms, or special requests..." rows="3"></textarea>
+            </div>
+        </div>
+
+        <hr>
+
         <div class="field is-grouped">
             <div class="control">
-                <button class="button is-primary is-medium" type="submit">
-                    <i class="fas fa-check-circle mr-1"></i>Book Appointment
+                <button class="button is-primary is-medium" type="submit" formaction="/appointments/book">
+                    <i class="fas fa-check-circle mr-1"></i>Book (Standard)
+                </button>
+            </div>
+            <div class="control">
+                <button class="button is-danger is-medium" type="submit" formaction="/appointments/book/priority"
+                        title="If slot is taken by a lower-priority appointment, it will be bumped">
+                    <i class="fas fa-star mr-1"></i>Book (Priority Override)
                 </button>
             </div>
             <div class="control">
                 <a class="button is-light is-medium" href="/appointments">
                     <i class="fas fa-times mr-1"></i>Cancel
+                </a>
+            </div>
+            <div class="control">
+                <a class="button is-info is-light is-medium" href="/appointments/suggest">
+                    <i class="fas fa-search mr-1"></i>Find Available Slot
                 </a>
             </div>
         </div>
