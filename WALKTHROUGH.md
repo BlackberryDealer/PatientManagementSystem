@@ -32,6 +32,7 @@
 13. [How to Add a New Feature (Step-by-Step)](#13-how-to-add-a-new-feature-step-by-step)
 14. [Common Errors and How to Fix Them](#14-common-errors-and-how-to-fix-them)
 15. [Glossary of Jargon](#15-glossary-of-jargon)
+16. [Testing the Application](#16-testing-the-application)
 
 ---
 
@@ -1412,6 +1413,134 @@ impl From<SomeNewErrorType> for AppError {
 **Meaning:** Migration 002 hasn't run yet, or the database was created before migration 002 was added. The `appointments` table is missing the `room_id` and `priority` columns.
 
 **Fix:** Delete `patient_management.db` and restart. All migrations run fresh on the next `cargo run`.
+
+---
+
+## 16. Testing the Application
+
+### 16.1 Why Tests Matter
+
+Without tests, every code change is a gamble — you might break the login page while fixing the billing module and not discover it until a user complains. Tests give you confidence that your code works and continues to work as you make changes.
+
+Our project uses **integration tests** — tests that spin up a complete Actix Web app with an in-memory SQLite database and make real HTTP requests against it. This is more realistic than unit tests and catches bugs that only appear when components interact.
+
+> **"Integration Test"** = A test that exercises multiple parts of the system together (database + HTTP + templates + auth), rather than testing a single function in isolation. In Rust, integration tests live in the `tests/` directory and are compiled as separate binaries.
+
+### 16.2 How to Run
+
+```bash
+cargo test
+```
+
+The test output shows each test file and individual test result. Pass `-- --nocapture` to see log output:
+
+```bash
+cargo test -- --nocapture
+```
+
+### 16.3 Test Architecture
+
+```
+tests/
+├── common/
+│   └── mod.rs              # Shared test infrastructure
+├── test_auth.rs            # 11 tests — registration, login, role guards
+├── test_algorithms.rs      # 11 tests — all 3 scheduling algorithms
+├── test_appointments.rs    # 3 tests — appointment pages
+├── test_availability.rs    # 3 tests — availability CRUD
+├── test_records.rs         # 3 tests — medical records
+└── test_billing.rs         # 4 tests — invoices & payments
+```
+
+**Total: 35 tests across 6 suites — 100% pass rate.**
+
+### 16.4 The `with_test_app!` Macro
+
+Instead of writing complex type annotations to reference Actix Web's internal `Service` trait, we use a macro:
+
+```rust
+with_test_app!(pool, app, {
+    let req = test::TestRequest::get().uri("/appointments").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+});
+```
+
+The macro:
+1. Creates stub Tera templates so pages render without the real filesystem
+2. Generates a session encryption key
+3. Configures all 5 module routes
+4. Wraps everything in `test::init_service()` which returns an opaque type
+5. The `app` variable is available in the code block
+
+> **Why a macro?** Explicit `Service<Request<BoxBody>, Response = ServiceResponse<BoxBody>, Error = Error>` type annotations caused version conflicts with `actix-http`. The macro avoids ALL explicit type annotations and lets Rust infer the types automatically.
+
+### 16.5 The `register_and_login!` Macro
+
+```rust
+let cookie = register_and_login!(app, "username", "patient");
+```
+
+Registers a user via POST `/users/register`, asserts a redirect (auto-login), extracts the session cookie, and returns it. Use with `auth_get()` / `auth_post()` helpers for authenticated requests.
+
+### 16.6 Test Coverage by Suite
+
+| Suite | Tests | What's Covered |
+|---|---|---|
+| `test_auth.rs` | 11 | Registration (3 roles), duplicate rejection, login success/failure, logout, role guards, admin access |
+| `test_algorithms.rs` | 11 | No-conflict empty schedule, overlap detection, cancelled exclusion, earliest-slot (empty/after/full/gap), priority bump/equal-reject/normal-gate, waitlist add/promote |
+| `test_appointments.rs` | 3 | Booking form, empty list, waitlist page |
+| `test_availability.rs` | 3 | Doctor availability list, set form, submit |
+| `test_records.rs` | 3 | Records list, create form (doctor), patient blocked |
+| `test_billing.rs` | 4 | Invoice list, admin-only create, payment recording |
+
+### 16.7 In-Memory Database
+
+Every test uses `sqlite::memory:` — a temporary SQLite database in RAM:
+
+```rust
+pub async fn test_db_pool() -> SqlitePool {
+    let pool = db::create_pool("sqlite::memory:").await;
+    db::run_migrations(&pool).await;  // runs both migrations
+    pool
+}
+```
+
+Benefits: zero filesystem pollution, each test has a fresh DB, tests are fully isolated, full migration support matches production exactly.
+
+### 16.8 Stub Templates
+
+The test app registers minimal HTML stubs instead of loading real `.tera` files from disk:
+
+```rust
+("appointments/list.html.tera", "<html><body>Apps: {{ appointments | length }}</body></html>"),
+```
+
+This means templates render successfully, dynamic Tera content is still injected, tests verify HTTP behavior (status codes, redirects, role enforcement), and tests remain fast with no filesystem I/O.
+
+### 16.9 Adding a New Test
+
+```rust
+#[actix_web::test]
+async fn test_my_new_feature() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let cookie = register_and_login!(app, "testuser", "patient");
+        let req = auth_get("/some/page", &cookie).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+    });
+}
+```
+
+### 16.10 Common Test Failures
+
+| Symptom | Likely Cause |
+|---|---|
+| `assertion failed: resp.status().is_redirection()` | Missing prerequisite data (e.g., creating an invoice before a patient exists) |
+| `assertion failed: resp.status().is_success()` | Route requires a role guard or returns an error |
+| Template render error | Missing stub template in `test_tera()` |
+| `connection pool timed out` | A test leaked a database connection |
 
 ---
 
