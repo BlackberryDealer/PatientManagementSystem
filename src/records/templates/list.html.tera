@@ -3,69 +3,110 @@
 {% block content %}
 <div class="level">
     <div class="level-left">
-        <h1 class="title">Medical Records</h1>
+        <div>
+            <h1 class="title"><i class="fas fa-notes-medical mr-2"></i>Medical Records</h1>
+            <p class="subtitle is-6 has-text-grey">
+                {% if user.role == "patient" %}Your medical history and prescriptions
+                {% else %}Patient diagnoses, treatments, and clinical notes{% endif %}
+            </p>
+        </div>
     </div>
     {% if user.role == "doctor" or user.role == "admin" %}
     <div class="level-right">
-        <a class="button is-primary" href="/records/create">+ New Record</a>
+        <div class="buttons">
+            <p class="button is-static has-text-grey"><i class="fas fa-file-medical mr-1"></i>{{ records | length }}</p>
+            <a class="button is-primary" href="/records/create"><i class="fas fa-plus mr-1"></i>New Record</a>
+        </div>
     </div>
     {% endif %}
 </div>
 
 {% if records %}
-<table class="table is-fullwidth is-striped is-hoverable">
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Patient ID</th>
-            <th>Doctor ID</th>
-            <th>Diagnosis</th>
-            <th>Date</th>
-            <th></th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for r in records %}
-        <tr>
-            <td>{{ r.id }}</td>
-            <td>{{ r.patient_id }}</td>
-            <td>{{ r.doctor_id }}</td>
-            <td>{{ r.diagnosis | default(value="—") | truncate(length=50) }}</td>
-            <td>{{ r.created_at }}</td>
-            <td><a class="button is-small is-info" href="/records/{{ r.id }}">View</a></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-container fade-in">
+    <table class="table is-fullwidth is-striped is-hoverable">
+        <thead>
+            <tr>
+                <th><abbr title="Record ID">#</abbr></th>
+                <th>Patient</th>
+                <th>Doctor</th>
+                <th>Diagnosis</th>
+                <th><i class="fas fa-calendar-alt mr-1"></i>Date</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in records %}
+            <tr>
+                <td class="has-text-grey is-size-7">#{{ r.id }}</td>
+                <td>
+                    <span class="has-text-weight-semibold"><i class="fas fa-user has-text-success mr-1"></i>Patient #{{ r.patient_id }}</span>
+                </td>
+                <td>
+                    <span class="has-text-weight-semibold"><i class="fas fa-user-md has-text-info mr-1"></i>Dr. #{{ r.doctor_id }}</span>
+                </td>
+                <td>
+                    {% if r.diagnosis %}
+                    <span title="{{ r.diagnosis }}">{{ r.diagnosis | truncate(length=60) }}</span>
+                    {% else %}
+                    <span class="has-text-grey-light">—</span>
+                    {% endif %}
+                </td>
+                <td class="is-size-7 has-text-grey">{{ r.created_at }}</td>
+                <td>
+                    <a class="button is-small is-info is-light" href="/records/{{ r.id }}">
+                        <i class="fas fa-eye mr-1"></i>View
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<div class="notification is-info">
-    <p>No medical records found.</p>
+<div class="hero is-medium has-text-centered has-text-grey fade-in">
+    <div class="hero-body">
+        <span class="icon is-large has-text-grey-lighter"><i class="fas fa-folder-open fa-4x"></i></span>
+        <p class="title is-4 has-text-grey mt-4">No Medical Records</p>
+        <p class="subtitle is-6">
+            {% if user.role == "patient" %}Your medical records will appear here once a doctor creates them.
+            {% else %}Create the first medical record for a patient.{% endif %}
+        </p>
+        {% if user.role == "doctor" or user.role == "admin" %}
+        <a class="button is-primary mt-3" href="/records/create"><i class="fas fa-plus mr-1"></i>Create Record</a>
+        {% endif %}
+    </div>
 </div>
 {% endif %}
 
 {% if prescriptions %}
-<h2 class="title is-4 mt-5">Prescriptions</h2>
-<table class="table is-fullwidth is-striped">
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Medication</th>
-            <th>Dosage</th>
-            <th>Frequency</th>
-            <th>Prescribed</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for p in prescriptions %}
-        <tr>
-            <td>{{ p.id }}</td>
-            <td>{{ p.medication_name }}</td>
-            <td>{{ p.dosage }}</td>
-            <td>{{ p.frequency }}</td>
-            <td>{{ p.prescribed_at }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="mt-6 fade-in">
+    <h2 class="title is-4"><i class="fas fa-prescription mr-2"></i>Prescriptions</h2>
+    <div class="table-container">
+        <table class="table is-fullwidth is-striped is-hoverable">
+            <thead>
+                <tr>
+                    <th><abbr title="Prescription ID">#</abbr></th>
+                    <th><i class="fas fa-pills mr-1"></i>Medication</th>
+                    <th>Dosage</th>
+                    <th>Frequency</th>
+                    <th>Duration</th>
+                    <th><i class="fas fa-calendar-alt mr-1"></i>Prescribed</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in prescriptions %}
+                <tr>
+                    <td class="has-text-grey is-size-7">#{{ p.id }}</td>
+                    <td><strong>{{ p.medication_name }}</strong></td>
+                    <td><span class="tag is-light">{{ p.dosage }}</span></td>
+                    <td>{{ p.frequency }}</td>
+                    <td>{{ p.duration | default(value="As needed") }}</td>
+                    <td class="is-size-7 has-text-grey">{{ p.prescribed_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
 {% endif %}
 {% endblock %}

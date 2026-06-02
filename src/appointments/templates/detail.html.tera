@@ -1,49 +1,101 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<div class="box">
-    <h1 class="title">Appointment #{{ appointment.id }}</h1>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/appointments"><i class="fas fa-calendar-check mr-1"></i>Appointments</a></li>
+        <li class="is-active"><a href="#" aria-current="page">#{{ appointment.id }}</a></li>
+    </ul>
+</nav>
+
+<div class="box fade-in">
+    <div class="is-flex is-align-items-center is-justify-content-space-between mb-5">
+        <div>
+            <h1 class="title mb-1">Appointment #{{ appointment.id }}</h1>
+            <p class="subtitle is-6 has-text-grey">{{ appointment.appointment_date }}</p>
+        </div>
+        <span class="tag is-medium
+            {% if appointment.status == 'scheduled' %}is-primary
+            {% elif appointment.status == 'completed' %}is-success
+            {% else %}is-danger{% endif %} is-light">
+            <i class="fas
+                {% if appointment.status == 'scheduled' %}fa-hourglass-half
+                {% elif appointment.status == 'completed' %}fa-check-circle
+                {% else %}fa-times-circle{% endif %} mr-1"></i>
+            <span style="text-transform: capitalize;">{{ appointment.status }}</span>
+        </span>
+    </div>
 
     <div class="columns mt-4">
         <div class="column is-6">
-            <div class="card">
-                <header class="card-header">
-                    <p class="card-header-title">Details</p>
+            <div class="card card-equal-height">
+                <header class="card-header has-background-light">
+                    <p class="card-header-title">
+                        <i class="fas fa-info-circle mr-2"></i>Appointment Details
+                    </p>
                 </header>
                 <div class="card-content">
-                    <p><strong>Date:</strong> {{ appointment.appointment_date }}</p>
-                    <p><strong>Time:</strong> {{ appointment.start_time }} – {{ appointment.end_time }}</p>
-                    <p><strong>Status:</strong>
-                        <span class="tag {% if appointment.status == 'scheduled' %}is-primary{% elif appointment.status == 'completed' %}is-success{% else %}is-danger{% endif %}">
-                            {{ appointment.status }}
-                        </span>
-                    </p>
+                    <div class="mb-4">
+                        <p class="is-size-7 has-text-grey mb-1">DATE</p>
+                        <p class="is-size-5 has-text-weight-semibold"><i class="fas fa-calendar-alt mr-2 has-text-link"></i>{{ appointment.appointment_date }}</p>
+                    </div>
+                    <div class="mb-4">
+                        <p class="is-size-7 has-text-grey mb-1">TIME</p>
+                        <p class="is-size-5 has-text-weight-semibold"><i class="fas fa-clock mr-2 has-text-link"></i>{{ appointment.start_time }} – {{ appointment.end_time }}</p>
+                    </div>
                     {% if appointment.notes %}
-                    <p><strong>Notes:</strong> {{ appointment.notes }}</p>
+                    <div>
+                        <p class="is-size-7 has-text-grey mb-1">NOTES</p>
+                        <div class="notification is-light">{{ appointment.notes }}</div>
+                    </div>
                     {% endif %}
                 </div>
             </div>
         </div>
 
         <div class="column is-6">
-            <div class="card">
-                <header class="card-header">
-                    <p class="card-header-title">People</p>
+            <div class="card card-equal-height">
+                <header class="card-header has-background-info-light">
+                    <p class="card-header-title">
+                        <i class="fas fa-users mr-2"></i>Participants
+                    </p>
                 </header>
                 <div class="card-content">
-                    <p><strong>Patient:</strong> {{ appointment.patient_name }}</p>
-                    <p><strong>Doctor:</strong> {{ appointment.doctor_name }}</p>
+                    <div class="mb-5">
+                        <p class="is-size-7 has-text-grey mb-2">PATIENT</p>
+                        <div class="media">
+                            <div class="media-left">
+                                <span class="icon is-medium has-text-success"><i class="fas fa-user-circle fa-2x"></i></span>
+                            </div>
+                            <div class="media-content">
+                                <p class="is-size-5 has-text-weight-semibold">{{ appointment.patient_name }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <p class="is-size-7 has-text-grey mb-2">DOCTOR</p>
+                        <div class="media">
+                            <div class="media-left">
+                                <span class="icon is-medium has-text-info"><i class="fas fa-user-md fa-2x"></i></span>
+                            </div>
+                            <div class="media-content">
+                                <p class="is-size-5 has-text-weight-semibold">{{ appointment.doctor_name }}</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="mt-4">
-        <a class="button is-light" href="/appointments">← Back to Appointments</a>
+    <div class="mt-5 is-flex is-align-items-center" style="gap: 0.75rem;">
+        <a class="button is-light" href="/appointments">
+            <i class="fas fa-arrow-left mr-1"></i>Back to Appointments
+        </a>
         {% if appointment.status == "scheduled" %}
         <form method="POST" action="/appointments/{{ appointment.id }}/cancel" style="display:inline;">
-            <button class="button is-danger" type="submit" onclick="return confirm('Cancel this appointment?')">
-                Cancel Appointment
+            <button class="button is-danger is-light" type="submit" onclick="return confirm('Cancel appointment #{{ appointment.id }}? This cannot be undone.')">
+                <i class="fas fa-ban mr-1"></i>Cancel Appointment
             </button>
         </form>
         {% endif %}

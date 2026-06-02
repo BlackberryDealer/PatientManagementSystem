@@ -1,10 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="has-navbar-fixed-top">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Patient Management System{% endblock %}</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        .hero-pattern { background: linear-gradient(135deg, #00d1b2 0%, #3273dc 100%); }
+        .card-equal-height { display: flex; flex-direction: column; height: 100%; }
+        .card-equal-height .card-content { flex-grow: 1; }
+        .table-container { overflow-x: auto; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
     {% block head_extra %}{% endblock %}
 </head>
 <body>
@@ -12,24 +21,55 @@
 
     {% block flash_messages %}
     {% if flash_message %}
-    <div class="notification {{ flash_type }} is-light container mt-3">
-        <button class="delete"></button>
-        {{ flash_message }}
+    <div class="container mt-5 fade-in">
+        <div class="notification {{ flash_type }} is-light">
+            <button class="delete" onclick="this.parentElement.remove()"></button>
+            {{ flash_message }}
+        </div>
     </div>
     {% endif %}
     {% endblock %}
 
-    <section class="section">
+    <section class="section" style="min-height: 70vh;">
         <div class="container">
             {% block content %}
-            <h1 class="title">Welcome to Patient Management System</h1>
-            <p class="subtitle">Please log in or register to continue.</p>
+            <div class="hero is-medium hero-pattern" style="border-radius: 12px;">
+                <div class="hero-body has-text-centered has-text-white">
+                    <h1 class="title has-text-white">
+                        <i class="fas fa-hospital-alt mr-3"></i>Patient Management System
+                    </h1>
+                    <p class="subtitle has-text-white-ter">
+                        Please log in or register to continue.
+                    </p>
+                    <div class="buttons is-centered mt-5">
+                        <a class="button is-light is-medium" href="/users/login">
+                            <i class="fas fa-sign-in-alt mr-2"></i>Login
+                        </a>
+                        <a class="button is-white is-outlined is-medium" href="/users/register">
+                            <i class="fas fa-user-plus mr-2"></i>Register
+                        </a>
+                    </div>
+                </div>
+            </div>
             {% endblock %}
         </div>
     </section>
 
     {% include "shared/footer.html.tera" %}
 
+    <script>
+        // Mobile navbar toggle
+        document.addEventListener('DOMContentLoaded', () => {
+            const burgers = document.querySelectorAll('.navbar-burger');
+            burgers.forEach(burger => {
+                burger.addEventListener('click', () => {
+                    const target = document.getElementById(burger.dataset.target);
+                    burger.classList.toggle('is-active');
+                    target.classList.toggle('is-active');
+                });
+            });
+        });
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

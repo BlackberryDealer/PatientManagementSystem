@@ -1,61 +1,93 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<h1 class="title">Book an Appointment</h1>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/appointments"><i class="fas fa-calendar-check mr-1"></i>Appointments</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Book</a></li>
+    </ul>
+</nav>
 
-<div class="box">
+<h1 class="title"><i class="fas fa-plus-circle mr-2"></i>Book an Appointment</h1>
+<p class="subtitle is-6 has-text-grey mb-5">Select a doctor, date, and time slot. The system will check for conflicts automatically.</p>
+
+<div class="box fade-in">
     <form method="POST" action="/appointments/book">
-        <div class="field">
-            <label class="label">Select Doctor</label>
-            <div class="control">
-                <div class="select is-fullwidth">
-                    <select name="doctor_id" required>
-                        <option value="">-- Choose a doctor --</option>
-                        {% for d in doctors %}
-                        <option value="{{ d.0 }}">{{ d.1 }}</option>
-                        {% endfor %}
-                    </select>
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-user-md mr-1"></i>Select Doctor</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="doctor_id" required>
+                                <option value="">-- Choose a doctor --</option>
+                                {% for d in doctors %}
+                                <option value="{{ d.0 }}">{{ d.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-user-md"></i></div>
+                    </div>
+                    <p class="help">Available doctors registered in the system.</p>
+                </div>
+
+                <div class="field">
+                    <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Appointment Date</label>
+                    <div class="control">
+                        <input class="input" type="date" name="appointment_date" required
+                               min="2026-01-01" placeholder="YYYY-MM-DD">
+                    </div>
+                    <p class="help">Select a future date. Weekend availability depends on the doctor's schedule.</p>
+                </div>
+            </div>
+
+            <div class="column is-6">
+                <div class="notification is-info is-light">
+                    <p><i class="fas fa-info-circle mr-1"></i><strong>Conflict Detection Active</strong></p>
+                    <p class="is-size-7 mt-1">The system prevents double-booking by checking for overlapping appointments. If the slot is already taken, you'll be asked to pick a different time.</p>
                 </div>
             </div>
         </div>
 
-        <div class="field">
-            <label class="label">Date</label>
-            <div class="control">
-                <input class="input" type="date" name="appointment_date" required>
-            </div>
-        </div>
-
         <div class="columns">
-            <div class="column">
+            <div class="column is-6">
                 <div class="field">
-                    <label class="label">Start Time</label>
+                    <label class="label"><i class="fas fa-clock mr-1"></i>Start Time</label>
                     <div class="control">
                         <input class="input" type="time" name="start_time" required>
                     </div>
                 </div>
             </div>
-            <div class="column">
+            <div class="column is-6">
                 <div class="field">
-                    <label class="label">End Time</label>
+                    <label class="label"><i class="fas fa-clock mr-1"></i>End Time</label>
                     <div class="control">
                         <input class="input" type="time" name="end_time" required>
                     </div>
+                    <p class="help">End time must be after start time.</p>
                 </div>
             </div>
         </div>
 
         <div class="field">
-            <label class="label">Notes (optional)</label>
+            <label class="label"><i class="fas fa-pencil-alt mr-1"></i>Notes <span class="has-text-grey is-size-7">(optional)</span></label>
             <div class="control">
-                <textarea class="textarea" name="notes" placeholder="Reason for visit..."></textarea>
+                <textarea class="textarea" name="notes" placeholder="Reason for visit, symptoms, or special requests..." rows="3"></textarea>
             </div>
         </div>
 
-        <div class="field">
+        <hr>
+
+        <div class="field is-grouped">
             <div class="control">
-                <button class="button is-primary" type="submit">Book Appointment</button>
-                <a class="button is-light" href="/appointments">Cancel</a>
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-check-circle mr-1"></i>Book Appointment
+                </button>
+            </div>
+            <div class="control">
+                <a class="button is-light is-medium" href="/appointments">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </a>
             </div>
         </div>
     </form>

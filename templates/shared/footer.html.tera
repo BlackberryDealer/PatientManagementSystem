@@ -1,12 +1,32 @@
-<footer class="footer">
+<footer class="footer pb-6">
     <div class="content has-text-centered">
-        <p>
-            <strong>Patient Management System</strong> &mdash;
-            CSC1106 Web Programming Project &mdash;
-            University of Glasgow
+        <p class="is-size-5">
+            <i class="fas fa-hospital-alt mr-2"></i>
+            <strong>Patient Management System</strong>
         </p>
-        <p class="is-size-7">
-            Built with Rust, Actix Web, Tera &amp; SQLite
+        <p class="has-text-grey">
+            CSC1106 Web Programming &mdash; University of Glasgow
+        </p>
+        <p class="is-size-7 has-text-grey-light mt-3">
+            <span class="icon-text">
+                <i class="fab fa-rust"></i>
+                <span>Rust</span>
+            </span>
+            <span class="mx-2">•</span>
+            <span class="icon-text">
+                <i class="fas fa-bolt"></i>
+                <span>Actix Web</span>
+            </span>
+            <span class="mx-2">•</span>
+            <span class="icon-text">
+                <i class="fas fa-file-code"></i>
+                <span>Tera</span>
+            </span>
+            <span class="mx-2">•</span>
+            <span class="icon-text">
+                <i class="fas fa-database"></i>
+                <span>SQLite</span>
+            </span>
         </p>
     </div>
 </footer>

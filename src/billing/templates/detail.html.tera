@@ -1,20 +1,44 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<div class="box">
-    <h1 class="title">Invoice #{{ invoice.id }}</h1>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/billing"><i class="fas fa-file-invoice-dollar mr-1"></i>Billing</a></li>
+        <li class="is-active"><a href="#" aria-current="page">#{{ invoice.id }}</a></li>
+    </ul>
+</nav>
+
+<div class="box fade-in">
+    <div class="is-flex is-align-items-center is-justify-content-space-between mb-5">
+        <div>
+            <h1 class="title mb-1">Invoice #{{ invoice.id }}</h1>
+            <p class="subtitle is-6 has-text-grey">Issued: {{ invoice.invoice_date }}</p>
+        </div>
+        <span class="tag is-medium
+            {% if invoice.status == 'paid' %}is-success
+            {% elif invoice.status == 'pending' %}is-warning
+            {% else %}is-danger{% endif %} is-light">
+            <i class="fas
+                {% if invoice.status == 'paid' %}fa-check-circle
+                {% elif invoice.status == 'pending' %}fa-clock
+                {% else %}fa-ban{% endif %} mr-1"></i>
+            <span style="text-transform: capitalize;">{{ invoice.status }}</span>
+        </span>
+    </div>
 
     <div class="columns mt-4">
         <div class="column is-6">
-            <div class="card">
-                <header class="card-header">
-                    <p class="card-header-title">Invoice Details</p>
+            <div class="card card-equal-height">
+                <header class="card-header has-background-light">
+                    <p class="card-header-title">
+                        <i class="fas fa-info-circle mr-2"></i>Invoice Details
+                    </p>
                 </header>
                 <div class="card-content">
                     <p><strong>Patient ID:</strong> {{ invoice.patient_id }}</p>
                     <p><strong>Invoice Date:</strong> {{ invoice.invoice_date }}</p>
                     <p><strong>Due Date:</strong> {{ invoice.due_date }}</p>
-                    <p><strong>Total:</strong> ${{ invoice.total_amount | round(precision=2) }}</p>
+                    <p><strong>Total:</strong> ${{ "%.2f" | format(invoice.total_amount) }}</p>
                     <p><strong>Status:</strong>
                         <span class="tag {% if invoice.status == 'paid' %}is-success{% elif invoice.status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
                             {{ invoice.status }}
@@ -25,13 +49,15 @@
         </div>
 
         <div class="column is-6">
-            <div class="card">
-                <header class="card-header">
-                    <p class="card-header-title">Line Items</p>
+            <div class="card card-equal-height">
+                <header class="card-header has-background-light">
+                    <p class="card-header-title">
+                        <i class="fas fa-list-ul mr-2"></i>Line Items
+                    </p>
                 </header>
                 <div class="card-content">
                     {% if items %}
-                    <table class="table is-fullwidth is-striped">
+                    <table class="table is-fullwidth is-striped is-size-7">
                         <thead>
                             <tr><th>Description</th><th>Qty</th><th>Price</th><th>Total</th></tr>
                         </thead>
@@ -40,14 +66,20 @@
                             <tr>
                                 <td>{{ item.description }}</td>
                                 <td>{{ item.quantity }}</td>
-                                <td>${{ item.unit_price | round(precision=2) }}</td>
-                                <td>${{ item.total_price | round(precision=2) }}</td>
+                                <td>${{ "%.2f" | format(item.unit_price) }}</td>
+                                <td>${{ "%.2f" | format(item.total_price) }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
+                        <tfoot>
+                            <tr>
+                                <th colspan="3" class="has-text-right">Total</th>
+                                <th class="has-text-link">${{ invoice.total_amount }}</th>
+                            </tr>
+                        </tfoot>
                     </table>
                     {% else %}
-                    <p>No line items.</p>
+                    <p class="has-text-grey"><i class="fas fa-info-circle mr-1"></i>No line items recorded.</p>
                     {% endif %}
                 </div>
             </div>
@@ -56,8 +88,11 @@
 
     <!-- Payments Section -->
     <div class="card mt-4">
-        <header class="card-header">
-            <p class="card-header-title">Payments</p>
+        <header class="card-header has-background-info-light">
+            <p class="card-header-title">
+                <i class="fas fa-credit-card mr-2"></i>Payments
+                <span class="tag is-info is-light ml-2">{{ payments | length }}</span>
+            </p>
         </header>
         <div class="card-content">
             {% if payments %}
@@ -69,7 +104,7 @@
                     {% for p in payments %}
                     <tr>
                         <td>{{ p.id }}</td>
-                        <td>${{ p.amount | round(precision=2) }}</td>
+                        <td>${{ "%.2f" | format(p.amount) }}</td>
                         <td>{{ p.payment_date }}</td>
                         <td>{{ p.payment_method }}</td>
                         <td>{{ p.transaction_ref | default(value="—") }}</td>
@@ -78,20 +113,24 @@
                 </tbody>
             </table>
             {% else %}
-            <p>No payments recorded yet.</p>
+            <div class="has-text-centered py-4">
+                <span class="icon is-medium has-text-grey-lighter"><i class="fas fa-credit-card fa-2x"></i></span>
+                <p class="has-text-grey mt-2">No payments recorded yet.</p>
+            </div>
             {% endif %}
 
-            <!-- Record Payment Form (admin only) -->
+            <!-- Record Payment Form -->
             {% if invoice.status == "pending" %}
             <hr>
-            <h3 class="title is-5">Record Payment</h3>
+            <h3 class="title is-5 mb-3"><i class="fas fa-plus-circle mr-1"></i>Record Payment</h3>
             <form method="POST" action="/billing/{{ invoice.id }}/pay">
                 <div class="columns">
                     <div class="column">
                         <div class="field">
                             <label class="label">Amount ($)</label>
-                            <div class="control">
+                            <div class="control has-icons-left">
                                 <input class="input" type="number" step="0.01" name="amount" value="{{ invoice.total_amount }}" required>
+                                <span class="icon is-small is-left"><i class="fas fa-dollar-sign"></i></span>
                             </div>
                         </div>
                     </div>
@@ -101,8 +140,8 @@
                             <div class="control">
                                 <div class="select is-fullwidth">
                                     <select name="payment_method" required>
-                                        <option value="Cash">Cash</option>
                                         <option value="Credit Card">Credit Card</option>
+                                        <option value="Cash">Cash</option>
                                         <option value="Bank Transfer">Bank Transfer</option>
                                         <option value="Insurance">Insurance</option>
                                     </select>
@@ -112,16 +151,19 @@
                     </div>
                     <div class="column">
                         <div class="field">
-                            <label class="label">Reference (optional)</label>
-                            <div class="control">
-                                <input class="input" type="text" name="transaction_ref" placeholder="TXN-001">
+                            <label class="label">Reference <span class="has-text-grey">(optional)</span></label>
+                            <div class="control has-icons-left">
+                                <input class="input" type="text" name="transaction_ref" placeholder="e.g., TXN-001">
+                                <span class="icon is-small is-left"><i class="fas fa-hashtag"></i></span>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="field">
                     <div class="control">
-                        <button class="button is-success" type="submit">Record Payment</button>
+                        <button class="button is-success" type="submit">
+                            <i class="fas fa-check-circle mr-1"></i>Record Payment
+                        </button>
                     </div>
                 </div>
             </form>
@@ -129,9 +171,10 @@
         </div>
     </div>
 
-    <div class="mt-4">
-        <a class="button is-light" href="/billing">← Back to Billing</a>
-        <!-- TODO: PDF Download <a class="button is-info" href="/billing/{{ invoice.id }}/pdf">📄 Download PDF</a> -->
+    <div class="mt-5">
+        <a class="button is-light is-medium" href="/billing">
+            <i class="fas fa-arrow-left mr-1"></i>Back to Billing
+        </a>
     </div>
 </div>
 {% endblock %}

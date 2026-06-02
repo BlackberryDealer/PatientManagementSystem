@@ -1,35 +1,62 @@
 {% extends "base.html.tera" %}
 
 {% block content %}
-<h1 class="title">Create Invoice</h1>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/billing"><i class="fas fa-file-invoice-dollar mr-1"></i>Billing</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Create</a></li>
+    </ul>
+</nav>
 
-<div class="box">
+<h1 class="title"><i class="fas fa-plus-circle mr-2"></i>Create Invoice</h1>
+<p class="subtitle is-6 has-text-grey mb-5">Generate a new invoice for a patient. Payment can be recorded after creation.</p>
+
+<div class="box fade-in">
     <form method="POST" action="/billing/create">
-        <div class="field">
-            <label class="label">Patient ID</label>
-            <div class="control">
-                <input class="input" type="number" name="patient_id" required>
-            </div>
-        </div>
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-user mr-1"></i>Patient ID</label>
+                    <div class="control has-icons-left">
+                        <input class="input is-medium" type="number" name="patient_id" placeholder="Enter patient ID" required>
+                        <span class="icon is-small is-left"><i class="fas fa-hashtag"></i></span>
+                    </div>
+                    <p class="help">The unique ID of the patient to bill.</p>
+                </div>
 
-        <div class="field">
-            <label class="label">Due Date</label>
-            <div class="control">
-                <input class="input" type="date" name="due_date" required>
+                <div class="field">
+                    <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Due Date</label>
+                    <div class="control">
+                        <input class="input is-medium" type="date" name="due_date" required>
+                    </div>
+                    <p class="help">When the payment is expected.</p>
+                </div>
+            </div>
+
+            <div class="column is-6">
+                <div class="notification is-warning is-light">
+                    <p><i class="fas fa-exclamation-triangle mr-1"></i><strong>Itemized Billing</strong></p>
+                    <p class="is-size-7 mt-1">This prototype creates an invoice with a default consultation fee ($100.00). Custom line items and itemized billing UI are planned for a future release.</p>
+                    <p class="is-size-7 mt-2"><i class="fas fa-lightbulb mr-1"></i>The invoice total can be manually adjusted after creation.</p>
+                </div>
             </div>
         </div>
 
         <!-- Stub: items field (JSON) — implement itemized form in production -->
         <input type="hidden" name="items" value='[{"description":"Consultation","quantity":1,"unit_price":100.0}]'>
 
-        <div class="notification is-info is-light">
-            <p>📝 The invoice will be created with a stub line item. Itemized billing UI is a future enhancement.</p>
-        </div>
+        <hr>
 
-        <div class="field">
+        <div class="field is-grouped">
             <div class="control">
-                <button class="button is-primary" type="submit">Create Invoice</button>
-                <a class="button is-light" href="/billing">Cancel</a>
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-file-invoice mr-1"></i>Create Invoice
+                </button>
+            </div>
+            <div class="control">
+                <a class="button is-light is-medium" href="/billing">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </a>
             </div>
         </div>
     </form>

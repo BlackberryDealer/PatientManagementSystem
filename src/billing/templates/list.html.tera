@@ -3,11 +3,20 @@
 {% block content %}
 <div class="level">
     <div class="level-left">
-        <h1 class="title">Billing</h1>
+        <div>
+            <h1 class="title"><i class="fas fa-file-invoice-dollar mr-2"></i>Billing</h1>
+            <p class="subtitle is-6 has-text-grey">
+                {% if user.role == "patient" %}Your invoices and payment history
+                {% else %}Manage invoices, payments, and financial records{% endif %}
+            </p>
+        </div>
     </div>
     {% if user.role == "admin" %}
     <div class="level-right">
-        <a class="button is-primary" href="/billing/create">+ Create Invoice</a>
+        <div class="buttons">
+            <p class="button is-static has-text-grey"><i class="fas fa-file-invoice mr-1"></i>{{ invoices | length }}</p>
+            <a class="button is-primary" href="/billing/create"><i class="fas fa-plus mr-1"></i>Create Invoice</a>
+        </div>
     </div>
     {% endif %}
 </div>
@@ -32,7 +41,7 @@
             {% if user.role == "admin" %}<td>{{ inv.patient_name }}</td>{% endif %}
             <td>{{ inv.invoice_date }}</td>
             <td>{{ inv.due_date }}</td>
-            <td>${{ inv.total_amount | round(precision=2) }}</td>
+            <td>${{ "%.2f" | format(inv.total_amount) }}</td>
             <td>
                 <span class="tag {% if inv.status == 'paid' %}is-success{% elif inv.status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
                     {{ inv.status }}
@@ -44,8 +53,18 @@
     </tbody>
 </table>
 {% else %}
-<div class="notification is-info">
-    <p>No invoices found.</p>
+<div class="hero is-medium has-text-centered has-text-grey fade-in">
+    <div class="hero-body">
+        <span class="icon is-large has-text-grey-lighter"><i class="fas fa-receipt fa-4x"></i></span>
+        <p class="title is-4 has-text-grey mt-4">No Invoices Found</p>
+        <p class="subtitle is-6">
+            {% if user.role == "patient" %}You have no invoices yet.
+            {% else %}Create the first invoice to get started.{% endif %}
+        </p>
+        {% if user.role == "admin" %}
+        <a class="button is-primary mt-3" href="/billing/create"><i class="fas fa-plus mr-1"></i>Create Invoice</a>
+        {% endif %}
+    </div>
 </div>
 {% endif %}
 {% endblock %}
