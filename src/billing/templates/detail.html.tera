@@ -35,18 +35,15 @@
                     </p>
                 </header>
                 <div class="card-content">
-                    <div class="mb-3">
-                        <p class="is-size-7 has-text-grey mb-1">PATIENT</p>
-                        <p class="has-text-weight-semibold"><i class="fas fa-user has-text-success mr-2"></i>Patient #{{ invoice.patient_id }}</p>
-                    </div>
-                    <div class="mb-3">
-                        <p class="is-size-7 has-text-grey mb-1">DUE DATE</p>
-                        <p class="has-text-weight-semibold"><i class="fas fa-calendar-alt has-text-warning mr-2"></i>{{ invoice.due_date }}</p>
-                    </div>
-                    <div>
-                        <p class="is-size-7 has-text-grey mb-1">TOTAL AMOUNT</p>
-                        <p class="is-size-4 has-text-weight-bold has-text-link">${{ invoice.total_amount }}</p>
-                    </div>
+                    <p><strong>Patient ID:</strong> {{ invoice.patient_id }}</p>
+                    <p><strong>Invoice Date:</strong> {{ invoice.invoice_date }}</p>
+                    <p><strong>Due Date:</strong> {{ invoice.due_date }}</p>
+                    <p><strong>Total:</strong> ${{ invoice.total_amount | round(precision=2) }}</p>
+                    <p><strong>Status:</strong>
+                        <span class="tag {% if invoice.status == 'paid' %}is-success{% elif invoice.status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
+                            {{ invoice.status }}
+                        </span>
+                    </p>
                 </div>
             </div>
         </div>
@@ -69,8 +66,8 @@
                             <tr>
                                 <td>{{ item.description }}</td>
                                 <td>{{ item.quantity }}</td>
-                                <td>${{ item.unit_price }}</td>
-                                <td class="has-text-weight-semibold">${{ item.total_price }}</td>
+                                <td>${{ item.unit_price | round(precision=2) }}</td>
+                                <td>${{ item.total_price | round(precision=2) }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -99,30 +96,22 @@
         </header>
         <div class="card-content">
             {% if payments %}
-            <div class="table-container">
-                <table class="table is-fullwidth is-striped is-hoverable">
-                    <thead>
-                        <tr>
-                            <th><abbr title="Payment ID">#</abbr></th>
-                            <th><i class="fas fa-dollar-sign mr-1"></i>Amount</th>
-                            <th><i class="fas fa-calendar-alt mr-1"></i>Date</th>
-                            <th>Method</th>
-                            <th>Reference</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for p in payments %}
-                        <tr>
-                            <td class="has-text-grey is-size-7">#{{ p.id }}</td>
-                            <td class="has-text-weight-semibold has-text-success">${{ p.amount }}</td>
-                            <td class="is-size-7">{{ p.payment_date }}</td>
-                            <td><span class="tag is-light">{{ p.payment_method }}</span></td>
-                            <td class="is-size-7">{{ p.transaction_ref | default(value="—") }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+            <table class="table is-fullwidth is-striped">
+                <thead>
+                    <tr><th>ID</th><th>Amount</th><th>Date</th><th>Method</th><th>Ref</th></tr>
+                </thead>
+                <tbody>
+                    {% for p in payments %}
+                    <tr>
+                        <td>{{ p.id }}</td>
+                        <td>${{ p.amount | round(precision=2) }}</td>
+                        <td>{{ p.payment_date }}</td>
+                        <td>{{ p.payment_method }}</td>
+                        <td>{{ p.transaction_ref | default(value="—") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
             {% else %}
             <div class="has-text-centered py-4">
                 <span class="icon is-medium has-text-grey-lighter"><i class="fas fa-credit-card fa-2x"></i></span>
