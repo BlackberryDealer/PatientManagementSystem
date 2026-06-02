@@ -61,17 +61,28 @@ pub async fn login_form(
 pub async fn login(
     pool: web::Data<sqlx::SqlitePool>,
     session: Session,
+    tera: web::Data<tera::Tera>,
     form: web::Form<LoginForm>,
 ) -> Result<HttpResponse, AppError> {
-    let user = services::authenticate_user(pool.get_ref(), &form).await?;
+    match services::authenticate_user(pool.get_ref(), &form).await {
+        Ok(user) => {
+            session.insert("user_id", user.id)?;
+            session.insert("username", &user.username)?;
+            session.insert("role", &user.role)?;
 
-    session.insert("user_id", user.id)?;
-    session.insert("username", &user.username)?;
-    session.insert("role", &user.role)?;
-
-    Ok(HttpResponse::SeeOther()
-        .append_header(("Location", "/appointments"))
-        .finish())
+            Ok(HttpResponse::SeeOther()
+                .append_header(("Location", "/appointments"))
+                .finish())
+        }
+        Err(AppError::Unauthorized(msg)) => {
+            let mut ctx = Context::new();
+            ctx.insert("error", &msg);
+            ctx.insert("title", "Login");
+            let rendered = tera.render("users/login.html.tera", &ctx)?;
+            Ok(HttpResponse::Ok().body(rendered))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// GET /users/logout — clear session and redirect to login
