@@ -41,7 +41,7 @@
             {% if user.role == "admin" %}<td>{{ inv.patient_name }}</td>{% endif %}
             <td>{{ inv.invoice_date }}</td>
             <td>{{ inv.due_date }}</td>
-            <td>${{ "%.2f" | format(inv.total_amount) }}</td>
+            <td>${{ inv.total_amount | round(precision=2) }}</td>
             <td>
                 <span class="tag {% if inv.status == 'paid' %}is-success{% elif inv.status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
                     {{ inv.status }}
