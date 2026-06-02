@@ -20,7 +20,8 @@ pub async fn get_availability_for_doctor(
     let doctor_id = get_doctor_id(pool, doctor_user_id).await?;
 
     Ok(sqlx::query_as::<_, DoctorAvailability>(
-        "SELECT * FROM doctor_availability WHERE doctor_id = ? ORDER BY day_of_week, start_time",
+        "SELECT id, doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked
+         FROM doctor_availability WHERE doctor_id = ? ORDER BY day_of_week, start_time",
     )
     .bind(doctor_id)
     .fetch_all(pool)
@@ -32,7 +33,8 @@ pub async fn get_all_availability(
     pool: &SqlitePool,
 ) -> Result<Vec<DoctorAvailability>, AppError> {
     Ok(sqlx::query_as::<_, DoctorAvailability>(
-        "SELECT * FROM doctor_availability ORDER BY doctor_id, day_of_week, start_time",
+        "SELECT id, doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked
+         FROM doctor_availability ORDER BY doctor_id, day_of_week, start_time",
     )
     .fetch_all(pool)
     .await?)
