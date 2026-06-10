@@ -27,6 +27,54 @@ pub struct CreateInvoiceForm {
     pub items: String,
 }
 
+/// One parsed invoice line item: description, quantity, unit price.
+pub struct LineItem {
+    pub description: String,
+    pub quantity: i32,
+    pub unit_price: f64,
+}
+
+impl LineItem {
+    pub fn total_price(&self) -> f64 {
+        (self.quantity as f64) * self.unit_price
+    }
+}
+
+impl CreateInvoiceForm {
+    /// Parse and validate the submitted line items.
+    /// Malformed lines are skipped; at least one valid line is required,
+    /// and the due date must be a real YYYY-MM-DD date.
+    pub fn parse_line_items(&self) -> Result<Vec<LineItem>, crate::errors::AppError> {
+        if chrono::NaiveDate::parse_from_str(&self.due_date, "%Y-%m-%d").is_err() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Due date must be a valid date in YYYY-MM-DD format".into(),
+            ));
+        }
+
+        let items: Vec<LineItem> = self
+            .items
+            .lines()
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.splitn(3, '|').collect();
+                if parts.len() != 3 { return None; }
+                let description = parts[0].trim().to_string();
+                let quantity: i32 = parts[1].trim().parse().ok()?;
+                let unit_price: f64 = parts[2].trim().parse().ok()?;
+                if description.is_empty() || quantity <= 0 || unit_price < 0.0 { return None; }
+                Some(LineItem { description, quantity, unit_price })
+            })
+            .collect();
+
+        if items.is_empty() {
+            return Err(crate::errors::AppError::BadRequest(
+                "At least one valid line item is required. Format: Description|quantity|unit_price"
+                    .into(),
+            ));
+        }
+        Ok(items)
+    }
+}
+
 // ============================================================
 // InvoiceItem — line items
 // ============================================================
@@ -63,6 +111,24 @@ pub struct RecordPaymentForm {
     pub transaction_ref: Option<String>,
 }
 
+impl RecordPaymentForm {
+    /// Reject zero, negative, or non-finite amounts before anything
+    /// touches the database.
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        if !self.amount.is_finite() || self.amount <= 0.0 {
+            return Err(crate::errors::AppError::BadRequest(
+                "Payment amount must be greater than zero".into(),
+            ));
+        }
+        if self.payment_method.trim().is_empty() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Payment method is required".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ============================================================
 // Trait implementations — OOP via Rust traits (Tutorial 05)
 // ============================================================
@@ -88,6 +154,25 @@ impl Reportable for Invoice {
             "Invoice #{} | Due: {} | Total: £{:.2} | Status: {}",
             self.id, self.due_date, self.total_amount, self.status
         )
+    }
+}
+
+impl Invoice {
+    /// Only a pending invoice can accept payments — paid and cancelled
+    /// invoices are closed.
+    pub fn can_accept_payment(&self) -> bool {
+        self.is_active() // StatusManaged: pending == active
+    }
+
+    /// Does the given total of recorded payments settle this invoice?
+    pub fn is_settled_by(&self, total_paid: f64) -> bool {
+        total_paid >= self.total_amount
+    }
+
+    /// State transition to `paid`. Mutates internal state (&mut self);
+    /// callers persist the new status afterwards.
+    pub fn mark_paid(&mut self) {
+        self.status = "paid".to_string();
     }
 }
 

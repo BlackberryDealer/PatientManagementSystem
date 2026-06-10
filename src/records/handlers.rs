@@ -75,17 +75,10 @@ pub async fn record_detail(
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let record_id = path.into_inner();
-    let record = services::get_record_by_id(pool.get_ref(), record_id).await?;
-
-    // Patients may only view their own records
-    if user.role == "patient" {
-        let patient_id = crate::db::get_patient_id(pool.get_ref(), user.user_id).await?;
-        if record.patient_id != patient_id {
-            return Err(AppError::Forbidden(
-                "You do not have permission to view this record.".into(),
-            ));
-        }
-    }
+    // Ownership rule (patients see only their own) lives in the service layer
+    let record =
+        services::get_record_checked(pool.get_ref(), record_id, user.user_id, &user.role)
+            .await?;
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);

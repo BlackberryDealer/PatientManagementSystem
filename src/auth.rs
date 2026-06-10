@@ -116,3 +116,18 @@ pub fn require_admin(user: &AuthUser) -> Result<(), crate::errors::AppError> {
 pub fn require_doctor(user: &AuthUser) -> Result<(), crate::errors::AppError> {
     require_role(user, &["doctor", "admin"])
 }
+
+/// Convenience: the acting user must be the target user themselves, or an admin.
+/// Used for profile pages where users manage their own data.
+pub fn require_self_or_admin(
+    user: &AuthUser,
+    target_user_id: i64,
+) -> Result<(), crate::errors::AppError> {
+    if user.user_id == target_user_id || user.role == "admin" {
+        Ok(())
+    } else {
+        Err(crate::errors::AppError::Forbidden(
+            "You can only edit your own profile".into(),
+        ))
+    }
+}

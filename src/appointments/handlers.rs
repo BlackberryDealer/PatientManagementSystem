@@ -1,7 +1,9 @@
 use actix_web::{web, HttpResponse};
 use tera::Context;
 
-use crate::appointments::models::{BookAppointmentForm, SuggestSlotForm, WaitlistForm};
+use crate::appointments::models::{
+    BookAppointmentForm, CalendarMonth, SuggestSlotForm, WaitlistForm,
+};
 use crate::appointments::services;
 use crate::auth::{require_doctor, AuthUser};
 use crate::errors::AppError;
@@ -151,8 +153,8 @@ pub async fn list_waitlist(
             (all, String::from("All Waitlisted Patients"))
         }
         "doctor" => {
-            let doc_id = crate::db::get_doctor_id(pool.get_ref(), user.user_id).await?;
-            let entries = services::get_waitlist_for_doctor(pool.get_ref(), doc_id).await?;
+            let entries =
+                services::get_waitlist_for_doctor(pool.get_ref(), user.user_id).await?;
             (entries, String::from("Patient Waitlist"))
         }
         _ => (vec![], String::new()),
@@ -209,103 +211,41 @@ pub async fn promote_waitlist(
 // GET /appointments/calendar — calendar view
 // ============================================================
 
-#[derive(serde::Serialize)]
-struct CalendarDay {
-    day: u32,
-    date: String,
-    is_today: bool,
-    is_current_month: bool,
-    count: usize,
-}
-
 pub async fn calendar_view(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
     user: AuthUser,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse, AppError> {
-    use chrono::{Datelike, NaiveDate};
+    use chrono::Datelike;
+
+    // HTTP lifecycle: extract inputs, defaulting to the current month
     let today = chrono::Utc::now().date_naive();
     let year = query.get("year").and_then(|y| y.parse().ok()).unwrap_or(today.year());
     let month = query.get("month").and_then(|m| m.parse().ok()).unwrap_or(today.month());
 
-    let first = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
-    let days_in_month = if month == 12 {
-        NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
-    } else {
-        NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap()
-    }.signed_duration_since(first).num_days() as u32;
+    // Validation + business object: CalendarMonth owns all calendar arithmetic
+    let mut calendar = CalendarMonth::new(year, month)?;
+    let (from_date, to_date) = calendar.date_range();
+    let counts = services::get_appointment_counts_by_date(
+        pool.get_ref(), &user.role, user.user_id, &from_date, &to_date,
+    ).await?;
+    calendar.build_grid(today, &counts);
 
-    let start_dow = first.weekday().num_days_from_monday(); // 0=Mon
-
-    // Build calendar grid
-    let mut days: Vec<CalendarDay> = Vec::new();
-
-    // Previous month filler
-    for _d in 0..start_dow {
-        days.push(CalendarDay { day: 0, date: String::new(), is_today: false, is_current_month: false, count: 0 });
-    }
-
-    // Current month days
-    let from_date = format!("{}-{:02}-01", year, month);
-    let to_date = format!("{}-{:02}-{}", year, month, days_in_month);
-
-    let counts: Vec<(String, i64)> = match user.role.as_str() {
-        "patient" => {
-            sqlx::query_as::<_, (String, i64)>(
-                "SELECT a.appointment_date, COUNT(*) FROM appointments a
-                 JOIN patients p ON a.patient_id = p.id
-                 WHERE p.user_id = ? AND a.appointment_date >= ? AND a.appointment_date <= ? AND a.status != 'cancelled'
-                 GROUP BY a.appointment_date",
-            ).bind(user.user_id).bind(&from_date).bind(&to_date).fetch_all(pool.get_ref()).await?
-        }
-        "doctor" => {
-            sqlx::query_as::<_, (String, i64)>(
-                "SELECT a.appointment_date, COUNT(*) FROM appointments a
-                 JOIN doctors d ON a.doctor_id = d.id
-                 WHERE d.user_id = ? AND a.appointment_date >= ? AND a.appointment_date <= ? AND a.status != 'cancelled'
-                 GROUP BY a.appointment_date",
-            ).bind(user.user_id).bind(&from_date).bind(&to_date).fetch_all(pool.get_ref()).await?
-        }
-        _ => {
-            sqlx::query_as::<_, (String, i64)>(
-                "SELECT appointment_date, COUNT(*) FROM appointments
-                 WHERE appointment_date >= ? AND appointment_date <= ? AND status != 'cancelled'
-                 GROUP BY appointment_date",
-            ).bind(&from_date).bind(&to_date).fetch_all(pool.get_ref()).await?
-        }
-    };
-
-    let count_map: std::collections::HashMap<String, usize> = counts
-        .into_iter().map(|(d, c)| (d, c as usize)).collect();
-
-    for d in 1..=days_in_month {
-        let date_str = format!("{}-{:02}-{:02}", year, month, d);
-        let is_today = date_str == today.format("%Y-%m-%d").to_string();
-        days.push(CalendarDay {
-            day: d, date: date_str.clone(), is_today, is_current_month: true,
-            count: count_map.get(&date_str).copied().unwrap_or(0),
-        });
-    }
-
-    let prev_month = if month == 1 { (year - 1, 12) } else { (year, month - 1) };
-    let next_month = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
-
-    // Group days into weeks (rows of 7)
-    let weeks: Vec<&[CalendarDay]> = days.chunks(7).collect();
-
-    let month_names = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    // Presentation
+    let (prev_year, prev_month) = calendar.prev();
+    let (next_year, next_month) = calendar.next();
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);
-    ctx.insert("weeks", &weeks);
-    ctx.insert("year", &year);
-    ctx.insert("month", &month);
-    ctx.insert("month_name", month_names[(month - 1) as usize]);
-    ctx.insert("prev_year", &prev_month.0);
-    ctx.insert("prev_month", &prev_month.1);
-    ctx.insert("next_year", &next_month.0);
-    ctx.insert("next_month", &next_month.1);
+    ctx.insert("weeks", &calendar.weeks());
+    ctx.insert("year", &calendar.year);
+    ctx.insert("month", &calendar.month);
+    ctx.insert("month_name", calendar.month_name());
+    ctx.insert("prev_year", &prev_year);
+    ctx.insert("prev_month", &prev_month);
+    ctx.insert("next_year", &next_year);
+    ctx.insert("next_month", &next_month);
     ctx.insert("title", "Calendar");
     let rendered = tera.render("appointments/calendar.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))

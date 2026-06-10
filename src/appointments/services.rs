@@ -1,59 +1,12 @@
 use crate::appointments::models::{
-    Appointment, AppointmentView, BookAppointmentForm, Room,
+    Appointment, AppointmentView, BookAppointmentForm, Priority, Room,
     SuggestSlotForm, WaitlistEntry, WaitlistForm,
 };
 use crate::errors::AppError;
+use crate::time::{minutes_to_time, parse_slot, time_to_minutes, SLOT_MINUTES};
 use crate::traits::{Prioritized, TimeSlotted};
 use sqlx::SqlitePool;
 use std::collections::BinaryHeap;
-
-// ============================================================
-// Helper: time helpers
-// ============================================================
-
-/// Scheduling granularity. Appointments are booked on a fixed 30-minute grid,
-/// so every appointment maps cleanly onto whole 30-minute occupancy slots
-/// (see the `appointment_slots` table). This is what lets us enforce
-/// double-booking prevention with a database UNIQUE constraint.
-const SLOT_MINUTES: i32 = 30;
-
-/// Convert "HH:MM" to minutes since midnight for comparison.
-fn time_to_minutes(t: &str) -> Option<i32> {
-    let parts: Vec<&str> = t.split(':').collect();
-    if parts.len() != 2 { return None; }
-    let h: i32 = parts[0].parse().ok()?;
-    let m: i32 = parts[1].parse().ok()?;
-    Some(h * 60 + m)
-}
-
-/// Convert minutes since midnight back to "HH:MM".
-fn minutes_to_time(mins: i32) -> String {
-    format!("{:02}:{:02}", mins / 60, mins % 60)
-}
-
-/// Parse "HH:MM" start/end strings into `(start_mins, end_mins)`.
-///
-/// Enforces the scheduling design rules so the booking can be decomposed into
-/// whole 30-minute slots:
-/// 1. valid `HH:MM` format,
-/// 2. start strictly before end,
-/// 3. both times aligned to the 30-minute grid (`:00` or `:30`).
-fn parse_slot(start: &str, end: &str) -> Result<(i32, i32), AppError> {
-    let s = time_to_minutes(start)
-        .ok_or_else(|| AppError::BadRequest("Invalid start time format".into()))?;
-    let e = time_to_minutes(end)
-        .ok_or_else(|| AppError::BadRequest("Invalid end time format".into()))?;
-    if s >= e {
-        return Err(AppError::BadRequest("Start time must be before end time".into()));
-    }
-    if s % SLOT_MINUTES != 0 || e % SLOT_MINUTES != 0 {
-        return Err(AppError::BadRequest(
-            "Appointment times must fall on a 30-minute boundary (e.g. 09:00, 09:30, 10:00)."
-                .into(),
-        ));
-    }
-    Ok((s, e))
-}
 
 // ============================================================
 // Algorithm 1: Time Interval Overlap Detection
@@ -261,10 +214,10 @@ pub async fn book_with_priority(
 ) -> Result<Appointment, AppError> {
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
 
-    let new_priority = form.priority.unwrap_or(3);
+    let new_priority = Priority::from_i32(form.priority.unwrap_or(3));
 
-    // Only Emergency (1) or Urgent (2) can bump other appointments
-    if new_priority > 2 {
+    // Triage rule lives on the Priority enum, not as a magic number here.
+    if !new_priority.can_override() {
         return Err(AppError::BadRequest(
             "Priority override is only available for Emergency or Urgent appointments.\
              \nUse standard booking for Normal or Follow-up visits."
@@ -289,7 +242,7 @@ pub async fn book_with_priority(
     if !has_conflict {
         return insert_appointment(
             pool, patient_id, form.doctor_id, &form.appointment_date,
-            &form.start_time, &form.end_time, new_priority,
+            &form.start_time, &form.end_time, new_priority as i32,
             form.room_id, &form.notes,
         ).await;
     }
@@ -307,8 +260,11 @@ pub async fn book_with_priority(
     .fetch_all(pool)
     .await?;
 
-    // Verify new appointment has higher priority than ALL conflicting ones
-    let can_bump = conflicts.iter().all(|(_, pri, _, _, _)| new_priority < *pri);
+    // Verify new appointment has higher priority than ALL conflicting ones.
+    // Lower enum discriminant = more urgent; derived Ord makes `<` correct.
+    let can_bump = conflicts
+        .iter()
+        .all(|(_, pri, _, _, _)| new_priority < Priority::from_i32(*pri));
 
     if !can_bump {
         return Err(AppError::BadRequest(
@@ -356,7 +312,7 @@ pub async fn book_with_priority(
         &form.appointment_date,
         &form.start_time,
         &form.end_time,
-        new_priority,
+        new_priority as i32,
         form.room_id,
         &form.notes,
         start_mins,
@@ -560,11 +516,13 @@ pub async fn add_to_waitlist(
     .await?)
 }
 
-/// Get waitlist for a doctor.
+/// Get the pending waitlist for a doctor (by user_id, like the other
+/// per-role queries — the doctor row ID is resolved internally).
 pub async fn get_waitlist_for_doctor(
     pool: &SqlitePool,
-    doctor_id: i64,
+    doctor_user_id: i64,
 ) -> Result<Vec<WaitlistEntry>, AppError> {
+    let doctor_id = crate::db::get_doctor_id(pool, doctor_user_id).await?;
     Ok(sqlx::query_as::<_, WaitlistEntry>(
         "SELECT * FROM waitlist WHERE doctor_id = ? AND status = 'waiting'
          ORDER BY priority ASC, created_at ASC",
@@ -619,7 +577,7 @@ pub async fn auto_promote_waitlist(
         .fetch_optional(pool)
         .await?;
 
-        if let Some(entry) = entry {
+        if let Some(mut entry) = entry {
             // Use TimeSlotted trait to check conflict before querying DB
             let conflict = check_conflict(
                 pool, entry.doctor_id,
@@ -638,8 +596,10 @@ pub async fn auto_promote_waitlist(
                     entry.room_id, &entry.notes,
                 ).await?;
 
-                sqlx::query("UPDATE waitlist SET status = 'accepted' WHERE id = ?")
-                    .bind(item.waitlist_id)
+                entry.accept()?; // encapsulated state transition (&mut self)
+                sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")
+                    .bind(&entry.status)
+                    .bind(entry.id)
                     .execute(pool)
                     .await?;
 
@@ -656,7 +616,7 @@ pub async fn promote_from_waitlist(
     pool: &SqlitePool,
     waitlist_id: i64,
 ) -> Result<Option<Appointment>, AppError> {
-    let entry = sqlx::query_as::<_, WaitlistEntry>(
+    let mut entry = sqlx::query_as::<_, WaitlistEntry>(
         "SELECT * FROM waitlist WHERE id = ? AND status = 'waiting'"
     )
     .bind(waitlist_id)
@@ -685,9 +645,11 @@ pub async fn promote_from_waitlist(
         entry.priority, entry.room_id, &entry.notes,
     ).await?;
 
-    // Mark waitlist entry as accepted
-    sqlx::query("UPDATE waitlist SET status = 'accepted' WHERE id = ?")
-        .bind(waitlist_id)
+    // Encapsulated state transition, then persist the entry's new status
+    entry.accept()?;
+    sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")
+        .bind(&entry.status)
+        .bind(entry.id)
         .execute(pool)
         .await?;
 
@@ -814,35 +776,37 @@ fn map_to_views(
 /// After cancellation, automatically attempts to promote the highest-priority
 /// waitlist entry into the freed slot using the BinaryHeap priority queue.
 pub async fn cancel_appointment(pool: &SqlitePool, appointment_id: i64) -> Result<(), AppError> {
-    // Fetch the appointment first so we can use its date/doctor for waitlist promotion
-    let appt = sqlx::query_as::<_, (i64, String, chrono::NaiveDate)>(
-        "SELECT doctor_id, status, appointment_date FROM appointments WHERE id = ?",
+    // Load the full domain object so the cancellation rule runs on it
+    let mut appt = sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE id = ?",
     )
     .bind(appointment_id)
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
 
-    if appt.1 != "scheduled" {
-        return Err(AppError::BadRequest("Appointment is already cancelled or completed".into()));
-    }
+    // Business rule + state change live on the Appointment itself
+    appt.cancel()?;
 
-    // Cancel the appointment AND release its occupancy slots in one transaction,
+    // Persist the new status AND release its occupancy slots in one transaction,
     // so the freed slots become immediately bookable again.
     let mut tx = pool.begin().await?;
-    sqlx::query("UPDATE appointments SET status = 'cancelled' WHERE id = ?")
-        .bind(appointment_id)
+    sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
+        .bind(&appt.status)
+        .bind(appt.id)
         .execute(&mut *tx)
         .await?;
     sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
-        .bind(appointment_id)
+        .bind(appt.id)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
 
     // Auto-promote the most urgent waitlist entry for the freed slot
-    let date_str = appt.2.format("%Y-%m-%d").to_string();
-    let _ = auto_promote_waitlist(pool, appt.0, &date_str).await;
+    let date_str = appt.appointment_date.format("%Y-%m-%d").to_string();
+    let _ = auto_promote_waitlist(pool, appt.doctor_id, &date_str).await;
 
     Ok(())
 }
@@ -872,6 +836,45 @@ pub async fn cancel_appointment_checked(
         }
     }
     cancel_appointment(pool, appointment_id).await
+}
+
+/// Per-day appointment counts for the calendar view, scoped by role:
+/// patients see their own, doctors see theirs, admins see everything.
+/// Returns a map of "YYYY-MM-DD" → count for `[from, to]` inclusive.
+pub async fn get_appointment_counts_by_date(
+    pool: &SqlitePool,
+    role: &str,
+    user_id: i64,
+    from: &str,
+    to: &str,
+) -> Result<std::collections::HashMap<String, usize>, AppError> {
+    let rows: Vec<(String, i64)> = match role {
+        "patient" => {
+            sqlx::query_as(
+                "SELECT a.appointment_date, COUNT(*) FROM appointments a
+                 JOIN patients p ON a.patient_id = p.id
+                 WHERE p.user_id = ? AND a.appointment_date >= ? AND a.appointment_date <= ? AND a.status != 'cancelled'
+                 GROUP BY a.appointment_date",
+            ).bind(user_id).bind(from).bind(to).fetch_all(pool).await?
+        }
+        "doctor" => {
+            sqlx::query_as(
+                "SELECT a.appointment_date, COUNT(*) FROM appointments a
+                 JOIN doctors d ON a.doctor_id = d.id
+                 WHERE d.user_id = ? AND a.appointment_date >= ? AND a.appointment_date <= ? AND a.status != 'cancelled'
+                 GROUP BY a.appointment_date",
+            ).bind(user_id).bind(from).bind(to).fetch_all(pool).await?
+        }
+        _ => {
+            sqlx::query_as(
+                "SELECT appointment_date, COUNT(*) FROM appointments
+                 WHERE appointment_date >= ? AND appointment_date <= ? AND status != 'cancelled'
+                 GROUP BY appointment_date",
+            ).bind(from).bind(to).fetch_all(pool).await?
+        }
+    };
+
+    Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
 }
 
 /// Get all doctors for dropdowns.

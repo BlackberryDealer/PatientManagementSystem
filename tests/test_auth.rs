@@ -61,7 +61,8 @@ async fn test_register_duplicate_fails() {
                 "username": "dupe", "email": "second@test.com",
                 "password": "password123", "full_name": "Second", "role": "patient",
             })).to_request()).await;
-        assert!(resp.status().is_server_error());
+        // A duplicate username is a user mistake → 400, not a server error
+        assert!(resp.status().is_client_error());
     });
 }
 

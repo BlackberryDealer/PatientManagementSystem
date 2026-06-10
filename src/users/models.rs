@@ -25,6 +25,36 @@ pub struct RegisterForm {
     pub role: String, // "patient", "doctor", or "admin"
 }
 
+impl RegisterForm {
+    /// All registration input rules in one place, checked before any
+    /// hashing or database work happens.
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        use crate::errors::AppError;
+        if self.username.trim().len() < 3 {
+            return Err(AppError::BadRequest(
+                "Username must be at least 3 characters".into(),
+            ));
+        }
+        if !self.email.contains('@') {
+            return Err(AppError::BadRequest(
+                "A valid email address is required".into(),
+            ));
+        }
+        if self.password.len() < 8 {
+            return Err(AppError::BadRequest(
+                "Password must be at least 8 characters".into(),
+            ));
+        }
+        if self.full_name.trim().is_empty() {
+            return Err(AppError::BadRequest("Full name is required".into()));
+        }
+        if !["patient", "doctor", "admin"].contains(&self.role.as_str()) {
+            return Err(AppError::BadRequest("Invalid role specified".into()));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LoginForm {
     pub login: String,    // username or email

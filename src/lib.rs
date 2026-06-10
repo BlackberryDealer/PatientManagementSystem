@@ -4,6 +4,7 @@
 pub mod auth;
 pub mod db;
 pub mod errors;
+pub mod time;
 pub mod traits;
 
 pub mod users;

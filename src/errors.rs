@@ -30,6 +30,20 @@ impl fmt::Display for AppError {
     }
 }
 
+impl AppError {
+    /// Translate a UNIQUE-constraint violation into a clean 400 with the given
+    /// message; any other database error passes through as a 500. Use this on
+    /// INSERTs where a duplicate is a user mistake, not a server fault.
+    pub fn bad_request_on_unique(e: sqlx::Error, msg: &str) -> AppError {
+        if let sqlx::Error::Database(db) = &e {
+            if db.is_unique_violation() {
+                return AppError::BadRequest(msg.to_string());
+            }
+        }
+        AppError::DatabaseError(e)
+    }
+}
+
 impl ResponseError for AppError {
     fn error_response(&self) -> HttpResponse {
         match self {

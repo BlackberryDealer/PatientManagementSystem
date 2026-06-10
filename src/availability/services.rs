@@ -32,27 +32,16 @@ pub async fn get_all_availability(
 }
 
 /// Add a new availability slot for a doctor.
+/// Flow: validate the form, resolve the doctor, then persist.
 pub async fn add_availability(
     pool: &SqlitePool,
     doctor_user_id: i64,
     form: &SetAvailabilityForm,
 ) -> Result<DoctorAvailability, AppError> {
+    // Validation — nothing touches the database before this passes
+    form.validate()?;
+
     let doctor_id = db::get_doctor_id(pool, doctor_user_id).await?;
-
-    // Form checkboxes send "on" when checked, absent when unchecked
-    let is_recurring = form.is_recurring.as_deref() == Some("on");
-    let is_blocked = form.is_blocked.as_deref() == Some("on");
-
-    // Filter empty strings to None so SQLite receives a proper NULL for DATE
-    let specific_date: Option<String> = form
-        .specific_date
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
-
-    // Use i32 — matches the struct field type (SQLite stores BOOLEAN as INTEGER)
-    let recurring_int: i32 = if is_recurring { 1 } else { 0 };
-    let blocked_int: i32 = if is_blocked { 1 } else { 0 };
 
     Ok(sqlx::query_as::<_, DoctorAvailability>(
         "INSERT INTO doctor_availability
@@ -64,9 +53,9 @@ pub async fn add_availability(
     .bind(form.day_of_week)
     .bind(&form.start_time)
     .bind(&form.end_time)
-    .bind(recurring_int)
-    .bind(&specific_date)
-    .bind(blocked_int) // i32: 0 or 1
+    .bind(form.recurring() as i32) // SQLite stores BOOLEAN as INTEGER 0/1
+    .bind(form.specific_date_or_none())
+    .bind(form.blocked() as i32)
     .fetch_one(pool)
     .await?)
 }

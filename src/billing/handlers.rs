@@ -62,17 +62,10 @@ pub async fn invoice_detail(
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let invoice_id = path.into_inner();
-    let invoice = services::get_invoice_by_id(pool.get_ref(), invoice_id).await?;
-
-    // Patients may only view their own invoices
-    if user.role == "patient" {
-        let patient_id = crate::db::get_patient_id(pool.get_ref(), user.user_id).await?;
-        if invoice.patient_id != patient_id {
-            return Err(AppError::Forbidden(
-                "You do not have permission to view this invoice.".into(),
-            ));
-        }
-    }
+    // Ownership rule (patients see only their own) lives in the service layer
+    let invoice =
+        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, &user.role)
+            .await?;
 
     let items = services::get_invoice_items(pool.get_ref(), invoice_id).await?;
     let payments = services::get_invoice_payments(pool.get_ref(), invoice_id).await?;
@@ -99,13 +92,9 @@ pub async fn record_payment(
     let invoice_id = path.into_inner();
 
     if user.role == "patient" {
-        let patient_id = crate::db::get_patient_id(pool.get_ref(), user.user_id).await?;
-        let invoice = services::get_invoice_by_id(pool.get_ref(), invoice_id).await?;
-        if invoice.patient_id != patient_id {
-            return Err(AppError::Forbidden(
-                "You can only pay your own invoices.".into(),
-            ));
-        }
+        // Ownership rule enforced by the service layer
+        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, &user.role)
+            .await?;
     } else {
         require_admin(&user)?;
     }

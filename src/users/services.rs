@@ -13,10 +13,8 @@ pub async fn register_user(
     pool: &SqlitePool,
     form: &RegisterForm,
 ) -> Result<User, AppError> {
-    // Validate role
-    if !["patient", "doctor", "admin"].contains(&form.role.as_str()) {
-        return Err(AppError::BadRequest("Invalid role specified".into()));
-    }
+    // Validation first — nothing is hashed or persisted until this passes
+    form.validate()?;
 
     let password_hash = bcrypt::hash(&form.password, 10)?;
 
@@ -31,7 +29,11 @@ pub async fn register_user(
     .bind(&form.role)
     .bind(&form.full_name)
     .fetch_one(pool)
-    .await?;
+    .await
+    .map_err(|e| {
+        // A duplicate username/email is a user mistake (400), not a server fault
+        AppError::bad_request_on_unique(e, "That username or email is already taken.")
+    })?;
 
     // Create corresponding profile row
     match form.role.as_str() {
@@ -128,6 +130,27 @@ pub async fn get_doctor_by_user_id(
 // ============================================================
 
 use crate::users::models::EditProfileForm;
+
+/// Update a user's profile: core details plus the role-specific
+/// (patient/doctor) extension row. Which extension a role implies is a
+/// domain decision and belongs here, not in the route handler.
+pub async fn update_profile(
+    pool: &SqlitePool,
+    user_id: i64,
+    form: &EditProfileForm,
+) -> Result<(), AppError> {
+    let user = update_user(pool, user_id, form).await?;
+    match user.role.as_str() {
+        "patient" => {
+            update_patient(pool, user_id, form).await?;
+        }
+        "doctor" => {
+            update_doctor(pool, user_id, form).await?;
+        }
+        _ => {} // admin has no extension row
+    }
+    Ok(())
+}
 
 /// Update a user's core details (full_name, email).
 pub async fn update_user(

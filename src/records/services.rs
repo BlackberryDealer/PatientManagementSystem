@@ -64,6 +64,26 @@ pub async fn get_record_by_id(
         .ok_or_else(|| AppError::NotFound("Medical record not found".into()))
 }
 
+/// Get a medical record, enforcing ownership for patients.
+/// Patients may only access their own records; staff roles see any.
+pub async fn get_record_checked(
+    pool: &SqlitePool,
+    record_id: i64,
+    user_id: i64,
+    role: &str,
+) -> Result<MedicalRecord, AppError> {
+    let record = get_record_by_id(pool, record_id).await?;
+    if role == "patient" {
+        let patient_id = db::get_patient_id(pool, user_id).await?;
+        if record.patient_id != patient_id {
+            return Err(AppError::Forbidden(
+                "You do not have permission to view this record.".into(),
+            ));
+        }
+    }
+    Ok(record)
+}
+
 /// Get prescriptions for a patient.
 pub async fn get_prescriptions_for_patient(
     pool: &SqlitePool,

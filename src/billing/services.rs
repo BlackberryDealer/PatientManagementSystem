@@ -15,34 +15,15 @@ pub async fn create_invoice(
     pool: &SqlitePool,
     form: &CreateInvoiceForm,
 ) -> Result<Invoice, AppError> {
-    // Parse itemized line items from the submitted text
-    let line_items: Vec<(String, i32, f64)> = form
-        .items
-        .lines()
-        .filter_map(|line| {
-            let parts: Vec<&str> = line.splitn(3, '|').collect();
-            if parts.len() != 3 { return None; }
-            let description = parts[0].trim().to_string();
-            let quantity: i32 = parts[1].trim().parse().ok()?;
-            let unit_price: f64 = parts[2].trim().parse().ok()?;
-            if description.is_empty() || quantity <= 0 || unit_price < 0.0 { return None; }
-            Some((description, quantity, unit_price))
-        })
-        .collect();
+    // Validation: the form owns its own parsing rules
+    let line_items = form.parse_line_items()?;
 
-    if line_items.is_empty() {
-        return Err(AppError::BadRequest(
-            "At least one valid line item is required. Format: Description|quantity|unit_price"
-                .into(),
-        ));
-    }
+    let grand_total: f64 = line_items.iter().map(|item| item.total_price()).sum();
 
-    let grand_total: f64 = line_items
-        .iter()
-        .map(|(_, qty, price)| (*qty as f64) * price)
-        .sum();
+    // Persist header + items atomically — an invoice can never exist
+    // without its line items.
+    let mut tx = pool.begin().await?;
 
-    // Create the invoice header
     let invoice = sqlx::query_as::<_, Invoice>(
         "INSERT INTO invoices (patient_id, due_date, total_amount, status)
          VALUES (?, ?, ?, 'pending')
@@ -51,26 +32,25 @@ pub async fn create_invoice(
     .bind(form.patient_id)
     .bind(&form.due_date)
     .bind(grand_total)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
 
-    // Insert each line item
-    for (description, quantity, unit_price) in &line_items {
-        let total_price = (*quantity as f64) * unit_price;
+    for item in &line_items {
         sqlx::query(
             "INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, total_price)
              VALUES (?, ?, ?, ?, ?)",
         )
         .bind(invoice.id)
-        .bind(description)
-        .bind(quantity)
-        .bind(unit_price)
-        .bind(total_price)
-        .execute(pool)
+        .bind(&item.description)
+        .bind(item.quantity)
+        .bind(item.unit_price)
+        .bind(item.total_price())
+        .execute(&mut *tx)
         .await?;
     }
 
-    get_invoice_by_id(pool, invoice.id).await
+    tx.commit().await?;
+    Ok(invoice)
 }
 
 /// Get all invoices (admin view) with patient names.
@@ -129,6 +109,27 @@ pub async fn get_invoice_by_id(pool: &SqlitePool, invoice_id: i64) -> Result<Inv
         .ok_or_else(|| AppError::NotFound("Invoice not found".into()))
 }
 
+/// Get an invoice, enforcing ownership for patients.
+/// Patients may only access their own invoices; staff roles see any.
+/// Mirrors `appointments::services::cancel_appointment_checked`.
+pub async fn get_invoice_checked(
+    pool: &SqlitePool,
+    invoice_id: i64,
+    user_id: i64,
+    role: &str,
+) -> Result<Invoice, AppError> {
+    let invoice = get_invoice_by_id(pool, invoice_id).await?;
+    if role == "patient" {
+        let patient_id = db::get_patient_id(pool, user_id).await?;
+        if invoice.patient_id != patient_id {
+            return Err(AppError::Forbidden(
+                "You do not have permission to access this invoice.".into(),
+            ));
+        }
+    }
+    Ok(invoice)
+}
+
 /// Get line items for an invoice.
 pub async fn get_invoice_items(
     pool: &SqlitePool,
@@ -162,43 +163,58 @@ pub async fn get_invoice_payments(
 // ============================================================
 
 /// Record a payment against an invoice.
-/// If the total paid >= invoice total, mark the invoice as paid.
+/// Flow: validate the form, check the invoice can accept payments,
+/// then insert the payment and (if settled) flip the status — all in
+/// one transaction so the books always balance.
 /// TODO: Implement partial payment tracking and overpayment refund.
 pub async fn record_payment(
     pool: &SqlitePool,
     invoice_id: i64,
     form: &RecordPaymentForm,
 ) -> Result<Payment, AppError> {
+    // 1. Validation — nothing touches the database before this passes
+    form.validate()?;
+
+    // 2. Business object: load the invoice and apply its payment rule
+    let mut invoice = get_invoice_by_id(pool, invoice_id).await?;
+    if !invoice.can_accept_payment() {
+        return Err(AppError::BadRequest(
+            "This invoice is not open for payment (already paid or cancelled).".into(),
+        ));
+    }
+
+    // 3. Persistence — payment row, settlement check, and status change
+    //    commit atomically
+    let mut tx = pool.begin().await?;
+
     let payment = sqlx::query_as::<_, Payment>(
         "INSERT INTO payments (invoice_id, amount, payment_method, transaction_ref)
          VALUES (?, ?, ?, ?)
          RETURNING id, invoice_id, amount, payment_date, payment_method, transaction_ref",
     )
-    .bind(invoice_id)
+    .bind(invoice.id)
     .bind(form.amount)
     .bind(&form.payment_method)
     .bind(&form.transaction_ref)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
 
-    // Check if invoice is fully paid
     let total_paid: (Option<f64>,) =
         sqlx::query_as("SELECT SUM(amount) FROM payments WHERE invoice_id = ?")
-            .bind(invoice_id)
-            .fetch_one(pool)
+            .bind(invoice.id)
+            .fetch_one(&mut *tx)
             .await?;
 
-    let invoice = get_invoice_by_id(pool, invoice_id).await?;
-
-    if let Some(paid) = total_paid.0 {
-        if paid >= invoice.total_amount {
-            sqlx::query("UPDATE invoices SET status = 'paid' WHERE id = ?")
-                .bind(invoice_id)
-                .execute(pool)
-                .await?;
-        }
+    if invoice.is_settled_by(total_paid.0.unwrap_or(0.0)) {
+        invoice.mark_paid(); // encapsulated state transition (&mut self)
+        sqlx::query("UPDATE invoices SET status = ? WHERE id = ?")
+            .bind(&invoice.status)
+            .bind(invoice.id)
+            .execute(&mut *tx)
+            .await?;
     }
 
+    tx.commit().await?;
     Ok(payment)
 }
 
