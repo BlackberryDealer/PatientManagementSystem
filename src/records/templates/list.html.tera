@@ -16,6 +16,7 @@
         <div class="buttons">
             <p class="button is-static has-text-grey"><i class="fas fa-file-medical mr-1"></i>{{ records | length }}</p>
             <a class="button is-primary" href="/records/create"><i class="fas fa-plus mr-1"></i>New Record</a>
+            <a class="button is-link" href="/records/prescriptions/create"><i class="fas fa-prescription mr-1"></i>Write Prescription</a>
         </div>
     </div>
     {% endif %}

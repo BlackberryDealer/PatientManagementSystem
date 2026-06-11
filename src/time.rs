@@ -47,6 +47,22 @@ pub fn parse_time_range(start: &str, end: &str) -> Result<(i32, i32), AppError> 
     Ok((s, e))
 }
 
+/// Parse a booking date and enforce the domain rule that appointments
+/// cannot be requested for a date in the past. (Internal flows that
+/// re-book stored requests — e.g. waitlist promotion — bypass this on
+/// purpose; it guards user-submitted input only.)
+pub fn parse_booking_date(date: &str) -> Result<chrono::NaiveDate, AppError> {
+    let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| {
+        AppError::BadRequest("Date must be a valid date in YYYY-MM-DD format".into())
+    })?;
+    if parsed < chrono::Utc::now().date_naive() {
+        return Err(AppError::BadRequest(
+            "The appointment date cannot be in the past".into(),
+        ));
+    }
+    Ok(parsed)
+}
+
 /// Parse "HH:MM" start/end strings into `(start_mins, end_mins)`.
 ///
 /// Enforces the scheduling design rules so the booking can be decomposed into

@@ -63,10 +63,18 @@
     </div>
     {% endif %}
 
-    <div class="mt-5">
+    <div class="mt-5 buttons">
         <a class="button is-light is-medium" href="/records">
             <i class="fas fa-arrow-left mr-1"></i>Back to Records
         </a>
+        <a class="button is-primary is-medium" href="/records/{{ record.id }}/report">
+            <i class="fas fa-file-medical-alt mr-1"></i>Generate Report
+        </a>
+        {% if user.role == "doctor" or user.role == "admin" %}
+        <a class="button is-link is-light is-medium" href="/records/timeline?patient_id={{ record.patient_id }}">
+            <i class="fas fa-stream mr-1"></i>Patient Timeline
+        </a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

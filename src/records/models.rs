@@ -53,3 +53,82 @@ pub struct Prescription {
     pub notes: Option<String>,
     pub prescribed_at: chrono::NaiveDateTime,
 }
+
+impl Reportable for Prescription {
+    fn generate_summary(&self) -> String {
+        format!(
+            "{} — {}, {}{}",
+            self.medication_name,
+            self.dosage,
+            self.frequency,
+            self.duration
+                .as_deref()
+                .map(|d| format!(" for {}", d))
+                .unwrap_or_default(),
+        )
+    }
+}
+
+/// Form for a doctor writing a new prescription.
+#[derive(Debug, Deserialize)]
+pub struct PrescriptionForm {
+    pub patient_id: i64,
+    pub appointment_id: Option<i64>,
+    pub medication_name: String,
+    pub dosage: String,
+    pub frequency: String,
+    pub duration: Option<String>,
+    pub notes: Option<String>,
+}
+
+impl PrescriptionForm {
+    /// A prescription must name the medication, dose, and frequency —
+    /// checked before anything touches the database.
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        use crate::errors::AppError;
+        if self.medication_name.trim().is_empty() {
+            return Err(AppError::BadRequest("Medication name is required".into()));
+        }
+        if self.dosage.trim().is_empty() {
+            return Err(AppError::BadRequest("Dosage is required".into()));
+        }
+        if self.frequency.trim().is_empty() {
+            return Err(AppError::BadRequest("Frequency is required".into()));
+        }
+        Ok(())
+    }
+}
+
+// ============================================================
+// Patient History Timeline (advanced feature, project spec)
+// ============================================================
+
+/// One event on a patient's chronological history timeline. Appointments,
+/// medical records, prescriptions, and invoices are all normalised into
+/// this shape (the same polymorphic idea as the Reportable trait: each
+/// source type contributes its own summary).
+#[derive(Debug, Serialize)]
+pub struct TimelineEvent {
+    pub event_type: String,      // appointment | record | prescription | invoice
+    pub icon: String,            // Font Awesome icon class
+    pub color: String,           // Bulma colour class for the marker
+    pub when: String,            // "YYYY-MM-DD HH:MM" — also the sort key
+    pub title: String,
+    pub summary: String,
+    pub link: Option<String>,    // detail page, when one exists
+}
+
+/// Data bundle for the printable medical report (advanced feature,
+/// project spec: "medical report generation").
+#[derive(Debug, Serialize)]
+pub struct RecordReportData {
+    pub record: MedicalRecord,
+    pub summary: String,         // from Reportable::generate_summary
+    pub patient_name: String,
+    pub patient_dob: Option<String>,
+    pub patient_blood_group: Option<String>,
+    pub doctor_name: String,
+    pub doctor_specialization: String,
+    pub prescriptions: Vec<Prescription>,
+    pub generated_at: String,
+}

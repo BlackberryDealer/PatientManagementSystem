@@ -35,10 +35,19 @@
                 <a class="navbar-item" href="/users">
                     <i class="fas fa-users mr-1"></i> Users
                 </a>
+                <a class="navbar-item" href="/dashboard">
+                    <i class="fas fa-chart-line mr-1"></i> Dashboard
+                </a>
+                <a class="navbar-item" href="/audit">
+                    <i class="fas fa-clipboard-list mr-1"></i> Audit
+                </a>
                 {% endif %}
                 {% if user.role == "patient" %}
                 <a class="navbar-item" href="/billing">
                     <i class="fas fa-receipt mr-1"></i> My Invoices
+                </a>
+                <a class="navbar-item" href="/records/timeline">
+                    <i class="fas fa-stream mr-1"></i> My Timeline
                 </a>
                 {% endif %}
             {% endif %}

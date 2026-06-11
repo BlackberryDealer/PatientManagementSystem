@@ -30,6 +30,10 @@ pub async fn register(
     form: web::Form<RegisterForm>,
 ) -> Result<HttpResponse, AppError> {
     let user = services::register_user(pool.get_ref(), &form).await?;
+    crate::audit::services::record_raw(
+        pool.get_ref(), Some(user.id), &user.username, &user.role,
+        "user.registered", "user", Some(user.id), "",
+    ).await;
 
     // Auto-login after registration
     session.insert("user_id", user.id)?;
@@ -69,6 +73,11 @@ pub async fn login(
             session.insert("user_id", user.id)?;
             session.insert("username", &user.username)?;
             session.insert("role", &user.role)?;
+
+            crate::audit::services::record_raw(
+                pool.get_ref(), Some(user.id), &user.username, &user.role,
+                "user.login", "user", Some(user.id), "",
+            ).await;
 
             Ok(HttpResponse::SeeOther()
                 .append_header(("Location", "/appointments"))

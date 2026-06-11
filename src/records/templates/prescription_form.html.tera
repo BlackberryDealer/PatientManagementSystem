@@ -1,0 +1,96 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/records"><i class="fas fa-notes-medical mr-1"></i>Medical Records</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Write Prescription</a></li>
+    </ul>
+</nav>
+
+<div class="columns is-centered">
+    <div class="column is-7">
+        <div class="box fade-in">
+            <h1 class="title is-4"><i class="fas fa-prescription mr-2"></i>Write Prescription</h1>
+            <p class="subtitle is-6 has-text-grey">Issue a new medication order for a patient</p>
+
+            <form method="POST" action="/records/prescriptions/create">
+                <div class="field">
+                    <label class="label">Patient</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="patient_id" required>
+                                {% for p in patients %}
+                                <option value="{{ p.0 }}">{{ p.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <span class="icon is-left"><i class="fas fa-user"></i></span>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label">Medication</label>
+                    <div class="control has-icons-left">
+                        <input class="input" type="text" name="medication_name" placeholder="e.g. Amoxicillin 500mg capsules" required>
+                        <span class="icon is-left"><i class="fas fa-pills"></i></span>
+                    </div>
+                </div>
+
+                <div class="columns">
+                    <div class="column">
+                        <div class="field">
+                            <label class="label">Dosage</label>
+                            <div class="control">
+                                <input class="input" type="text" name="dosage" placeholder="e.g. 1 capsule" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="field">
+                            <label class="label">Frequency</label>
+                            <div class="control">
+                                <input class="input" type="text" name="frequency" placeholder="e.g. 3 times daily" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="field">
+                            <label class="label">Duration <span class="has-text-grey">(optional)</span></label>
+                            <div class="control">
+                                <input class="input" type="text" name="duration" placeholder="e.g. 7 days">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label">Linked Appointment ID <span class="has-text-grey">(optional)</span></label>
+                    <div class="control has-icons-left">
+                        <input class="input" type="number" name="appointment_id" placeholder="Appointment number, if applicable">
+                        <span class="icon is-left"><i class="fas fa-calendar-check"></i></span>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label">Notes <span class="has-text-grey">(optional)</span></label>
+                    <div class="control">
+                        <textarea class="textarea" name="notes" rows="2" placeholder="Special instructions, warnings, etc."></textarea>
+                    </div>
+                </div>
+
+                <div class="field is-grouped mt-5">
+                    <div class="control">
+                        <button class="button is-primary" type="submit">
+                            <i class="fas fa-prescription mr-1"></i>Issue Prescription
+                        </button>
+                    </div>
+                    <div class="control">
+                        <a class="button is-light" href="/records">Cancel</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -40,6 +40,11 @@ pub fn test_tera() -> Tera {
         ("billing/list.html.tera", "<html><body>Invoices: {{ invoices | length }}</body></html>"),
         ("billing/create.html.tera", "<html><body>Create invoice</body></html>"),
         ("billing/detail.html.tera", "<html><body>Invoice #{{ invoice.id }}</body></html>"),
+        ("records/timeline.html.tera", "<html><body>Timeline: {{ events | length }}</body></html>"),
+        ("records/report.html.tera", "<html><body>Report #{{ report.record.id }}</body></html>"),
+        ("records/prescription_form.html.tera", "<html><body>Prescribe: {{ patients | length }}</body></html>"),
+        ("audit/list.html.tera", "<html><body>Audit: {{ entries | length }}</body></html>"),
+        ("dashboard/index.html.tera", "<html><body>Dashboard: {{ stats.total_patients }}</body></html>"),
     ];
     for (name, content) in &pages {
         tera.add_raw_template(name, content).expect("add test template");
@@ -77,7 +82,9 @@ macro_rules! with_test_app {
                     .configure(patient_management_system::appointments::configure)
                     .configure(patient_management_system::availability::configure)
                     .configure(patient_management_system::records::configure)
-                    .configure(patient_management_system::billing::configure),
+                    .configure(patient_management_system::billing::configure)
+                    .configure(patient_management_system::audit::configure)
+                    .configure(patient_management_system::dashboard::configure),
             )
             .await;
             $body

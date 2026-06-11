@@ -12,3 +12,5 @@ pub mod appointments;
 pub mod availability;
 pub mod records;
 pub mod billing;
+pub mod audit;
+pub mod dashboard;

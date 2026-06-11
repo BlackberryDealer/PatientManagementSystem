@@ -1,0 +1,106 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="level no-print">
+    <div class="level-left">
+        <nav class="breadcrumb mb-0" aria-label="breadcrumbs">
+            <ul>
+                <li><a href="/records"><i class="fas fa-notes-medical mr-1"></i>Medical Records</a></li>
+                <li><a href="/records/{{ report.record.id }}">#{{ report.record.id }}</a></li>
+                <li class="is-active"><a href="#" aria-current="page">Report</a></li>
+            </ul>
+        </nav>
+    </div>
+    <div class="level-right">
+        <button class="button is-primary" onclick="window.print()">
+            <i class="fas fa-print mr-1"></i>Print Report
+        </button>
+    </div>
+</div>
+
+<div class="box fade-in" id="report-sheet">
+    <!-- Letterhead -->
+    <div class="has-text-centered mb-5">
+        <p class="title is-3 mb-1"><i class="fas fa-hospital-alt mr-2"></i>PatientMS Clinic</p>
+        <p class="is-size-6 has-text-grey">Medical Report — Confidential</p>
+        <hr>
+    </div>
+
+    <div class="columns">
+        <div class="column is-6">
+            <p class="is-size-7 has-text-grey mb-1">PATIENT</p>
+            <p class="has-text-weight-semibold is-size-5">{{ report.patient_name }}</p>
+            {% if report.patient_dob %}
+            <p class="is-size-7">Date of birth: {{ report.patient_dob }}</p>
+            {% endif %}
+            {% if report.patient_blood_group %}
+            <p class="is-size-7">Blood group: {{ report.patient_blood_group }}</p>
+            {% endif %}
+        </div>
+        <div class="column is-6 has-text-right">
+            <p class="is-size-7 has-text-grey mb-1">ATTENDING DOCTOR</p>
+            <p class="has-text-weight-semibold is-size-5">{{ report.doctor_name }}</p>
+            <p class="is-size-7">{{ report.doctor_specialization }}</p>
+        </div>
+    </div>
+
+    <hr>
+
+    <div class="mb-4">
+        <p class="is-size-7 has-text-grey mb-1">SUMMARY</p>
+        <p class="notification is-light">{{ report.summary }}</p>
+    </div>
+
+    <div class="columns">
+        <div class="column is-6">
+            <p class="is-size-7 has-text-grey mb-1">DIAGNOSIS</p>
+            <p>{{ report.record.diagnosis | default(value="—") }}</p>
+        </div>
+        <div class="column is-6">
+            <p class="is-size-7 has-text-grey mb-1">TREATMENT</p>
+            <p>{{ report.record.treatment | default(value="—") }}</p>
+        </div>
+    </div>
+
+    {% if report.record.notes %}
+    <div class="mb-4">
+        <p class="is-size-7 has-text-grey mb-1">CLINICAL NOTES</p>
+        <p>{{ report.record.notes }}</p>
+    </div>
+    {% endif %}
+
+    {% if report.prescriptions %}
+    <div class="mb-4">
+        <p class="is-size-7 has-text-grey mb-2">PRESCRIPTIONS (this consultation)</p>
+        <table class="table is-fullwidth is-bordered is-narrow">
+            <thead>
+                <tr><th>Medication</th><th>Dosage</th><th>Frequency</th><th>Duration</th></tr>
+            </thead>
+            <tbody>
+                {% for p in report.prescriptions %}
+                <tr>
+                    <td>{{ p.medication_name }}</td>
+                    <td>{{ p.dosage }}</td>
+                    <td>{{ p.frequency }}</td>
+                    <td>{{ p.duration | default(value="As needed") }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <hr>
+    <div class="is-flex is-justify-content-space-between is-size-7 has-text-grey">
+        <span>Record #{{ report.record.id }} · created {{ report.record.created_at }}</span>
+        <span>Report generated {{ report.generated_at }}</span>
+    </div>
+</div>
+
+<style>
+@media print {
+    .no-print, nav.navbar, footer { display: none !important; }
+    #report-sheet { box-shadow: none !important; }
+}
+</style>
+{% endblock %}

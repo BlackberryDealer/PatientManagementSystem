@@ -1,0 +1,61 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="level">
+    <div class="level-left">
+        <div>
+            <h1 class="title"><i class="fas fa-clipboard-list mr-2"></i>Audit Trail</h1>
+            <p class="subtitle is-6 has-text-grey">
+                Immutable log of security and business actions across the system
+            </p>
+        </div>
+    </div>
+    <div class="level-right">
+        <p class="button is-static has-text-grey">
+            <i class="fas fa-list-ol mr-1"></i>{{ entries | length }} entries
+        </p>
+    </div>
+</div>
+
+{% if entries %}
+<div class="table-container fade-in">
+    <table class="table is-fullwidth is-striped is-hoverable">
+        <thead>
+            <tr>
+                <th><abbr title="Entry ID">#</abbr></th>
+                <th><i class="fas fa-clock mr-1"></i>When</th>
+                <th><i class="fas fa-user mr-1"></i>Actor</th>
+                <th>Action</th>
+                <th>Entity</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in entries %}
+            <tr>
+                <td class="has-text-grey is-size-7">#{{ e.id }}</td>
+                <td class="is-size-7 has-text-grey">{{ e.created_at }}</td>
+                <td>
+                    <span class="has-text-weight-semibold">{{ e.username }}</span>
+                    <span class="tag is-light is-small ml-1" style="text-transform: capitalize;">{{ e.role }}</span>
+                </td>
+                <td><span class="tag {{ e.badge_class }} is-light">{{ e.action }}</span></td>
+                <td class="is-size-7">
+                    {{ e.entity }}{% if e.entity_id %} #{{ e.entity_id }}{% endif %}
+                </td>
+                <td class="is-size-7">{{ e.details | default(value="—") }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="hero is-medium has-text-centered has-text-grey fade-in">
+    <div class="hero-body">
+        <span class="icon is-large has-text-grey-lighter"><i class="fas fa-clipboard fa-4x"></i></span>
+        <p class="title is-4 has-text-grey mt-4">No Audit Entries Yet</p>
+        <p class="subtitle is-6">Actions such as bookings, payments, and logins will appear here.</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

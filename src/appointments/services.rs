@@ -3,8 +3,9 @@ use crate::appointments::models::{
     SuggestSlotForm, WaitlistEntry, WaitlistForm,
 };
 use crate::errors::AppError;
-use crate::time::{minutes_to_time, parse_slot, time_to_minutes, SLOT_MINUTES};
-use crate::traits::{Prioritized, TimeSlotted};
+use crate::availability::services::ensure_doctor_available;
+use crate::time::{minutes_to_time, parse_booking_date, parse_slot, time_to_minutes, SLOT_MINUTES};
+use crate::traits::{Prioritized, StatusManaged, TimeSlotted};
 use sqlx::SqlitePool;
 use std::collections::BinaryHeap;
 
@@ -78,6 +79,7 @@ pub async fn find_earliest_slot(
     pool: &SqlitePool,
     form: &SuggestSlotForm,
 ) -> Result<Option<String>, AppError> {
+    parse_booking_date(&form.appointment_date)?;
     let duration = form.duration_minutes;
     if duration <= 0 || duration > 480 {
         return Err(AppError::BadRequest("Duration must be 1–480 minutes".into()));
@@ -212,7 +214,12 @@ pub async fn book_with_priority(
     patient_user_id: i64,
     form: &BookAppointmentForm,
 ) -> Result<Appointment, AppError> {
+    // Validation layer: date, slot grid, then the doctor's availability rules
+    parse_booking_date(&form.appointment_date)?;
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
+    ensure_doctor_available(
+        pool, form.doctor_id, &form.appointment_date, &form.start_time, &form.end_time,
+    ).await?;
 
     let new_priority = Priority::from_i32(form.priority.unwrap_or(3));
 
@@ -335,7 +342,12 @@ pub async fn book_appointment(
     patient_user_id: i64,
     form: &BookAppointmentForm,
 ) -> Result<Appointment, AppError> {
+    // Validation layer: date, slot grid, then the doctor's availability rules
+    parse_booking_date(&form.appointment_date)?;
     let (_, _) = parse_slot(&form.start_time, &form.end_time)?;
+    ensure_doctor_available(
+        pool, form.doctor_id, &form.appointment_date, &form.start_time, &form.end_time,
+    ).await?;
 
     let patient = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
         .bind(patient_user_id)
@@ -489,6 +501,7 @@ pub async fn add_to_waitlist(
 ) -> Result<WaitlistEntry, AppError> {
     // Waitlisted requests must also be grid-aligned, since a promotion books
     // them as a real appointment (which decomposes into 30-minute slots).
+    parse_booking_date(&form.appointment_date)?;
     parse_slot(&form.requested_start, &form.requested_end)?;
 
     let patient = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
@@ -578,6 +591,12 @@ pub async fn auto_promote_waitlist(
         .await?;
 
         if let Some(mut entry) = entry {
+            // Doctor must still be available (not on leave) for the stored slot
+            let available = ensure_doctor_available(
+                pool, entry.doctor_id, appointment_date,
+                entry.start_time(), entry.end_time(),
+            ).await.is_ok();
+
             // Use TimeSlotted trait to check conflict before querying DB
             let conflict = check_conflict(
                 pool, entry.doctor_id,
@@ -587,7 +606,7 @@ pub async fn auto_promote_waitlist(
                 entry.room_id, None,
             ).await?;
 
-            if !conflict {
+            if available && !conflict {
                 let appt = insert_appointment(
                     pool, entry.patient_id, entry.doctor_id,
                     appointment_date,
@@ -624,8 +643,12 @@ pub async fn promote_from_waitlist(
     .await?
     .ok_or_else(|| AppError::NotFound("Waitlist entry not found".into()))?;
 
-    // Check if slot is now free
+    // Check if slot is now free AND the doctor is still available for it
     let date_str = entry.appointment_date.format("%Y-%m-%d").to_string();
+    let available = ensure_doctor_available(
+        pool, entry.doctor_id, &date_str,
+        &entry.requested_start, &entry.requested_end,
+    ).await.is_ok();
     let conflict = check_conflict(
         pool, entry.doctor_id,
         &date_str,
@@ -633,8 +656,8 @@ pub async fn promote_from_waitlist(
         entry.room_id, None,
     ).await?;
 
-    if conflict {
-        return Ok(None); // slot still taken
+    if conflict || !available {
+        return Ok(None); // slot still taken or doctor no longer available
     }
 
     // Book it
@@ -893,6 +916,127 @@ pub async fn get_all_rooms(pool: &SqlitePool) -> Result<Vec<Room>, AppError> {
     )
     .fetch_all(pool)
     .await?)
+}
+
+// ============================================================
+// Algorithm 4: Doctor Reassignment (greedy, load-balanced)
+// ============================================================
+
+/// Find the best alternative doctor for a given slot.
+///
+/// ## Greedy selection strategy
+/// Candidates are every other doctor, ranked by:
+/// 1. Same specialization as the current doctor first (continuity of care)
+/// 2. Fewest scheduled appointments on that date (load balancing)
+///
+/// The first candidate that is both available (per their availability
+/// rules) and conflict-free for the slot is chosen. Returns the doctor's
+/// row ID and display name, or `None` if every doctor is busy.
+pub async fn find_alternative_doctor(
+    pool: &SqlitePool,
+    exclude_doctor_id: i64,
+    appointment_date: &str,
+    start_time: &str,
+    end_time: &str,
+    room_id: Option<i64>,
+) -> Result<Option<(i64, String)>, AppError> {
+    let candidates = sqlx::query_as::<_, (i64, String)>(
+        "SELECT d.id, u.full_name
+         FROM doctors d
+         JOIN users u ON d.user_id = u.id
+         LEFT JOIN appointments a
+                ON a.doctor_id = d.id
+               AND a.appointment_date = ?
+               AND a.status = 'scheduled'
+         WHERE d.id != ?
+         GROUP BY d.id, u.full_name
+         ORDER BY (d.specialization =
+                     (SELECT specialization FROM doctors WHERE id = ?)) DESC,
+                  COUNT(a.id) ASC,
+                  d.id ASC",
+    )
+    .bind(appointment_date)
+    .bind(exclude_doctor_id)
+    .bind(exclude_doctor_id)
+    .fetch_all(pool)
+    .await?;
+
+    for (candidate_id, candidate_name) in candidates {
+        let available = ensure_doctor_available(
+            pool, candidate_id, appointment_date, start_time, end_time,
+        ).await.is_ok();
+        if !available {
+            continue;
+        }
+        let conflict = check_conflict(
+            pool, candidate_id, appointment_date, start_time, end_time, room_id, None,
+        ).await?;
+        if !conflict {
+            return Ok(Some((candidate_id, candidate_name)));
+        }
+    }
+    Ok(None)
+}
+
+/// Reassign a scheduled appointment to the best available alternative
+/// doctor (e.g. when the original doctor goes on leave). The appointment
+/// row and its occupancy slots move atomically; the slot-table UNIQUE
+/// index backstops any race.
+pub async fn reassign_appointment(
+    pool: &SqlitePool,
+    appointment_id: i64,
+) -> Result<(Appointment, String), AppError> {
+    let appt = sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE id = ?",
+    )
+    .bind(appointment_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+
+    if !appt.is_active() {
+        return Err(AppError::BadRequest(
+            "Only a scheduled appointment can be reassigned".into(),
+        ));
+    }
+
+    let date_str = appt.appointment_date.format("%Y-%m-%d").to_string();
+    let (new_doctor_id, new_doctor_name) = find_alternative_doctor(
+        pool, appt.doctor_id, &date_str, &appt.start_time, &appt.end_time, appt.room_id,
+    )
+    .await?
+    .ok_or_else(|| {
+        AppError::BadRequest(
+            "No alternative doctor is available for this time slot.\
+             \nTry a different time, or cancel and rebook.".into(),
+        )
+    })?;
+
+    let (start_mins, end_mins) = parse_slot(&appt.start_time, &appt.end_time)?;
+
+    // Move the appointment and its occupancy slots atomically
+    let mut tx = pool.begin().await?;
+    let updated = sqlx::query_as::<_, Appointment>(
+        "UPDATE appointments SET doctor_id = ? WHERE id = ?
+         RETURNING id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                   status, notes, created_at, room_id, priority",
+    )
+    .bind(new_doctor_id)
+    .bind(appt.id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
+        .bind(appt.id)
+        .execute(&mut *tx)
+        .await?;
+    insert_slots(&mut tx, appt.id, new_doctor_id, &date_str, start_mins, end_mins, appt.room_id)
+        .await?;
+    tx.commit().await?;
+
+    Ok((updated, new_doctor_name))
 }
 
 // ============================================================

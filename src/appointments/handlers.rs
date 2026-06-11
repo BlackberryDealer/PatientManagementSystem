@@ -5,6 +5,7 @@ use crate::appointments::models::{
     BookAppointmentForm, CalendarMonth, SuggestSlotForm, WaitlistForm,
 };
 use crate::appointments::services;
+use crate::audit::services as audit;
 use crate::auth::{require_doctor, AuthUser};
 use crate::errors::AppError;
 
@@ -65,6 +66,12 @@ pub async fn book_appointment(
     form: web::Form<BookAppointmentForm>,
 ) -> Result<HttpResponse, AppError> {
     let appointment = services::book_appointment(pool.get_ref(), user.user_id, &form).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.booked", "appointment", Some(appointment.id),
+        &format!("{} {}–{} with doctor #{}",
+            appointment.appointment_date, appointment.start_time,
+            appointment.end_time, appointment.doctor_id),
+    ).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))
         .finish())
@@ -80,6 +87,11 @@ pub async fn book_with_priority(
     form: web::Form<BookAppointmentForm>,
 ) -> Result<HttpResponse, AppError> {
     let appointment = services::book_with_priority(pool.get_ref(), user.user_id, &form).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.priority_booked", "appointment",
+        Some(appointment.id),
+        &format!("Priority {} booking on {}", appointment.priority, appointment.appointment_date),
+    ).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))
         .finish())
@@ -198,9 +210,15 @@ pub async fn promote_waitlist(
     let result = services::promote_from_waitlist(pool.get_ref(), waitlist_id).await?;
 
     match result {
-        Some(appt) => Ok(HttpResponse::SeeOther()
-            .append_header(("Location", format!("/appointments/{}", appt.id)))
-            .finish()),
+        Some(appt) => {
+            audit::record(
+                pool.get_ref(), &user, "waitlist.promoted", "appointment", Some(appt.id),
+                &format!("Waitlist entry #{} promoted to appointment", waitlist_id),
+            ).await;
+            Ok(HttpResponse::SeeOther()
+                .append_header(("Location", format!("/appointments/{}", appt.id)))
+                .finish())
+        }
         None => Ok(HttpResponse::SeeOther()
             .append_header(("Location", "/appointments/waitlist"))
             .finish()),
@@ -285,7 +303,37 @@ pub async fn cancel_appointment(
     services::cancel_appointment_checked(
         pool.get_ref(), appointment_id, user.user_id, &user.role,
     ).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.cancelled", "appointment", Some(appointment_id), "",
+    ).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", "/appointments"))
+        .finish())
+}
+
+// ============================================================
+// POST /appointments/{id}/reassign — move to an available doctor
+// ============================================================
+
+/// Doctor Reassignment (Algorithm 4): move a scheduled appointment to the
+/// best alternative doctor — same specialization preferred, lightest
+/// daily load first. Staff only.
+pub async fn reassign_appointment(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    require_doctor(&user)?;
+    let appointment_id = path.into_inner();
+
+    let (appointment, new_doctor_name) =
+        services::reassign_appointment(pool.get_ref(), appointment_id).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.reassigned", "appointment", Some(appointment.id),
+        &format!("Reassigned to {}", new_doctor_name),
+    ).await;
+
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/appointments/{}", appointment.id)))
         .finish())
 }

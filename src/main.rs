@@ -1,6 +1,6 @@
 use patient_management_system as pms;
 use pms::auth::OptionalAuthUser;
-use pms::{appointments, availability, billing, db, records, users};
+use pms::{appointments, audit, availability, billing, dashboard, db, records, users};
 
 use actix_session::{storage::CookieSessionStore, SessionMiddleware};
 use actix_web::dev::ServiceResponse;
@@ -18,7 +18,7 @@ use std::io::Write;
 // ============================================================
 
 fn load_module_templates(tera: &mut tera::Tera) -> Result<(), tera::Error> {
-    let modules = ["users", "appointments", "availability", "records", "billing"];
+    let modules = ["users", "appointments", "availability", "records", "billing", "audit", "dashboard"];
     for module in &modules {
         let dir_path = format!("src/{}/templates", module);
         if let Ok(entries) = fs::read_dir(&dir_path) {
@@ -228,6 +228,8 @@ async fn main() -> std::io::Result<()> {
             .configure(availability::configure)
             .configure(records::configure)
             .configure(billing::configure)
+            .configure(audit::configure)
+            .configure(dashboard::configure)
     })
     .bind("0.0.0.0:8080")?
     .run()

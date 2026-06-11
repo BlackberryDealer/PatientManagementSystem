@@ -1,4 +1,4 @@
-//! Integration tests for appointment pages.
+﻿//! Integration tests for appointment pages.
 mod common;
 use common::*;
 use actix_web::test;
@@ -26,7 +26,7 @@ async fn test_appointments_list_empty() {
 }
 
 // NOTE: suggest_slot_form tested in test_algorithms.rs directly.
-// Integration test skipped — requires doctors seeded in the DB.
+// Integration test skipped â€” requires doctors seeded in the DB.
 
 #[actix_web::test]
 async fn test_waitlist_page_doctor() {
@@ -78,7 +78,7 @@ async fn test_suggest_slot_form_loads() {
 }
 
 // ============================================================
-// HTTP-level booking tests (full request → response cycle)
+// HTTP-level booking tests (full request â†’ response cycle)
 // ============================================================
 
 #[actix_web::test]
@@ -91,7 +91,7 @@ async fn test_book_appointment_http() {
 
         let req = auth_post("/appointments/book", &cookie, serde_json::json!({
             "doctor_id": 1,
-            "appointment_date": "2026-06-15",
+            "appointment_date": "2027-06-15",
             "start_time": "10:00",
             "end_time": "10:30",
             "priority": 3,
@@ -118,15 +118,15 @@ async fn test_book_appointment_conflict_http() {
 
         // First patient books a slot
         let req1 = auth_post("/appointments/book", &pat_cookie, serde_json::json!({
-            "doctor_id": 1, "appointment_date": "2026-06-15",
+            "doctor_id": 1, "appointment_date": "2027-06-15",
             "start_time": "14:00", "end_time": "14:30", "priority": 3,
         })).to_request();
         let resp1 = test::call_service(&app, req1).await;
         assert!(resp1.status().is_redirection(), "First booking should succeed");
 
-        // Second patient tries to book the same slot — should fail
+        // Second patient tries to book the same slot â€” should fail
         let req2 = auth_post("/appointments/book", &pat2_cookie, serde_json::json!({
-            "doctor_id": 1, "appointment_date": "2026-06-15",
+            "doctor_id": 1, "appointment_date": "2027-06-15",
             "start_time": "14:00", "end_time": "14:30", "priority": 3,
         })).to_request();
         let resp2 = test::call_service(&app, req2).await;
@@ -141,9 +141,9 @@ async fn test_book_appointment_invalid_time_http() {
         let _dcookie = register_and_login!(app, "invaliddoc", "doctor");
         let cookie = register_and_login!(app, "invalidpat", "patient");
 
-        // Start time after end time — should be rejected
+        // Start time after end time â€” should be rejected
         let req = auth_post("/appointments/book", &cookie, serde_json::json!({
-            "doctor_id": 1, "appointment_date": "2026-06-15",
+            "doctor_id": 1, "appointment_date": "2027-06-15",
             "start_time": "15:00", "end_time": "14:00", "priority": 3,
         })).to_request();
         let resp = test::call_service(&app, req).await;
@@ -161,15 +161,15 @@ async fn test_priority_booking_http() {
 
         // Normal patient books a slot
         let req1 = auth_post("/appointments/book", &normal_cookie, serde_json::json!({
-            "doctor_id": 1, "appointment_date": "2026-06-16",
+            "doctor_id": 1, "appointment_date": "2027-06-16",
             "start_time": "09:00", "end_time": "09:30", "priority": 3,
         })).to_request();
         let resp1 = test::call_service(&app, req1).await;
         assert!(resp1.status().is_redirection(), "Normal booking should succeed");
 
-        // Emergency patient uses priority override — should bump the normal one
+        // Emergency patient uses priority override â€” should bump the normal one
         let req2 = auth_post("/appointments/book/priority", &emerg_cookie, serde_json::json!({
-            "doctor_id": 1, "appointment_date": "2026-06-16",
+            "doctor_id": 1, "appointment_date": "2027-06-16",
             "start_time": "09:00", "end_time": "09:30", "priority": 1,
         })).to_request();
         let resp2 = test::call_service(&app, req2).await;
@@ -186,13 +186,13 @@ async fn test_cancel_appointment_http() {
 
         // Book
         let req = auth_post("/appointments/book", &cookie, serde_json::json!({
-            "doctor_id": 1, "appointment_date": "2026-06-17",
+            "doctor_id": 1, "appointment_date": "2027-06-17",
             "start_time": "10:00", "end_time": "10:30", "priority": 3,
         })).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_redirection());
 
-        // Cancel (appointment ID is 1 — first in fresh DB)
+        // Cancel (appointment ID is 1 â€” first in fresh DB)
         let cancel_req = test::TestRequest::post()
             .uri("/appointments/1/cancel")
             .insert_header(("Cookie", cookie))
@@ -216,7 +216,7 @@ async fn test_appointments_list_after_booking() {
 
         // Book an appointment
         let _ = test::call_service(&app, auth_post("/appointments/book", &cookie, serde_json::json!({
-            "doctor_id": 1, "appointment_date": "2026-06-18",
+            "doctor_id": 1, "appointment_date": "2027-06-18",
             "start_time": "11:00", "end_time": "11:30", "priority": 3,
         })).to_request()).await;
 

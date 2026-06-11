@@ -1,0 +1,128 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<div class="level">
+    <div class="level-left">
+        <div>
+            <h1 class="title"><i class="fas fa-chart-line mr-2"></i>Operations Dashboard</h1>
+            <p class="subtitle is-6 has-text-grey">Live overview of clinic activity, scheduling load, and billing health</p>
+        </div>
+    </div>
+</div>
+
+<!-- People & scheduling -->
+<div class="columns is-multiline fade-in">
+    <div class="column is-3">
+        <div class="box has-text-centered">
+            <p class="heading has-text-grey">Patients</p>
+            <p class="title has-text-success"><i class="fas fa-users mr-2"></i>{{ stats.total_patients }}</p>
+        </div>
+    </div>
+    <div class="column is-3">
+        <div class="box has-text-centered">
+            <p class="heading has-text-grey">Doctors</p>
+            <p class="title has-text-info"><i class="fas fa-user-md mr-2"></i>{{ stats.total_doctors }}</p>
+        </div>
+    </div>
+    <div class="column is-3">
+        <div class="box has-text-centered">
+            <p class="heading has-text-grey">Appointments Today</p>
+            <p class="title has-text-link"><i class="fas fa-calendar-day mr-2"></i>{{ stats.appointments_today }}</p>
+        </div>
+    </div>
+    <div class="column is-3">
+        <div class="box has-text-centered">
+            <p class="heading has-text-grey">Next 7 Days</p>
+            <p class="title"><i class="fas fa-calendar-week mr-2"></i>{{ stats.appointments_this_week }}</p>
+        </div>
+    </div>
+</div>
+
+<!-- Appointment lifecycle + waitlist -->
+<div class="columns is-multiline fade-in">
+    <div class="column is-3">
+        <div class="box has-text-centered">
+            <p class="heading has-text-grey">Scheduled</p>
+            <p class="title is-4 has-text-primary">{{ stats.scheduled_count }}</p>
+        </div>
+    </div>
+    <div class="column is-3">
+        <div class="box has-text-centered">
+            <p class="heading has-text-grey">Completed</p>
+            <p class="title is-4 has-text-success">{{ stats.completed_count }}</p>
+        </div>
+    </div>
+    <div class="column is-3">
+        <div class="box has-text-centered">
+            <p class="heading has-text-grey">Cancelled</p>
+            <p class="title is-4 has-text-danger">{{ stats.cancelled_count }}</p>
+            <p class="is-size-7 has-text-grey">{{ cancellation_rate }}% cancellation rate</p>
+        </div>
+    </div>
+    <div class="column is-3">
+        <div class="box has-text-centered">
+            <p class="heading has-text-grey">Waitlist</p>
+            <p class="title is-4 has-text-warning-dark">{{ stats.waitlist_waiting }}</p>
+            <p class="is-size-7 has-text-grey">patients waiting</p>
+        </div>
+    </div>
+</div>
+
+<div class="columns fade-in">
+    <!-- Billing health -->
+    <div class="column is-6">
+        <div class="card">
+            <header class="card-header has-background-light">
+                <p class="card-header-title"><i class="fas fa-file-invoice-dollar mr-2"></i>Billing Health</p>
+            </header>
+            <div class="card-content">
+                <div class="columns is-mobile has-text-centered">
+                    <div class="column">
+                        <p class="heading has-text-grey">Billed</p>
+                        <p class="title is-5">£{{ stats.billed_total | round(precision=2) }}</p>
+                    </div>
+                    <div class="column">
+                        <p class="heading has-text-grey">Collected</p>
+                        <p class="title is-5 has-text-success">£{{ stats.collected_total | round(precision=2) }}</p>
+                    </div>
+                    <div class="column">
+                        <p class="heading has-text-grey">Outstanding</p>
+                        <p class="title is-5 has-text-danger">£{{ outstanding_amount }}</p>
+                    </div>
+                </div>
+                <progress class="progress is-success" value="{{ collection_rate }}" max="100">{{ collection_rate }}%</progress>
+                <p class="is-size-7 has-text-grey has-text-centered">
+                    {{ collection_rate }}% collected · {{ stats.pending_invoices }} pending invoice(s)
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Busiest doctors -->
+    <div class="column is-6">
+        <div class="card">
+            <header class="card-header has-background-light">
+                <p class="card-header-title"><i class="fas fa-stethoscope mr-2"></i>Busiest Doctors (scheduled)</p>
+            </header>
+            <div class="card-content">
+                {% if stats.busiest_doctors %}
+                <table class="table is-fullwidth is-striped">
+                    <tbody>
+                        {% for d in stats.busiest_doctors %}
+                        <tr>
+                            <td><i class="fas fa-user-md has-text-info mr-2"></i>{{ d.doctor_name }}</td>
+                            <td class="has-text-right">
+                                <span class="tag is-info is-light">{{ d.appointment_count }} appointment(s)</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="has-text-grey has-text-centered py-4">No scheduled appointments yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

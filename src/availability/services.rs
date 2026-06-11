@@ -1,7 +1,85 @@
 use crate::availability::models::{DoctorAvailability, SetAvailabilityForm};
 use crate::db;
 use crate::errors::AppError;
+use crate::traits::TimeSlotted;
+use chrono::Datelike;
 use sqlx::SqlitePool;
+
+// ============================================================
+// Availability enforcement — integrates this module into the
+// appointment-booking workflow (scheduling + conflict resolution)
+// ============================================================
+
+/// Enforce a doctor's availability rules for a requested time slot.
+///
+/// Rules, in order:
+/// 1. **Blocked entries win.** If any blocked entry (one-off leave on that
+///    exact date, or a recurring weekly block like a lunch break) overlaps
+///    the requested window, the booking is rejected.
+/// 2. **Defined windows constrain.** If the doctor has declared available
+///    windows for that day (recurring weekly, or a one-off date entry),
+///    the requested slot must fall entirely inside one of them.
+/// 3. **No entries means open schedule.** A doctor with no availability
+///    rows for that day follows the clinic's default hours (enforced by
+///    the booking form's 08:00–17:00 slot grid).
+pub async fn ensure_doctor_available(
+    pool: &SqlitePool,
+    doctor_id: i64,
+    appointment_date: &str,
+    start_time: &str,
+    end_time: &str,
+) -> Result<(), AppError> {
+    let date = chrono::NaiveDate::parse_from_str(appointment_date, "%Y-%m-%d")
+        .map_err(|_| AppError::BadRequest("Invalid appointment date".into()))?;
+    // Schema convention: 0 = Sunday .. 6 = Saturday
+    let day_of_week = date.weekday().num_days_from_sunday() as i32;
+
+    // All rules that apply to this day: recurring entries for this weekday
+    // plus any one-off entries pinned to this exact date.
+    let rules = sqlx::query_as::<_, DoctorAvailability>(
+        "SELECT id, doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked
+         FROM doctor_availability
+         WHERE doctor_id = ?
+           AND ((is_recurring = 1 AND day_of_week = ?) OR specific_date = ?)",
+    )
+    .bind(doctor_id)
+    .bind(day_of_week)
+    .bind(appointment_date)
+    .fetch_all(pool)
+    .await?;
+
+    // Rule 1: any overlapping blocked entry rejects the booking.
+    // Overlap detection comes from the shared TimeSlotted trait.
+    if rules
+        .iter()
+        .filter(|r| r.blocked())
+        .any(|r| r.overlaps_with(start_time, end_time))
+    {
+        return Err(AppError::BadRequest(
+            "The doctor is unavailable at that time (on leave or blocked).\
+             \nPlease pick a different time or doctor, or use the suggestion feature."
+                .into(),
+        ));
+    }
+
+    // Rule 2: if available windows are declared for this day, the slot
+    // must sit entirely inside one of them. ("HH:MM" strings compare
+    // correctly because both sides are zero-padded.)
+    let windows: Vec<&DoctorAvailability> = rules.iter().filter(|r| !r.blocked()).collect();
+    if !windows.is_empty()
+        && !windows.iter().any(|w| {
+            w.start_time.as_str() <= start_time && end_time <= w.end_time.as_str()
+        })
+    {
+        return Err(AppError::BadRequest(
+            "The requested time is outside the doctor's working hours for that day.\
+             \nCheck the doctor's availability and choose a time within their schedule."
+                .into(),
+        ));
+    }
+
+    Ok(())
+}
 
 /// List all availability slots for a doctor.
 pub async fn get_availability_for_doctor(
