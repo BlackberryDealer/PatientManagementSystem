@@ -124,7 +124,9 @@ pub struct SuggestSlotForm {
 }
 
 /// Joined view: appointment with patient/doctor names and room for display.
-#[derive(Debug, Serialize)]
+/// Field names match the aliased columns in `APPOINTMENT_VIEW_SELECT`, so rows
+/// deserialize directly via `FromRow` (no manual tuple mapping needed).
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct AppointmentView {
     pub id: i64,
     pub patient_name: String,

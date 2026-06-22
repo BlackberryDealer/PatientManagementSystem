@@ -2,6 +2,7 @@ use crate::appointments::models::{
     Appointment, AppointmentView, BookAppointmentForm, Priority, Room,
     SuggestSlotForm, WaitlistEntry, WaitlistForm,
 };
+use crate::db;
 use crate::errors::AppError;
 use crate::availability::services::ensure_doctor_available;
 use crate::time::{minutes_to_time, parse_booking_date, parse_slot, time_to_minutes, SLOT_MINUTES};
@@ -233,12 +234,7 @@ pub async fn book_with_priority(
     }
 
     // Look up patient
-    let patient = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
-        .bind(patient_user_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::BadRequest("Patient profile not found".into()))?;
-    let patient_id = patient.0;
+    let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
     // Check for conflicts
     let has_conflict = check_conflict(
@@ -349,12 +345,7 @@ pub async fn book_appointment(
         pool, form.doctor_id, &form.appointment_date, &form.start_time, &form.end_time,
     ).await?;
 
-    let patient = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
-        .bind(patient_user_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::BadRequest("Patient profile not found".into()))?;
-    let patient_id = patient.0;
+    let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
     let priority = form.priority.unwrap_or(3);
 
@@ -504,11 +495,7 @@ pub async fn add_to_waitlist(
     parse_booking_date(&form.appointment_date)?;
     parse_slot(&form.requested_start, &form.requested_end)?;
 
-    let patient = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
-        .bind(patient_user_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::BadRequest("Patient profile not found".into()))?;
+    let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
     Ok(sqlx::query_as::<_, WaitlistEntry>(
         "INSERT INTO waitlist (patient_id, doctor_id, room_id, appointment_date,
@@ -517,7 +504,7 @@ pub async fn add_to_waitlist(
          RETURNING id, patient_id, doctor_id, room_id, appointment_date,
                    requested_start, requested_end, priority, notes, status, created_at",
     )
-    .bind(patient.0)
+    .bind(patient_id)
     .bind(form.doctor_id)
     .bind(form.room_id)
     .bind(&form.appointment_date)
@@ -683,29 +670,33 @@ pub async fn promote_from_waitlist(
 // Queries (updated for rooms + priority)
 // ============================================================
 
+/// Shared SELECT for the joined appointment view. Each query appends its own
+/// `WHERE` / `ORDER BY`. Columns are aliased to match `AppointmentView` field
+/// names so rows deserialize directly via `FromRow` — no manual tuple mapping.
+/// Only static SQL is interpolated; all user values are bound as parameters.
+const APPOINTMENT_VIEW_SELECT: &str = "\
+    SELECT a.id, u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
+           a.appointment_date, a.start_time, a.end_time, a.status, a.notes,
+           r.name AS room_name, a.priority
+    FROM appointments a
+    JOIN patients p ON a.patient_id = p.id
+    JOIN users u_p ON p.user_id = u_p.id
+    JOIN doctors d ON a.doctor_id = d.id
+    JOIN users u_d ON d.user_id = u_d.id
+    LEFT JOIN rooms r ON a.room_id = r.id";
+
 /// Get all appointments for a patient.
 pub async fn get_appointments_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
 ) -> Result<Vec<AppointmentView>, AppError> {
-    let rows = sqlx::query_as::<_, (i64, String, String, chrono::NaiveDate, String, String, String, Option<String>, Option<String>, i32)>(
-        "SELECT a.id, u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
-                a.appointment_date, a.start_time, a.end_time, a.status, a.notes,
-                r.name AS room_name, a.priority
-         FROM appointments a
-         JOIN patients p ON a.patient_id = p.id
-         JOIN users u_p ON p.user_id = u_p.id
-         JOIN doctors d ON a.doctor_id = d.id
-         JOIN users u_d ON d.user_id = u_d.id
-         LEFT JOIN rooms r ON a.room_id = r.id
-         WHERE p.user_id = ?
-         ORDER BY a.appointment_date DESC, a.start_time",
-    )
+    Ok(sqlx::query_as::<_, AppointmentView>(&format!(
+        "{APPOINTMENT_VIEW_SELECT} WHERE p.user_id = ? \
+         ORDER BY a.appointment_date DESC, a.start_time"
+    ))
     .bind(patient_user_id)
     .fetch_all(pool)
-    .await?;
-
-    Ok(map_to_views(rows))
+    .await?)
 }
 
 /// Get all appointments for a doctor.
@@ -713,44 +704,22 @@ pub async fn get_appointments_for_doctor(
     pool: &SqlitePool,
     doctor_user_id: i64,
 ) -> Result<Vec<AppointmentView>, AppError> {
-    let rows = sqlx::query_as::<_, (i64, String, String, chrono::NaiveDate, String, String, String, Option<String>, Option<String>, i32)>(
-        "SELECT a.id, u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
-                a.appointment_date, a.start_time, a.end_time, a.status, a.notes,
-                r.name AS room_name, a.priority
-         FROM appointments a
-         JOIN patients p ON a.patient_id = p.id
-         JOIN users u_p ON p.user_id = u_p.id
-         JOIN doctors d ON a.doctor_id = d.id
-         JOIN users u_d ON d.user_id = u_d.id
-         LEFT JOIN rooms r ON a.room_id = r.id
-         WHERE u_d.id = ?
-         ORDER BY a.appointment_date DESC, a.start_time",
-    )
+    Ok(sqlx::query_as::<_, AppointmentView>(&format!(
+        "{APPOINTMENT_VIEW_SELECT} WHERE u_d.id = ? \
+         ORDER BY a.appointment_date DESC, a.start_time"
+    ))
     .bind(doctor_user_id)
     .fetch_all(pool)
-    .await?;
-
-    Ok(map_to_views(rows))
+    .await?)
 }
 
 /// Get all appointments (admin).
 pub async fn get_all_appointments(pool: &SqlitePool) -> Result<Vec<AppointmentView>, AppError> {
-    let rows = sqlx::query_as::<_, (i64, String, String, chrono::NaiveDate, String, String, String, Option<String>, Option<String>, i32)>(
-        "SELECT a.id, u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
-                a.appointment_date, a.start_time, a.end_time, a.status, a.notes,
-                r.name AS room_name, a.priority
-         FROM appointments a
-         JOIN patients p ON a.patient_id = p.id
-         JOIN users u_p ON p.user_id = u_p.id
-         JOIN doctors d ON a.doctor_id = d.id
-         JOIN users u_d ON d.user_id = u_d.id
-         LEFT JOIN rooms r ON a.room_id = r.id
-         ORDER BY a.appointment_date DESC, a.start_time",
-    )
+    Ok(sqlx::query_as::<_, AppointmentView>(&format!(
+        "{APPOINTMENT_VIEW_SELECT} ORDER BY a.appointment_date DESC, a.start_time"
+    ))
     .fetch_all(pool)
-    .await?;
-
-    Ok(map_to_views(rows))
+    .await?)
 }
 
 /// Get a single appointment by ID.
@@ -758,41 +727,13 @@ pub async fn get_appointment_by_id(
     pool: &SqlitePool,
     appointment_id: i64,
 ) -> Result<AppointmentView, AppError> {
-    let row = sqlx::query_as::<_, (i64, String, String, chrono::NaiveDate, String, String, String, Option<String>, Option<String>, i32)>(
-        "SELECT a.id, u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
-                a.appointment_date, a.start_time, a.end_time, a.status, a.notes,
-                r.name AS room_name, a.priority
-         FROM appointments a
-         JOIN patients p ON a.patient_id = p.id
-         JOIN users u_p ON p.user_id = u_p.id
-         JOIN doctors d ON a.doctor_id = d.id
-         JOIN users u_d ON d.user_id = u_d.id
-         LEFT JOIN rooms r ON a.room_id = r.id
-         WHERE a.id = ?",
-    )
+    sqlx::query_as::<_, AppointmentView>(&format!(
+        "{APPOINTMENT_VIEW_SELECT} WHERE a.id = ?"
+    ))
     .bind(appointment_id)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
-
-    // map_to_views always yields exactly one element for a one-row input;
-    // fall back to NotFound instead of panicking with unwrap().
-    map_to_views(vec![row])
-        .into_iter()
-        .next()
-        .ok_or_else(|| AppError::NotFound("Appointment not found".into()))
-}
-
-fn map_to_views(
-    rows: Vec<(i64, String, String, chrono::NaiveDate, String, String, String, Option<String>, Option<String>, i32)>,
-) -> Vec<AppointmentView> {
-    rows.into_iter()
-        .map(|(id, pn, dn, ad, st, et, status, notes, room, pri)| AppointmentView {
-            id, patient_name: pn, doctor_name: dn,
-            appointment_date: ad, start_time: st, end_time: et,
-            status, notes, room_name: room, priority: pri,
-        })
-        .collect()
+    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))
 }
 
 /// Cancel an appointment.

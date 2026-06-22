@@ -143,3 +143,50 @@ async fn test_admin_can_access_user_list() {
         assert!(resp.status().is_success());
     });
 }
+
+// ============================================================
+// Profile access control (regression test for PII-disclosure fix)
+// ============================================================
+
+#[actix_web::test]
+async fn test_patient_cannot_view_other_users_profile() {
+    // A patient must not be able to read another user's profile page, which
+    // exposes personal/medical details (DOB, address, blood group...).
+    // Safe fail: they are redirected away rather than shown an error.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        // First registered user => id 1, second => id 2.
+        let p1 = register_and_login!(app, "patalpha", "patient");
+        let _p2 = register_and_login!(app, "patbeta", "patient");
+
+        // patient #1 tries to view patient #2's profile (id 2) -> redirected away
+        let req = auth_get("/users/2", &p1).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "patient must be redirected away from another profile");
+
+        // Anti-enumeration: a NON-existent id behaves identically (redirect, not 404),
+        // so a brute-forcer cannot distinguish "exists but forbidden" from "doesn't exist".
+        let req_ne = auth_get("/users/9999", &p1).to_request();
+        let resp_ne = test::call_service(&app, req_ne).await;
+        assert!(resp_ne.status().is_redirection(), "non-existent id must not be distinguishable");
+
+        // patient #1 viewing their OWN profile (id 1) is allowed
+        let req_self = auth_get("/users/1", &p1).to_request();
+        let resp_self = test::call_service(&app, req_self).await;
+        assert!(resp_self.status().is_success(), "patient may view own profile");
+    });
+}
+
+#[actix_web::test]
+async fn test_doctor_can_view_patient_profile() {
+    // Clinical staff (doctor/admin) may view any profile.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _patient = register_and_login!(app, "patgamma", "patient"); // id 1
+        let doctor = register_and_login!(app, "drgamma", "doctor");     // id 2
+
+        let req = auth_get("/users/1", &doctor).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "doctor may view a patient profile");
+    });
+}

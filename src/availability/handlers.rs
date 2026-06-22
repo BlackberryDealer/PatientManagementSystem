@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse};
 use tera::Context;
 
-use crate::auth::{require_doctor, AuthUser};
+use crate::auth::{require_doctor, AuthUser, Role};
 use crate::availability::models::SetAvailabilityForm;
 use crate::availability::services;
 use crate::errors::AppError;
@@ -12,11 +12,13 @@ pub async fn list_availability(
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
-    let slots = match user.role.as_str() {
-        "admin" => services::get_all_availability(pool.get_ref()).await?,
-        _ => {
-            require_doctor(&user)?;
-            services::get_availability_for_doctor(pool.get_ref(), user.user_id).await?
+    let slots = match user.role {
+        Role::Admin => services::get_all_availability(pool.get_ref()).await?,
+        Role::Doctor => services::get_availability_for_doctor(pool.get_ref(), user.user_id).await?,
+        Role::Patient => {
+            return Err(AppError::Forbidden(
+                "Availability is managed by doctors and admins.".into(),
+            ))
         }
     };
 

@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse};
 use tera::Context;
 
-use crate::auth::{require_admin, AuthUser};
+use crate::auth::{require_admin, AuthUser, Role};
 use crate::billing::models::{CreateInvoiceForm, RecordPaymentForm};
 use crate::billing::services;
 use crate::errors::AppError;
@@ -12,9 +12,17 @@ pub async fn list_invoices(
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
-    let invoices = match user.role.as_str() {
-        "admin" => services::get_all_invoices(pool.get_ref()).await?,
-        _ => services::get_invoices_for_patient(pool.get_ref(), user.user_id).await?,
+    let invoices = match user.role {
+        Role::Admin => services::get_all_invoices(pool.get_ref()).await?,
+        Role::Patient => services::get_invoices_for_patient(pool.get_ref(), user.user_id).await?,
+        // Doctors are not part of the billing workflow and have no billing nav
+        // link. If one reaches this URL directly, quietly send them back to
+        // their home page rather than showing an error.
+        Role::Doctor => {
+            return Ok(HttpResponse::SeeOther()
+                .append_header(("Location", "/appointments"))
+                .finish())
+        }
     };
 
     let mut ctx = Context::new();
@@ -68,7 +76,7 @@ pub async fn invoice_detail(
     let invoice_id = path.into_inner();
     // Ownership rule (patients see only their own) lives in the service layer
     let invoice =
-        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, &user.role)
+        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, user.role.as_str())
             .await?;
 
     let items = services::get_invoice_items(pool.get_ref(), invoice_id).await?;
@@ -95,9 +103,9 @@ pub async fn record_payment(
 ) -> Result<HttpResponse, AppError> {
     let invoice_id = path.into_inner();
 
-    if user.role == "patient" {
+    if user.role == Role::Patient {
         // Ownership rule enforced by the service layer
-        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, &user.role)
+        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, user.role.as_str())
             .await?;
     } else {
         require_admin(&user)?;

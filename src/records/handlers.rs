@@ -2,7 +2,7 @@ use actix_web::{web, HttpResponse};
 use tera::Context;
 
 use crate::audit::services as audit;
-use crate::auth::{require_doctor, AuthUser};
+use crate::auth::{require_doctor, AuthUser, Role};
 use crate::errors::AppError;
 use crate::records::models::{CreateRecordForm, PrescriptionForm};
 use crate::records::services;
@@ -13,18 +13,13 @@ pub async fn list_records(
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
-    let records = match user.role.as_str() {
-        "patient" => {
-            services::get_records_for_patient(pool.get_ref(), user.user_id).await?
-        }
-        "admin" => services::get_all_records(pool.get_ref()).await?,
-        _ => {
-            require_doctor(&user)?;
-            services::get_all_records(pool.get_ref()).await?
-        }
+    let records = match user.role {
+        Role::Patient => services::get_records_for_patient(pool.get_ref(), user.user_id).await?,
+        // Doctors and admins (clinical staff) see the full register.
+        Role::Doctor | Role::Admin => services::get_all_records(pool.get_ref()).await?,
     };
 
-    let prescriptions = if user.role == "patient" {
+    let prescriptions = if user.role == Role::Patient {
         Some(services::get_prescriptions_for_patient(pool.get_ref(), user.user_id).await?)
     } else {
         // Staff see the full prescription register (Prescription Tracking module)
@@ -126,7 +121,7 @@ pub async fn patient_timeline(
     user: AuthUser,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse, AppError> {
-    let patient_id = if user.role == "patient" {
+    let patient_id = if user.role == Role::Patient {
         crate::db::get_patient_id(pool.get_ref(), user.user_id).await?
     } else {
         query
@@ -165,7 +160,7 @@ pub async fn record_report(
 ) -> Result<HttpResponse, AppError> {
     let record_id = path.into_inner();
     let record =
-        services::get_record_checked(pool.get_ref(), record_id, user.user_id, &user.role)
+        services::get_record_checked(pool.get_ref(), record_id, user.user_id, user.role.as_str())
             .await?;
     let report = services::build_record_report(pool.get_ref(), record).await?;
 
@@ -187,7 +182,7 @@ pub async fn record_detail(
     let record_id = path.into_inner();
     // Ownership rule (patients see only their own) lives in the service layer
     let record =
-        services::get_record_checked(pool.get_ref(), record_id, user.user_id, &user.role)
+        services::get_record_checked(pool.get_ref(), record_id, user.user_id, user.role.as_str())
             .await?;
 
     let mut ctx = Context::new();
