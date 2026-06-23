@@ -32,7 +32,7 @@ async fn test_appointments_list_empty() {
 async fn test_waitlist_page_doctor() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let cookie = register_and_login!(app, "wldoc", "doctor");
+        let cookie = seed_and_login!(app, pool, "wldoc", "doctor");
         let req = auth_get("/appointments/waitlist", &cookie).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
@@ -86,7 +86,7 @@ async fn test_book_appointment_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         // Need a doctor for the booking form to show, and as the target
-        let _dcookie = register_and_login!(app, "bookdoc", "doctor");
+        let _dcookie = seed_and_login!(app, pool, "bookdoc", "doctor");
         let cookie = register_and_login!(app, "bookpat", "patient");
 
         let req = auth_post("/appointments/book", &cookie, serde_json::json!({
@@ -112,7 +112,7 @@ async fn test_book_appointment_http() {
 async fn test_book_appointment_conflict_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let _dcookie = register_and_login!(app, "conflictdoc", "doctor");
+        let _dcookie = seed_and_login!(app, pool, "conflictdoc", "doctor");
         let pat_cookie = register_and_login!(app, "conflictpat1", "patient");
         let pat2_cookie = register_and_login!(app, "conflictpat2", "patient");
 
@@ -138,7 +138,7 @@ async fn test_book_appointment_conflict_http() {
 async fn test_book_appointment_invalid_time_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let _dcookie = register_and_login!(app, "invaliddoc", "doctor");
+        let _dcookie = seed_and_login!(app, pool, "invaliddoc", "doctor");
         let cookie = register_and_login!(app, "invalidpat", "patient");
 
         // Start time after end time â€” should be rejected
@@ -155,7 +155,7 @@ async fn test_book_appointment_invalid_time_http() {
 async fn test_priority_booking_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let _dcookie = register_and_login!(app, "priodoc", "doctor");
+        let _dcookie = seed_and_login!(app, pool, "priodoc", "doctor");
         let normal_cookie = register_and_login!(app, "prionormal", "patient");
         let emerg_cookie = register_and_login!(app, "prioemerg", "patient");
 
@@ -181,7 +181,7 @@ async fn test_priority_booking_http() {
 async fn test_cancel_appointment_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let _dcookie = register_and_login!(app, "canceldoc", "doctor");
+        let _dcookie = seed_and_login!(app, pool, "canceldoc", "doctor");
         let cookie = register_and_login!(app, "cancelpat", "patient");
 
         // Book
@@ -206,7 +206,7 @@ async fn test_cancel_appointment_http() {
 async fn test_appointments_list_after_booking() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let _dcookie = register_and_login!(app, "listdoc", "doctor");
+        let _dcookie = seed_and_login!(app, pool, "listdoc", "doctor");
         let cookie = register_and_login!(app, "listpat", "patient");
 
         // List should be empty first
@@ -224,5 +224,36 @@ async fn test_appointments_list_after_booking() {
         let req2 = auth_get("/appointments", &cookie).to_request();
         let resp2 = test::call_service(&app, req2).await;
         assert!(resp2.status().is_success(), "Appointment list should load after booking");
+    });
+}
+
+#[actix_web::test]
+async fn test_patient_cannot_view_other_patients_appointment() {
+    // IDOR guard: a patient must not view another patient's appointment by ID.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _doc = seed_and_login!(app, pool, "idordoc", "doctor");   // doctor_id 1
+        let pat1 = register_and_login!(app, "idorpat1", "patient");
+        let pat2 = register_and_login!(app, "idorpat2", "patient");
+
+        // patient #1 books an appointment
+        let book = auth_post("/appointments/book", &pat1, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2026-07-15",
+            "start_time": "10:00", "end_time": "10:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, book).await;
+        assert!(resp.status().is_redirection(), "booking should succeed");
+        let loc = resp.headers().get("location").unwrap().to_str().unwrap().to_string();
+
+        // patient #2 tries to view patient #1's appointment -> rejected
+        let spy = auth_get(&loc, &pat2).to_request();
+        let resp2 = test::call_service(&app, spy).await;
+        assert!(resp2.status().is_client_error(),
+            "patient must not view another patient's appointment");
+
+        // owner can still view their own
+        let own = auth_get(&loc, &pat1).to_request();
+        let resp3 = test::call_service(&app, own).await;
+        assert!(resp3.status().is_success(), "owner can view their own appointment");
     });
 }

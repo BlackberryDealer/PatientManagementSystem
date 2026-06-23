@@ -278,7 +278,10 @@ pub async fn appointment_detail(
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let appointment_id = path.into_inner();
-    let appointment = services::get_appointment_by_id(pool.get_ref(), appointment_id).await?;
+    // Ownership enforced in the service: patients see only their own appointments.
+    let appointment = services::get_appointment_by_id_checked(
+        pool.get_ref(), appointment_id, user.user_id, user.role.as_str(),
+    ).await?;
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);

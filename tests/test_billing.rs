@@ -30,7 +30,7 @@ async fn test_create_invoice_admin() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let _pcookie = register_and_login!(app, "billpatient3", "patient");
-        let cookie = register_and_login!(app, "billadmin", "admin");
+        let cookie = seed_and_login!(app, pool, "billadmin", "admin");
         // items format: "Description|quantity|unit_price" per line
         let req = auth_post("/billing/create", &cookie, serde_json::json!({
             "patient_id": 1,
@@ -47,7 +47,7 @@ async fn test_create_invoice_multi_item() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let _pcookie = register_and_login!(app, "billpatient5", "patient");
-        let cookie = register_and_login!(app, "billadmin3", "admin");
+        let cookie = seed_and_login!(app, pool, "billadmin3", "admin");
         let req = auth_post("/billing/create", &cookie, serde_json::json!({
             "patient_id": 1,
             "due_date": "2026-07-15",
@@ -63,7 +63,7 @@ async fn test_create_invoice_bad_items_rejected() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let _pcookie = register_and_login!(app, "billpatient6", "patient");
-        let cookie = register_and_login!(app, "billadmin4", "admin");
+        let cookie = seed_and_login!(app, pool, "billadmin4", "admin");
         let req = auth_post("/billing/create", &cookie, serde_json::json!({
             "patient_id": 1,
             "due_date": "2026-07-01",
@@ -79,7 +79,7 @@ async fn test_payment() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let _pcookie = register_and_login!(app, "billpatient4", "patient");
-        let cookie = register_and_login!(app, "billadmin2", "admin");
+        let cookie = seed_and_login!(app, pool, "billadmin2", "admin");
         let _ = test::call_service(&app, auth_post("/billing/create", &cookie, serde_json::json!({
             "patient_id": 1,
             "due_date": "2026-07-01",

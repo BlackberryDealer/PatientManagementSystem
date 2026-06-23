@@ -736,6 +736,34 @@ pub async fn get_appointment_by_id(
     .ok_or_else(|| AppError::NotFound("Appointment not found".into()))
 }
 
+/// Get a single appointment, enforcing that a patient may only view their OWN.
+/// Doctors and admins (clinical staff) may view any appointment. Mirrors the
+/// ownership pattern used by `get_record_checked` / `get_invoice_checked`.
+pub async fn get_appointment_by_id_checked(
+    pool: &SqlitePool,
+    appointment_id: i64,
+    user_id: i64,
+    role: &str,
+) -> Result<AppointmentView, AppError> {
+    let appointment = get_appointment_by_id(pool, appointment_id).await?;
+    if role == "patient" {
+        let patient_id = db::get_patient_id(pool, user_id).await?;
+        let owns: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
+        )
+        .bind(appointment_id)
+        .bind(patient_id)
+        .fetch_one(pool)
+        .await?;
+        if owns.0 == 0 {
+            return Err(AppError::Forbidden(
+                "You can only view your own appointments.".into(),
+            ));
+        }
+    }
+    Ok(appointment)
+}
+
 /// Cancel an appointment.
 /// After cancellation, automatically attempts to promote the highest-priority
 /// waitlist entry into the freed slot using the BinaryHeap priority queue.

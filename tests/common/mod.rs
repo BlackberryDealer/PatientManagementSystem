@@ -27,6 +27,7 @@ pub fn test_tera() -> Tera {
         ("users/register.html.tera", "<html><body>Register: {{ title }}</body></html>"),
         ("users/list.html.tera", "<html><body>Users: {{ users | length }}</body></html>"),
         ("users/profile.html.tera", "<html><body>Profile: {{ profile_user.full_name }}</body></html>"),
+        ("users/new.html.tera", "<html><body>Add Staff</body></html>"),
         ("appointments/list.html.tera", "<html><body>Apps: {{ appointments | length }}</body></html>"),
         ("appointments/book.html.tera", "<html><body>Book form</body></html>"),
         ("appointments/detail.html.tera", "<html><body>Appt #{{ appointment.id }}</body></html>"),
@@ -68,7 +69,9 @@ macro_rules! with_test_app {
             let secret_key = actix_web::cookie::Key::generate();
             let $app = actix_web::test::init_service(
                 actix_web::App::new()
-                    .app_data(actix_web::web::Data::new($pool))
+                    // Clone into app state so the original pool stays usable in
+                    // the test body (e.g. for `seed_and_login!`).
+                    .app_data(actix_web::web::Data::new($pool.clone()))
                     .app_data(actix_web::web::Data::new(tera))
                     .wrap(
                         actix_session::SessionMiddleware::builder(
@@ -111,6 +114,64 @@ macro_rules! register_and_login {
             .to_request();
         let resp = actix_web::test::call_service(&$app, req).await;
         assert!(resp.status().is_redirection());
+        resp.headers()
+            .get("set-cookie")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string()
+    }};
+}
+
+// ============================================================
+// Macro: create a STAFF (or any) user directly in the DB, then log in.
+//
+// Public registration is intentionally patient-only, so doctors/admins are
+// created the way production does it (seed script / admin), i.e. inserted
+// straight into the database. Returns the session cookie.
+// ============================================================
+
+#[macro_export]
+macro_rules! seed_and_login {
+    ($app:expr, $pool:expr, $username:expr, $role:expr) => {{
+        let hash = bcrypt::hash("password123", 4).unwrap();
+        sqlx::query(
+            "INSERT INTO users (username, email, password_hash, role, full_name)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind($username)
+        .bind(format!("{}@test.com", $username))
+        .bind(&hash)
+        .bind($role)
+        .bind(format!("Test {}", $username))
+        .execute(&$pool)
+        .await
+        .unwrap();
+
+        let uid: (i64,) = sqlx::query_as("SELECT id FROM users WHERE username = ?")
+            .bind($username)
+            .fetch_one(&$pool)
+            .await
+            .unwrap();
+
+        // Create the matching profile row so id-lookups work.
+        match $role {
+            "doctor" => {
+                sqlx::query("INSERT INTO doctors (user_id, specialization, license_number) VALUES (?, 'General Practice', 'LIC')")
+                    .bind(uid.0).execute(&$pool).await.unwrap();
+            }
+            "patient" => {
+                sqlx::query("INSERT INTO patients (user_id) VALUES (?)")
+                    .bind(uid.0).execute(&$pool).await.unwrap();
+            }
+            _ => {} // admin has no extension row
+        }
+
+        // Log in through the real endpoint to obtain a session cookie.
+        let req = actix_web::test::TestRequest::post()
+            .uri("/users/login")
+            .set_form(&serde_json::json!({"login": $username, "password": "password123"}))
+            .to_request();
+        let resp = actix_web::test::call_service(&$app, req).await;
         resp.headers()
             .get("set-cookie")
             .and_then(|v| v.to_str().ok())

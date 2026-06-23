@@ -4,7 +4,7 @@ use tera::Context;
 
 use crate::auth::{require_admin, require_self_or_admin, AuthUser, OptionalAuthUser, Role};
 use crate::errors::AppError;
-use crate::users::models::{EditProfileForm, LoginForm, RegisterForm};
+use crate::users::models::{CreateStaffForm, EditProfileForm, LoginForm, RegisterForm};
 use crate::users::services;
 
 // ============================================================
@@ -101,6 +101,43 @@ pub async fn logout(session: Session) -> Result<HttpResponse, AppError> {
     session.purge();
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", "/users/login"))
+        .finish())
+}
+
+// ============================================================
+// Staff creation (admin only)
+// ============================================================
+
+/// GET /users/new — show the "add staff" form (admin only)
+pub async fn create_staff_form(
+    tera: web::Data<tera::Tera>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    require_admin(&user)?;
+
+    let mut ctx = Context::new();
+    ctx.insert("user", &user);
+    ctx.insert("title", "Add Staff");
+    let rendered = tera.render("users/new.html.tera", &ctx)?;
+    Ok(HttpResponse::Ok().body(rendered))
+}
+
+/// POST /users/new — create a doctor/admin account (admin only)
+pub async fn create_staff(
+    pool: web::Data<sqlx::SqlitePool>,
+    user: AuthUser,
+    form: web::Form<CreateStaffForm>,
+) -> Result<HttpResponse, AppError> {
+    require_admin(&user)?;
+
+    let created = services::create_staff_user(pool.get_ref(), &form).await?;
+    crate::audit::services::record(
+        pool.get_ref(), &user, "staff.created", "user", Some(created.id),
+        &format!("Created {} account: {}", created.role, created.username),
+    ).await;
+
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", "/users"))
         .finish())
 }
 

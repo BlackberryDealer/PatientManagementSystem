@@ -14,6 +14,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/login", web::post().to(handlers::login))
             .route("/logout", web::get().to(handlers::logout))
             .route("", web::get().to(handlers::list_users))
+            // `/new` must precede `/{id}` so it isn't captured as a dynamic id.
+            .route("/new", web::get().to(handlers::create_staff_form))
+            .route("/new", web::post().to(handlers::create_staff))
             .route("/{id}", web::get().to(handlers::user_profile))
             .route("/{id}/edit", web::get().to(handlers::edit_profile_form))
             .route("/{id}/edit", web::post().to(handlers::edit_profile)),

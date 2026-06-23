@@ -1,5 +1,5 @@
 use crate::errors::AppError;
-use crate::users::models::{Doctor, LoginForm, Patient, RegisterForm, User};
+use crate::users::models::{CreateStaffForm, Doctor, LoginForm, Patient, RegisterForm, User};
 use sqlx::SqlitePool;
 
 // ============================================================
@@ -54,6 +54,56 @@ pub async fn register_user(
             .await?;
         }
         _ => { /* admin has no extra profile table */ }
+    }
+
+    Ok(user)
+}
+
+/// Create a staff (doctor/admin) account. This is the privileged path that
+/// bypasses the patient-only rule of public registration, so the caller MUST
+/// already be an authenticated admin (enforced in the handler). Doctors get a
+/// matching `doctors` profile row.
+pub async fn create_staff_user(
+    pool: &SqlitePool,
+    form: &CreateStaffForm,
+) -> Result<User, AppError> {
+    form.validate()?;
+
+    let password_hash = bcrypt::hash(&form.password, 10)?;
+
+    let user = sqlx::query_as::<_, User>(
+        "INSERT INTO users (username, email, password_hash, role, full_name)
+         VALUES (?, ?, ?, ?, ?)
+         RETURNING id, username, email, password_hash, role, full_name, created_at",
+    )
+    .bind(&form.username)
+    .bind(&form.email)
+    .bind(&password_hash)
+    .bind(&form.role)
+    .bind(&form.full_name)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| AppError::bad_request_on_unique(e, "That username or email is already taken."))?;
+
+    if form.role == "doctor" {
+        let specialization = form
+            .specialization
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("General Practice");
+        let license = form
+            .license_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("PENDING");
+        sqlx::query("INSERT INTO doctors (user_id, specialization, license_number) VALUES (?, ?, ?)")
+            .bind(user.id)
+            .bind(specialization)
+            .bind(license)
+            .execute(pool)
+            .await?;
     }
 
     Ok(user)
