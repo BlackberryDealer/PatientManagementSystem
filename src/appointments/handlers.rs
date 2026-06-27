@@ -6,7 +6,7 @@ use crate::appointments::models::{
 };
 use crate::appointments::services;
 use crate::audit::services as audit;
-use crate::auth::{require_doctor, AuthUser};
+use crate::auth::{require_doctor, AuthUser, Role};
 use crate::errors::AppError;
 
 // ============================================================
@@ -18,11 +18,10 @@ pub async fn list_appointments(
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
-    let appointments = match user.role.as_str() {
-        "patient" => services::get_appointments_for_patient(pool.get_ref(), user.user_id).await?,
-        "doctor" => services::get_appointments_for_doctor(pool.get_ref(), user.user_id).await?,
-        "admin" => services::get_all_appointments(pool.get_ref()).await?,
-        _ => vec![],
+    let appointments = match user.role {
+        Role::Patient => services::get_appointments_for_patient(pool.get_ref(), user.user_id).await?,
+        Role::Doctor => services::get_appointments_for_doctor(pool.get_ref(), user.user_id).await?,
+        Role::Admin => services::get_all_appointments(pool.get_ref()).await?,
     };
 
     let mut ctx = Context::new();
@@ -155,21 +154,20 @@ pub async fn list_waitlist(
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
-    let (waitlist, doctor_label) = match user.role.as_str() {
-        "patient" => {
+    let (waitlist, doctor_label) = match user.role {
+        Role::Patient => {
             let entries = services::get_waitlist_for_patient(pool.get_ref(), user.user_id).await?;
             (entries, String::from("Your Waitlist"))
         }
-        "admin" => {
+        Role::Admin => {
             let all = services::get_all_waitlist(pool.get_ref()).await?;
             (all, String::from("All Waitlisted Patients"))
         }
-        "doctor" => {
+        Role::Doctor => {
             let entries =
                 services::get_waitlist_for_doctor(pool.get_ref(), user.user_id).await?;
             (entries, String::from("Patient Waitlist"))
         }
-        _ => (vec![], String::new()),
     };
 
     let mut ctx = Context::new();
@@ -246,7 +244,7 @@ pub async fn calendar_view(
     let mut calendar = CalendarMonth::new(year, month)?;
     let (from_date, to_date) = calendar.date_range();
     let counts = services::get_appointment_counts_by_date(
-        pool.get_ref(), &user.role, user.user_id, &from_date, &to_date,
+        pool.get_ref(), user.role.as_str(), user.user_id, &from_date, &to_date,
     ).await?;
     calendar.build_grid(today, &counts);
 
@@ -280,7 +278,10 @@ pub async fn appointment_detail(
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let appointment_id = path.into_inner();
-    let appointment = services::get_appointment_by_id(pool.get_ref(), appointment_id).await?;
+    // Ownership enforced in the service: patients see only their own appointments.
+    let appointment = services::get_appointment_by_id_checked(
+        pool.get_ref(), appointment_id, user.user_id, user.role.as_str(),
+    ).await?;
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);
@@ -301,7 +302,7 @@ pub async fn cancel_appointment(
 ) -> Result<HttpResponse, AppError> {
     let appointment_id = path.into_inner();
     services::cancel_appointment_checked(
-        pool.get_ref(), appointment_id, user.user_id, &user.role,
+        pool.get_ref(), appointment_id, user.user_id, user.role.as_str(),
     ).await?;
     audit::record(
         pool.get_ref(), &user, "appointment.cancelled", "appointment", Some(appointment_id), "",

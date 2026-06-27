@@ -1,0 +1,128 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/users"><i class="fas fa-users mr-1"></i>Users</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Add Staff</a></li>
+    </ul>
+</nav>
+
+<div class="columns is-centered">
+    <div class="column is-6">
+        <div class="box fade-in">
+            <div class="has-text-centered mb-5">
+                <span class="icon is-large has-text-primary">
+                    <i class="fas fa-user-shield fa-2x"></i>
+                </span>
+                <h1 class="title mt-3">Add Staff Account</h1>
+                <p class="subtitle is-6 has-text-grey">
+                    Create a doctor or admin account. Patients register themselves.
+                </p>
+            </div>
+
+            <form method="POST" action="/users/new">
+                <div class="field">
+                    <label class="label"><i class="fas fa-user-tag mr-1"></i>Account Type</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="role" id="role-select" required>
+                                <option value="doctor">👨‍⚕️ Doctor — Manage patients &amp; schedule</option>
+                                <option value="admin">⚙️ Admin — Full system access</option>
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-user-tag"></i></div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label"><i class="fas fa-id-badge mr-1"></i>Full Name</label>
+                    <div class="control">
+                        <input class="input" type="text" name="full_name" placeholder="Dr. Jane Smith" required>
+                    </div>
+                </div>
+
+                <div class="columns">
+                    <div class="column is-6">
+                        <div class="field">
+                            <label class="label"><i class="fas fa-user mr-1"></i>Username</label>
+                            <div class="control">
+                                <input class="input" type="text" name="username" placeholder="dr.smith" required minlength="3">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column is-6">
+                        <div class="field">
+                            <label class="label"><i class="fas fa-envelope mr-1"></i>Email</label>
+                            <div class="control">
+                                <input class="input" type="email" name="email" placeholder="jane@clinic.com" required>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label"><i class="fas fa-lock mr-1"></i>Temporary Password</label>
+                    <div class="control">
+                        <input class="input" type="password" name="password" placeholder="Min. 8 characters" required minlength="8">
+                    </div>
+                    <p class="help">The staff member can change this later from their profile.</p>
+                </div>
+
+                <!-- Doctor-only fields (shown only when role = doctor). -->
+                <div id="doctor-fields">
+                    <hr>
+                    <div class="columns">
+                        <div class="column is-6">
+                            <div class="field">
+                                <label class="label"><i class="fas fa-stethoscope mr-1"></i>Specialization</label>
+                                <div class="control">
+                                    <input class="input" type="text" name="specialization" placeholder="General Practice">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column is-6">
+                            <div class="field">
+                                <label class="label"><i class="fas fa-id-card mr-1"></i>License Number</label>
+                                <div class="control">
+                                    <input class="input" type="text" name="license_number" placeholder="LIC-001">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="help">Optional — defaults applied if left blank.</p>
+                </div>
+
+                <hr>
+
+                <div class="field is-grouped">
+                    <div class="control">
+                        <button class="button is-primary is-medium" type="submit">
+                            <i class="fas fa-user-plus mr-2"></i>Create Account
+                        </button>
+                    </div>
+                    <div class="control">
+                        <a class="button is-light is-medium" href="/users">
+                            <i class="fas fa-times mr-1"></i>Cancel
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Show the doctor-only fields only when "Doctor" is selected. Without JS the
+    // fields stay visible and are simply ignored by the server for admins.
+    (function () {
+        const role = document.getElementById('role-select');
+        const docFields = document.getElementById('doctor-fields');
+        function sync() { docFields.style.display = role.value === 'doctor' ? '' : 'none'; }
+        role.addEventListener('change', sync);
+        sync();
+    })();
+</script>
+{% endblock %}

@@ -48,8 +48,15 @@ impl RegisterForm {
         if self.full_name.trim().is_empty() {
             return Err(AppError::BadRequest("Full name is required".into()));
         }
-        if !["patient", "doctor", "admin"].contains(&self.role.as_str()) {
-            return Err(AppError::BadRequest("Invalid role specified".into()));
+        // Public self-registration is restricted to patients. Staff accounts
+        // (doctor/admin) are provisioned by an administrator or the seed script
+        // — never chosen by the registrant. Otherwise anyone could submit
+        // `role=admin` and grant themselves full access to the whole system.
+        if self.role != "patient" {
+            return Err(AppError::BadRequest(
+                "Public registration is for patients only. Staff accounts are created by an administrator."
+                    .into(),
+            ));
         }
         Ok(())
     }
@@ -59,6 +66,51 @@ impl RegisterForm {
 pub struct LoginForm {
     pub login: String,    // username or email
     pub password: String,
+}
+
+/// Form an administrator uses to create a staff (doctor/admin) account — the
+/// privileged counterpart to `RegisterForm`, which is restricted to patients.
+#[derive(Debug, Deserialize)]
+pub struct CreateStaffForm {
+    pub username: String,
+    pub email: String,
+    pub password: String,
+    pub full_name: String,
+    pub role: String, // "doctor" or "admin"
+    // Doctor-only profile fields (ignored for admin).
+    pub specialization: Option<String>,
+    pub license_number: Option<String>,
+}
+
+impl CreateStaffForm {
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        use crate::errors::AppError;
+        if self.username.trim().len() < 3 {
+            return Err(AppError::BadRequest(
+                "Username must be at least 3 characters".into(),
+            ));
+        }
+        if !self.email.contains('@') {
+            return Err(AppError::BadRequest(
+                "A valid email address is required".into(),
+            ));
+        }
+        if self.password.len() < 8 {
+            return Err(AppError::BadRequest(
+                "Password must be at least 8 characters".into(),
+            ));
+        }
+        if self.full_name.trim().is_empty() {
+            return Err(AppError::BadRequest("Full name is required".into()));
+        }
+        // Only staff roles may be created here — patients self-register.
+        if !["doctor", "admin"].contains(&self.role.as_str()) {
+            return Err(AppError::BadRequest(
+                "Role must be either doctor or admin".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 // ============================================================

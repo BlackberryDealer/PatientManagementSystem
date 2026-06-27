@@ -16,7 +16,7 @@ pub async fn record(
     entity_id: Option<i64>,
     details: &str,
 ) {
-    record_raw(pool, Some(user.user_id), &user.username, &user.role, action, entity, entity_id, details)
+    record_raw(pool, Some(user.user_id), &user.username, user.role.as_str(), action, entity, entity_id, details)
         .await;
 }
 

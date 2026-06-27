@@ -7,7 +7,7 @@ use actix_web::test;
 async fn test_availability_page() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let cookie = register_and_login!(app, "adoc", "doctor");
+        let cookie = seed_and_login!(app, pool, "adoc", "doctor");
         let req = auth_get("/availability", &cookie).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
@@ -18,7 +18,7 @@ async fn test_availability_page() {
 async fn test_set_availability_form() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let cookie = register_and_login!(app, "asetdoc", "doctor");
+        let cookie = seed_and_login!(app, pool, "asetdoc", "doctor");
         let req = auth_get("/availability/set", &cookie).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
@@ -29,7 +29,7 @@ async fn test_set_availability_form() {
 async fn test_set_availability_submit() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let cookie = register_and_login!(app, "asubdoc", "doctor");
+        let cookie = seed_and_login!(app, pool, "asubdoc", "doctor");
         let req = auth_post("/availability/set", &cookie, serde_json::json!({
             "day_of_week": 1, "start_time": "09:00", "end_time": "17:00",
             "is_recurring": "on", "is_blocked": "",

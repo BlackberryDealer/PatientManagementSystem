@@ -46,19 +46,17 @@
                     <p class="help">Must be at least 8 characters. Use a mix of letters, numbers, and symbols.</p>
                 </div>
 
+                <!-- Public sign-up always creates a Patient account. Doctor and
+                     admin accounts are created by an administrator, so the role
+                     is fixed here (and enforced again on the server). -->
+                <input type="hidden" name="role" value="patient">
                 <div class="field">
-                    <label class="label"><i class="fas fa-user-tag mr-1"></i>Role</label>
-                    <div class="control">
-                        <div class="select is-fullwidth">
-                            <select name="role" required>
-                                <option value="">-- Select your role --</option>
-                                <option value="patient">🩺 Patient — Book appointments & view records</option>
-                                <option value="doctor">👨‍⚕️ Doctor — Manage patients & schedule</option>
-                                <option value="admin">⚙️ Admin — Full system access</option>
-                            </select>
-                        </div>
+                    <label class="label"><i class="fas fa-user-tag mr-1"></i>Account Type</label>
+                    <div class="notification is-info is-light py-3">
+                        <i class="fas fa-user-injured mr-1"></i>
+                        You are registering as a <strong>Patient</strong>. Clinic staff accounts
+                        are set up by an administrator.
                     </div>
-                    <p class="help">Choose the role that matches your position in the clinic.</p>
                 </div>
 
                 <div class="field mt-5">

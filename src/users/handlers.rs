@@ -2,9 +2,9 @@ use actix_session::Session;
 use actix_web::{web, HttpResponse};
 use tera::Context;
 
-use crate::auth::{require_admin, require_self_or_admin, AuthUser, OptionalAuthUser};
+use crate::auth::{require_admin, require_self_or_admin, AuthUser, OptionalAuthUser, Role};
 use crate::errors::AppError;
-use crate::users::models::{EditProfileForm, LoginForm, RegisterForm};
+use crate::users::models::{CreateStaffForm, EditProfileForm, LoginForm, RegisterForm};
 use crate::users::services;
 
 // ============================================================
@@ -105,6 +105,43 @@ pub async fn logout(session: Session) -> Result<HttpResponse, AppError> {
 }
 
 // ============================================================
+// Staff creation (admin only)
+// ============================================================
+
+/// GET /users/new — show the "add staff" form (admin only)
+pub async fn create_staff_form(
+    tera: web::Data<tera::Tera>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    require_admin(&user)?;
+
+    let mut ctx = Context::new();
+    ctx.insert("user", &user);
+    ctx.insert("title", "Add Staff");
+    let rendered = tera.render("users/new.html.tera", &ctx)?;
+    Ok(HttpResponse::Ok().body(rendered))
+}
+
+/// POST /users/new — create a doctor/admin account (admin only)
+pub async fn create_staff(
+    pool: web::Data<sqlx::SqlitePool>,
+    user: AuthUser,
+    form: web::Form<CreateStaffForm>,
+) -> Result<HttpResponse, AppError> {
+    require_admin(&user)?;
+
+    let created = services::create_staff_user(pool.get_ref(), &form).await?;
+    crate::audit::services::record(
+        pool.get_ref(), &user, "staff.created", "user", Some(created.id),
+        &format!("Created {} account: {}", created.role, created.username),
+    ).await;
+
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", "/users"))
+        .finish())
+}
+
+// ============================================================
 // User listing & profile
 // ============================================================
 
@@ -133,6 +170,22 @@ pub async fn user_profile(
     current_user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let profile_id = path.into_inner();
+
+    // Authorization: a patient may only view their OWN profile, which protects
+    // other patients' personal and medical details (date of birth, address,
+    // blood group, emergency contact). Doctors and admins (clinical staff) may
+    // view any profile.
+    //
+    // Safe fail (anti-enumeration): rather than returning an error that would
+    // confirm the target exists, we silently send the patient back to their own
+    // profile. This check runs BEFORE the database lookup, so a forbidden id and
+    // a non-existent id are indistinguishable — a brute-forcer learns nothing.
+    if current_user.role == Role::Patient && current_user.user_id != profile_id {
+        return Ok(HttpResponse::SeeOther()
+            .append_header(("Location", format!("/users/{}", current_user.user_id)))
+            .finish());
+    }
+
     let profile_user = services::get_user_by_id(pool.get_ref(), profile_id).await?;
     let patient = services::get_patient_by_user_id(pool.get_ref(), profile_id).await?;
     let doctor = services::get_doctor_by_user_id(pool.get_ref(), profile_id).await?;

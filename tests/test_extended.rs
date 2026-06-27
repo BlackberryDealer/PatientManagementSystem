@@ -235,7 +235,7 @@ async fn test_prescription_create_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let _p = register_and_login!(app, "rxpat", "patient");
-        let cookie = register_and_login!(app, "rxdoc", "doctor");
+        let cookie = seed_and_login!(app, pool, "rxdoc", "doctor");
 
         let resp = test::call_service(&app, auth_post("/records/prescriptions/create", &cookie, serde_json::json!({
             "patient_id": 1,
@@ -283,7 +283,7 @@ async fn test_record_report_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let _p = register_and_login!(app, "reppat", "patient");
-        let cookie = register_and_login!(app, "repdoc", "doctor");
+        let cookie = seed_and_login!(app, pool, "repdoc", "doctor");
 
         let create = test::call_service(&app, auth_post("/records/create", &cookie, serde_json::json!({
             "patient_id": 1, "diagnosis": "Sprained ankle", "treatment": "RICE protocol",
@@ -304,7 +304,7 @@ async fn test_audit_log_written_on_booking() {
     let pool = test_db_pool().await;
     let pool_check = pool.clone();
     with_test_app!(pool, app, {
-        let _d = register_and_login!(app, "auddoc", "doctor");
+        let _d = seed_and_login!(app, pool, "auddoc", "doctor");
         let cookie = register_and_login!(app, "audpat", "patient");
 
         let resp = test::call_service(&app, auth_post("/appointments/book", &cookie, serde_json::json!({
@@ -318,10 +318,12 @@ async fn test_audit_log_written_on_booking() {
         ).fetch_one(&pool_check).await.unwrap();
         assert!(booked.0 >= 1, "booking must leave an audit trail entry");
 
+        // Only the patient self-registers through the public endpoint (staff are
+        // seeded directly), so exactly that registration is audited.
         let registered: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM audit_log WHERE action = 'user.registered'",
         ).fetch_one(&pool_check).await.unwrap();
-        assert!(registered.0 >= 2, "both registrations must be audited");
+        assert!(registered.0 >= 1, "the patient registration must be audited");
     });
 }
 
@@ -333,7 +335,7 @@ async fn test_audit_page_admin_only() {
         let resp = test::call_service(&app, auth_get("/audit", &patient_cookie).to_request()).await;
         assert!(resp.status().is_client_error(), "audit trail is admin-only");
 
-        let admin_cookie = register_and_login!(app, "audview2", "admin");
+        let admin_cookie = seed_and_login!(app, pool, "audview2", "admin");
         let resp = test::call_service(&app, auth_get("/audit", &admin_cookie).to_request()).await;
         assert!(resp.status().is_success(), "admin should see the audit trail");
     });
@@ -373,7 +375,7 @@ async fn test_dashboard_admin_only() {
         let resp = test::call_service(&app, auth_get("/dashboard", &patient_cookie).to_request()).await;
         assert!(resp.status().is_client_error(), "dashboard is admin-only");
 
-        let admin_cookie = register_and_login!(app, "dashadm", "admin");
+        let admin_cookie = seed_and_login!(app, pool, "dashadm", "admin");
         let resp = test::call_service(&app, auth_get("/dashboard", &admin_cookie).to_request()).await;
         assert!(resp.status().is_success(), "admin should see the dashboard");
     });
