@@ -63,13 +63,12 @@ pub async fn ensure_doctor_available(
     }
 
     // Rule 2: if available windows are declared for this day, the slot
-    // must sit entirely inside one of them. ("HH:MM" strings compare
-    // correctly because both sides are zero-padded.)
+    // must sit entirely inside one of them. Containment is a TimeSlotted
+    // domain method (sibling of overlaps_with used by Rule 1 above), so the
+    // service no longer compares raw start/end fields by hand.
     let windows: Vec<&DoctorAvailability> = rules.iter().filter(|r| !r.blocked()).collect();
     if !windows.is_empty()
-        && !windows.iter().any(|w| {
-            w.start_time.as_str() <= start_time && end_time <= w.end_time.as_str()
-        })
+        && !windows.iter().any(|w| w.contains(start_time, end_time))
     {
         return Err(AppError::BadRequest(
             "The requested time is outside the doctor's working hours for that day.\

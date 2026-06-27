@@ -28,6 +28,15 @@ pub trait TimeSlotted {
         self.start_time() < other_end && self.end_time() > other_start
     }
 
+    /// Returns `true` when [other_start, other_end) sits entirely inside this
+    /// slot — i.e. this window fully covers the requested one. Encapsulates the
+    /// containment rule that constrains a booking to a doctor's declared working
+    /// window, so the availability service no longer compares raw fields by hand.
+    /// (Zero-padded "HH:MM" strings compare correctly.)
+    fn contains(&self, other_start: &str, other_end: &str) -> bool {
+        self.start_time() <= other_start && other_end <= self.end_time()
+    }
+
     /// Returns the duration of this slot in minutes.
     fn duration_minutes(&self) -> i32 {
         fn to_mins(t: &str) -> i32 {
@@ -192,6 +201,34 @@ mod tests {
         // A fits entirely inside B
         let a = Slot { start: "10:00", end: "10:30" };
         assert!(a.overlaps_with("09:00", "12:00"));
+    }
+
+    // --- TimeSlotted::contains ---
+
+    #[test]
+    fn contains_inner_slot() {
+        // Window 09:00–12:00 fully covers a 10:00–11:00 booking.
+        let window = Slot { start: "09:00", end: "12:00" };
+        assert!(window.contains("10:00", "11:00"));
+    }
+
+    #[test]
+    fn contains_exact_bounds_is_inclusive() {
+        // A booking flush against both edges of the window still fits.
+        let window = Slot { start: "09:00", end: "12:00" };
+        assert!(window.contains("09:00", "12:00"));
+    }
+
+    #[test]
+    fn contains_rejects_slot_spilling_past_end() {
+        let window = Slot { start: "09:00", end: "12:00" };
+        assert!(!window.contains("11:30", "12:30"));
+    }
+
+    #[test]
+    fn contains_rejects_slot_starting_before_window() {
+        let window = Slot { start: "09:00", end: "12:00" };
+        assert!(!window.contains("08:30", "10:00"));
     }
 
     #[test]

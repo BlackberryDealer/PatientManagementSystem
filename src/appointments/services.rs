@@ -7,7 +7,7 @@ use crate::db;
 use crate::errors::AppError;
 use crate::availability::services::ensure_doctor_available;
 use crate::time::{
-    minutes_to_time, parse_booking_date, parse_slot, time_to_minutes, CLINIC_CLOSE_MINUTES,
+    minutes_to_time, parse_slot, time_to_minutes, CLINIC_CLOSE_MINUTES,
     CLINIC_OPEN_MINUTES, SLOT_MINUTES,
 };
 use crate::traits::{Prioritized, StatusManaged, TimeSlotted};
@@ -493,10 +493,9 @@ pub async fn add_to_waitlist(
     patient_user_id: i64,
     form: &WaitlistForm,
 ) -> Result<WaitlistEntry, AppError> {
-    // Waitlisted requests must also be grid-aligned, since a promotion books
-    // them as a real appointment (which decomposes into 30-minute slots).
-    parse_booking_date(&form.appointment_date)?;
-    parse_slot(&form.requested_start, &form.requested_end)?;
+    // Validation owned by the form, like every sibling write path
+    // (Route -> Validation -> Business Logic -> DB).
+    form.validate()?;
 
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 

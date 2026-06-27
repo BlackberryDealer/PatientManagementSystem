@@ -286,6 +286,25 @@ pub struct WaitlistForm {
     pub notes: Option<String>,
 }
 
+impl WaitlistForm {
+    /// All waitlist input rules in one place: a valid, non-past date, a
+    /// grid-aligned requested slot (a promotion books it as a real
+    /// appointment, which decomposes into 30-minute slots), and a real
+    /// triage priority. Mirrors `BookAppointmentForm::validate`, so every
+    /// form owns its own validation before anything reaches the service or
+    /// DB (Route -> Validation -> Business Logic -> DB).
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        crate::time::parse_booking_date(&self.appointment_date)?;
+        crate::time::parse_slot(&self.requested_start, &self.requested_end)?;
+        if !(1..=4).contains(&self.priority) {
+            return Err(crate::errors::AppError::BadRequest(
+                "Priority must be between 1 (Emergency) and 4 (Follow-up)".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ============================================================
 // Trait implementations — OOP via Rust traits (Tutorial 05)
 // ============================================================
