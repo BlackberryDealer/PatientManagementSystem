@@ -65,6 +65,14 @@ pub trait StatusManaged {
 
     /// Returns a Bulma CSS badge class matching the current status.
     fn status_badge_class(&self) -> &str;
+
+    /// The bare colour name behind the status badge (e.g. "info", "danger"),
+    /// for consumers that need a colour without the Bulma `is-` prefix — such
+    /// as the timeline marker. Keeping this here means the prefix-stripping
+    /// detail lives with the badge logic, not inlined in the service layer.
+    fn status_color(&self) -> &str {
+        self.status_badge_class().trim_start_matches("is-")
+    }
 }
 
 // ============================================================

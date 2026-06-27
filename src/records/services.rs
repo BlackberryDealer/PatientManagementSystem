@@ -1,3 +1,4 @@
+use crate::auth::Role;
 use crate::db;
 use crate::errors::AppError;
 use crate::records::models::{
@@ -13,7 +14,22 @@ pub async fn create_record(
     doctor_user_id: i64,
     form: &CreateRecordForm,
 ) -> Result<MedicalRecord, AppError> {
+    // Validation first — nothing reaches the database until the form's
+    // own rules pass (Route -> Validation -> Business Logic -> DB).
+    form.validate()?;
+
     let doctor_id = db::get_doctor_id(pool, doctor_user_id).await?;
+
+    // The target patient must exist (clean 400 instead of an FK error),
+    // mirroring the precondition guard in `create_prescription`.
+    let patient_exists: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM patients WHERE id = ?")
+            .bind(form.patient_id)
+            .fetch_one(pool)
+            .await?;
+    if patient_exists.0 == 0 {
+        return Err(AppError::BadRequest("Selected patient does not exist".into()));
+    }
 
     Ok(sqlx::query_as::<_, MedicalRecord>(
         "INSERT INTO medical_records (patient_id, doctor_id, appointment_id, diagnosis, treatment, notes)
@@ -74,10 +90,10 @@ pub async fn get_record_checked(
     pool: &SqlitePool,
     record_id: i64,
     user_id: i64,
-    role: &str,
+    role: Role,
 ) -> Result<MedicalRecord, AppError> {
     let record = get_record_by_id(pool, record_id).await?;
-    if role == "patient" {
+    if role == Role::Patient {
         let patient_id = db::get_patient_id(pool, user_id).await?;
         if record.patient_id != patient_id {
             return Err(AppError::Forbidden(
@@ -216,7 +232,7 @@ pub async fn build_patient_timeline(
         events.push(TimelineEvent {
             event_type: "appointment".into(),
             icon: "fa-calendar-check".into(),
-            color: appt.status_badge_class().trim_start_matches("is-").to_string(),
+            color: appt.status_color().to_string(),
             when: format!("{} {}", appt.appointment_date, appt.start_time),
             title: format!("Appointment with {}", doctor),
             summary: appt.generate_summary(), // Reportable
@@ -276,7 +292,7 @@ pub async fn build_patient_timeline(
         events.push(TimelineEvent {
             event_type: "invoice".into(),
             icon: "fa-file-invoice-dollar".into(),
-            color: invoice.status_badge_class().trim_start_matches("is-").to_string(),
+            color: invoice.status_color().to_string(),
             when: invoice.created_at.format("%Y-%m-%d %H:%M").to_string(),
             title: format!("Invoice #{} issued", invoice.id),
             summary: invoice.generate_summary(), // Reportable

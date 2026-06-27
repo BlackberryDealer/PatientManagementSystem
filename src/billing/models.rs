@@ -171,8 +171,19 @@ impl Invoice {
 
     /// State transition to `paid`. Mutates internal state (&mut self);
     /// callers persist the new status afterwards.
-    pub fn mark_paid(&mut self) {
+    ///
+    /// Domain rule: only a pending invoice may be marked paid — the guard
+    /// lives on the object itself, consistent with `Appointment::cancel`
+    /// and `WaitlistEntry::accept`, so no caller can drive a paid/cancelled
+    /// invoice into an illegal state.
+    pub fn mark_paid(&mut self) -> Result<(), crate::errors::AppError> {
+        if !self.can_accept_payment() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a pending invoice can be marked paid".into(),
+            ));
+        }
         self.status = "paid".to_string();
+        Ok(())
     }
 }
 

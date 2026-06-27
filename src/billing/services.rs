@@ -1,3 +1,4 @@
+use crate::auth::Role;
 use crate::billing::models::{CreateInvoiceForm, Invoice, InvoiceItem, InvoiceView, Payment, RecordPaymentForm};
 use crate::db;
 use crate::errors::AppError;
@@ -117,10 +118,10 @@ pub async fn get_invoice_checked(
     pool: &SqlitePool,
     invoice_id: i64,
     user_id: i64,
-    role: &str,
+    role: Role,
 ) -> Result<Invoice, AppError> {
     let invoice = get_invoice_by_id(pool, invoice_id).await?;
-    if role == "patient" {
+    if role == Role::Patient {
         let patient_id = db::get_patient_id(pool, user_id).await?;
         if invoice.patient_id != patient_id {
             return Err(AppError::Forbidden(
@@ -207,7 +208,7 @@ pub async fn record_payment(
             .await?;
 
     if invoice.is_settled_by(total_paid.0.unwrap_or(0.0)) {
-        invoice.mark_paid(); // encapsulated state transition (&mut self)
+        invoice.mark_paid()?; // encapsulated, self-guarding state transition (&mut self)
         sqlx::query("UPDATE invoices SET status = ? WHERE id = ?")
             .bind(invoice.current_status())
             .bind(invoice.id)

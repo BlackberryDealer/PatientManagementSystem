@@ -12,6 +12,13 @@ use crate::errors::AppError;
 /// double-booking prevention with a database UNIQUE constraint.
 pub const SLOT_MINUTES: i32 = 30;
 
+/// Clinic operating hours (business rule): appointments are bookable from
+/// 08:00 to 17:00. Centralised here next to `SLOT_MINUTES` so the working-day
+/// bounds have a single source of truth across the earliest-slot algorithm and
+/// the slot-dropdown generators — change the clinic hours in one place only.
+pub const CLINIC_OPEN_MINUTES: i32 = 8 * 60; // 08:00
+pub const CLINIC_CLOSE_MINUTES: i32 = 17 * 60; // 17:00
+
 /// Convert "HH:MM" to minutes since midnight for comparison.
 pub fn time_to_minutes(t: &str) -> Option<i32> {
     let parts: Vec<&str> = t.split(':').collect();

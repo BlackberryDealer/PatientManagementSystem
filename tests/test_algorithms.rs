@@ -6,6 +6,7 @@ use patient_management_system::appointments::models::{
     BookAppointmentForm, SuggestSlotForm, WaitlistForm,
 };
 use patient_management_system::appointments::services;
+use patient_management_system::auth::Role;
 use patient_management_system::traits::StatusManaged;
 use sqlx::SqlitePool;
 
@@ -173,7 +174,7 @@ async fn test_ownership_check_blocks_other_patient() {
     }).await.unwrap();
 
     // Patient 2 (user_id=3) tries to cancel patient 1's appointment â†’ Forbidden
-    let result = services::cancel_appointment_checked(&pool, booked.id, 3, "patient").await;
+    let result = services::cancel_appointment_checked(&pool, booked.id, 3, Role::Patient).await;
     assert!(result.is_err());
 }
 
@@ -190,7 +191,7 @@ async fn test_ownership_check_allows_own_appointment() {
         room_id: None, priority: Some(3), notes: None,
     }).await.unwrap();
 
-    let result = services::cancel_appointment_checked(&pool, booked.id, 1, "patient").await;
+    let result = services::cancel_appointment_checked(&pool, booked.id, 1, Role::Patient).await;
     assert!(result.is_ok());
 }
 

@@ -39,6 +39,21 @@ pub struct CreateRecordForm {
     pub notes: Option<String>,
 }
 
+impl CreateRecordForm {
+    /// A record must carry a diagnosis and a treatment — checked before
+    /// anything touches the database, mirroring `PrescriptionForm::validate`.
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        use crate::errors::AppError;
+        if self.diagnosis.trim().is_empty() {
+            return Err(AppError::BadRequest("Diagnosis is required".into()));
+        }
+        if self.treatment.trim().is_empty() {
+            return Err(AppError::BadRequest("Treatment is required".into()));
+        }
+        Ok(())
+    }
+}
+
 /// Prescription linked to an appointment.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Prescription {

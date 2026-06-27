@@ -100,6 +100,23 @@ impl Appointment {
         self.status = "cancelled".to_string();
         Ok(())
     }
+
+    /// Reassign this appointment to a different doctor.
+    ///
+    /// Domain rule (same as `cancel`): only an active/scheduled appointment may
+    /// be reassigned — completed or cancelled appointments are immutable
+    /// history. The rule and the state change live on the object, so callers
+    /// can never drive a closed appointment to a new doctor; they persist the
+    /// new `doctor_id` afterwards.
+    pub fn reassign_to(&mut self, new_doctor_id: i64) -> Result<(), crate::errors::AppError> {
+        if !self.is_active() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a scheduled appointment can be reassigned".into(),
+            ));
+        }
+        self.doctor_id = new_doctor_id;
+        Ok(())
+    }
 }
 
 /// Form data submitted when a patient books an appointment.
@@ -114,6 +131,25 @@ pub struct BookAppointmentForm {
     pub notes: Option<String>,
 }
 
+impl BookAppointmentForm {
+    /// All booking input rules in one place: a valid, non-past date and a
+    /// grid-aligned slot. Mirrors `SuggestSlotForm::validate`, so every form
+    /// owns its own validation before anything reaches the service or DB
+    /// (Route -> Validation -> Business Logic -> DB).
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        crate::time::parse_booking_date(&self.appointment_date)?;
+        crate::time::parse_slot(&self.start_time, &self.end_time)?;
+        Ok(())
+    }
+
+    /// Requested triage priority, defaulting to Normal when the form omits it.
+    /// Keeps the "Normal is the default" rule and the numeric mapping on the
+    /// `Priority` domain type, not as a magic `3` in the service layer.
+    pub fn requested_priority(&self) -> Priority {
+        Priority::from_i32(self.priority.unwrap_or(Priority::Normal as i32))
+    }
+}
+
 /// Form for the "suggest slot" feature — find next available time.
 #[derive(Debug, Deserialize)]
 pub struct SuggestSlotForm {
@@ -121,6 +157,69 @@ pub struct SuggestSlotForm {
     pub appointment_date: String,
     pub duration_minutes: i32,
     pub room_id: Option<i64>,
+}
+
+impl SuggestSlotForm {
+    /// All request rules in one place: a valid, non-past date and a sane
+    /// duration. Checked before the earliest-slot algorithm runs, so the
+    /// algorithm stays purely about gap-finding (Route -> Validation -> Logic).
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        crate::time::parse_booking_date(&self.appointment_date)?;
+        if self.duration_minutes <= 0 || self.duration_minutes > 480 {
+            return Err(crate::errors::AppError::BadRequest(
+                "Duration must be 1–480 minutes".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+// ============================================================
+// DaySchedule — pure earliest-gap finder (Algorithm 2 core)
+// ============================================================
+
+/// A doctor's booked intervals for a single day, as `(start, end)` pairs in
+/// minutes since midnight.
+///
+/// Holds the pure scheduling math for Algorithm 2 (earliest available slot) so
+/// the service layer only fetches rows and maps the result, and so the
+/// gap-finding logic is unit-testable without a database. This mirrors how
+/// Algorithm 1 (interval overlap) lives on the `TimeSlotted` trait — both
+/// scheduling algorithms now sit on domain objects, not inline in services.
+pub struct DaySchedule {
+    busy: Vec<(i32, i32)>, // sorted by start time
+}
+
+impl DaySchedule {
+    /// Build from booked intervals; sorts defensively so callers need not
+    /// rely on the SQL `ORDER BY`.
+    pub fn new(mut busy: Vec<(i32, i32)>) -> Self {
+        busy.sort_by_key(|&(start, _)| start);
+        Self { busy }
+    }
+
+    /// Earliest start time (minutes since midnight) with room for a
+    /// `duration`-minute appointment between `open` and `close`, walking the
+    /// gaps between booked intervals. Returns `None` if the day is full.
+    pub fn earliest_gap(&self, duration: i32, open: i32, close: i32) -> Option<i32> {
+        let mut cursor = open;
+        for &(start, end) in &self.busy {
+            // A gap wide enough sits before this interval.
+            if cursor + duration <= start {
+                return Some(cursor);
+            }
+            // Otherwise advance past this interval.
+            if end > cursor {
+                cursor = end;
+            }
+        }
+        // Gap at the end of the day, if one remains.
+        if cursor + duration <= close {
+            Some(cursor)
+        } else {
+            None
+        }
+    }
 }
 
 /// Joined view: appointment with patient/doctor names and room for display.
@@ -385,5 +484,65 @@ impl Prioritized for WaitlistEntry {
 
     fn priority_badge_class(&self) -> &str {
         Priority::from_i32(self.priority).css_class()
+    }
+}
+
+// ============================================================
+// Unit tests for the DaySchedule earliest-gap algorithm
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::DaySchedule;
+
+    // Working day: 08:00 (480) .. 17:00 (1020), matching the clinic hours.
+    const OPEN: i32 = 8 * 60;
+    const CLOSE: i32 = 17 * 60;
+
+    #[test]
+    fn empty_day_returns_opening_time() {
+        let day = DaySchedule::new(vec![]);
+        assert_eq!(day.earliest_gap(30, OPEN, CLOSE), Some(OPEN));
+    }
+
+    #[test]
+    fn gap_before_first_appointment() {
+        // First booking at 09:00 leaves the 08:00 slot free.
+        let day = DaySchedule::new(vec![(9 * 60, 10 * 60)]);
+        assert_eq!(day.earliest_gap(30, OPEN, CLOSE), Some(OPEN));
+    }
+
+    #[test]
+    fn finds_gap_between_appointments() {
+        // 08:00–09:00 and 09:30–10:00 booked; a 30-min slot fits at 09:00.
+        let day = DaySchedule::new(vec![(8 * 60, 9 * 60), (9 * 60 + 30, 10 * 60)]);
+        assert_eq!(day.earliest_gap(30, OPEN, CLOSE), Some(9 * 60));
+    }
+
+    #[test]
+    fn unsorted_input_is_sorted_defensively() {
+        // Same intervals supplied out of order must give the same answer.
+        let day = DaySchedule::new(vec![(9 * 60 + 30, 10 * 60), (8 * 60, 9 * 60)]);
+        assert_eq!(day.earliest_gap(30, OPEN, CLOSE), Some(9 * 60));
+    }
+
+    #[test]
+    fn gap_at_end_of_day() {
+        // Booked solid until 16:30; a 30-min slot fits at 16:30.
+        let day = DaySchedule::new(vec![(OPEN, 16 * 60 + 30)]);
+        assert_eq!(day.earliest_gap(30, OPEN, CLOSE), Some(16 * 60 + 30));
+    }
+
+    #[test]
+    fn full_day_returns_none() {
+        let day = DaySchedule::new(vec![(OPEN, CLOSE)]);
+        assert_eq!(day.earliest_gap(30, OPEN, CLOSE), None);
+    }
+
+    #[test]
+    fn remaining_gap_too_short_returns_none() {
+        // Only 15 minutes left before close — a 30-min slot cannot fit.
+        let day = DaySchedule::new(vec![(OPEN, CLOSE - 15)]);
+        assert_eq!(day.earliest_gap(30, OPEN, CLOSE), None);
     }
 }

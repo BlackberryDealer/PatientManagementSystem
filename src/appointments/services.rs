@@ -1,11 +1,15 @@
 use crate::appointments::models::{
-    Appointment, AppointmentView, BookAppointmentForm, Priority, Room,
+    Appointment, AppointmentView, BookAppointmentForm, DaySchedule, Priority, Room,
     SuggestSlotForm, WaitlistEntry, WaitlistForm,
 };
+use crate::auth::Role;
 use crate::db;
 use crate::errors::AppError;
 use crate::availability::services::ensure_doctor_available;
-use crate::time::{minutes_to_time, parse_booking_date, parse_slot, time_to_minutes, SLOT_MINUTES};
+use crate::time::{
+    minutes_to_time, parse_booking_date, parse_slot, time_to_minutes, CLINIC_CLOSE_MINUTES,
+    CLINIC_OPEN_MINUTES, SLOT_MINUTES,
+};
 use crate::traits::{Prioritized, StatusManaged, TimeSlotted};
 use sqlx::SqlitePool;
 use std::collections::BinaryHeap;
@@ -80,11 +84,8 @@ pub async fn find_earliest_slot(
     pool: &SqlitePool,
     form: &SuggestSlotForm,
 ) -> Result<Option<String>, AppError> {
-    parse_booking_date(&form.appointment_date)?;
-    let duration = form.duration_minutes;
-    if duration <= 0 || duration > 480 {
-        return Err(AppError::BadRequest("Duration must be 1–480 minutes".into()));
-    }
+    // Validation owned by the form, not stranded in the algorithm.
+    form.validate()?;
 
     // Fetch existing appointments for the doctor on that date, sorted by start time.
     // Also include any room conflicts if a room was specified.
@@ -112,33 +113,20 @@ pub async fn find_earliest_slot(
         .await?
     };
 
-    // Work hours: 08:00 to 17:00
-    let day_start = 8 * 60;   // 480 mins
-    let day_end = 17 * 60;    // 1020 mins
+    // Map the booked rows to minute intervals, then delegate the gap-finding
+    // math to the DaySchedule domain object (pure + unit-testable). Rows are
+    // always valid "HH:MM" (enforced by parse_slot on insert), so any
+    // unparseable row is simply dropped rather than coerced.
+    let busy: Vec<(i32, i32)> = existing
+        .iter()
+        .filter_map(|(start, end)| Some((time_to_minutes(start)?, time_to_minutes(end)?)))
+        .collect();
 
-    let mut cursor = day_start;
+    let slot = DaySchedule::new(busy)
+        .earliest_gap(form.duration_minutes, CLINIC_OPEN_MINUTES, CLINIC_CLOSE_MINUTES)
+        .map(minutes_to_time);
 
-    for (start, end) in &existing {
-        let s = time_to_minutes(start).unwrap_or(0);
-        let e = time_to_minutes(end).unwrap_or(0);
-
-        // Gap before this appointment
-        if cursor + duration <= s {
-            return Ok(Some(minutes_to_time(cursor)));
-        }
-        // Move cursor past this appointment
-        if e > cursor {
-            cursor = e;
-        }
-    }
-
-    // Gap at the end of the day
-    if cursor + duration <= day_end {
-        return Ok(Some(minutes_to_time(cursor)));
-    }
-
-    // No slot found
-    Ok(None)
+    Ok(slot)
 }
 
 // ============================================================
@@ -215,14 +203,15 @@ pub async fn book_with_priority(
     patient_user_id: i64,
     form: &BookAppointmentForm,
 ) -> Result<Appointment, AppError> {
-    // Validation layer: date, slot grid, then the doctor's availability rules
-    parse_booking_date(&form.appointment_date)?;
+    // Validation layer: the form owns its date + slot-grid rules; the service
+    // still enforces the doctor's availability (a domain rule that needs the DB).
+    form.validate()?;
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
     ensure_doctor_available(
         pool, form.doctor_id, &form.appointment_date, &form.start_time, &form.end_time,
     ).await?;
 
-    let new_priority = Priority::from_i32(form.priority.unwrap_or(3));
+    let new_priority = form.requested_priority();
 
     // Triage rule lives on the Priority enum, not as a magic number here.
     if !new_priority.can_override() {
@@ -352,16 +341,16 @@ pub async fn book_appointment(
     patient_user_id: i64,
     form: &BookAppointmentForm,
 ) -> Result<Appointment, AppError> {
-    // Validation layer: date, slot grid, then the doctor's availability rules
-    parse_booking_date(&form.appointment_date)?;
-    let (_, _) = parse_slot(&form.start_time, &form.end_time)?;
+    // Validation layer: the form owns its date + slot-grid rules; the service
+    // still enforces the doctor's availability (a domain rule that needs the DB).
+    form.validate()?;
     ensure_doctor_available(
         pool, form.doctor_id, &form.appointment_date, &form.start_time, &form.end_time,
     ).await?;
 
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
-    let priority = form.priority.unwrap_or(3);
+    let priority = form.requested_priority() as i32;
 
     let has_conflict = check_conflict(
         pool, form.doctor_id, &form.appointment_date,
@@ -757,10 +746,10 @@ pub async fn get_appointment_by_id_checked(
     pool: &SqlitePool,
     appointment_id: i64,
     user_id: i64,
-    role: &str,
+    role: Role,
 ) -> Result<AppointmentView, AppError> {
     let appointment = get_appointment_by_id(pool, appointment_id).await?;
-    if role == "patient" {
+    if role == Role::Patient {
         let patient_id = db::get_patient_id(pool, user_id).await?;
         let owns: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
@@ -823,9 +812,9 @@ pub async fn cancel_appointment_checked(
     pool: &SqlitePool,
     appointment_id: i64,
     user_id: i64,
-    role: &str,
+    role: Role,
 ) -> Result<(), AppError> {
-    if role == "patient" {
+    if role == Role::Patient {
         let patient_id = crate::db::get_patient_id(pool, user_id).await?;
         let owns: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
@@ -849,13 +838,13 @@ pub async fn cancel_appointment_checked(
 /// Returns a map of "YYYY-MM-DD" → count for `[from, to]` inclusive.
 pub async fn get_appointment_counts_by_date(
     pool: &SqlitePool,
-    role: &str,
+    role: Role,
     user_id: i64,
     from: &str,
     to: &str,
 ) -> Result<std::collections::HashMap<String, usize>, AppError> {
     let rows: Vec<(String, i64)> = match role {
-        "patient" => {
+        Role::Patient => {
             sqlx::query_as(
                 "SELECT a.appointment_date, COUNT(*) FROM appointments a
                  JOIN patients p ON a.patient_id = p.id
@@ -863,7 +852,7 @@ pub async fn get_appointment_counts_by_date(
                  GROUP BY a.appointment_date",
             ).bind(user_id).bind(from).bind(to).fetch_all(pool).await?
         }
-        "doctor" => {
+        Role::Doctor => {
             sqlx::query_as(
                 "SELECT a.appointment_date, COUNT(*) FROM appointments a
                  JOIN doctors d ON a.doctor_id = d.id
@@ -871,7 +860,7 @@ pub async fn get_appointment_counts_by_date(
                  GROUP BY a.appointment_date",
             ).bind(user_id).bind(from).bind(to).fetch_all(pool).await?
         }
-        _ => {
+        Role::Admin => {
             sqlx::query_as(
                 "SELECT appointment_date, COUNT(*) FROM appointments
                  WHERE appointment_date >= ? AND appointment_date <= ? AND status != 'cancelled'
@@ -969,7 +958,7 @@ pub async fn reassign_appointment(
     pool: &SqlitePool,
     appointment_id: i64,
 ) -> Result<(Appointment, String), AppError> {
-    let appt = sqlx::query_as::<_, Appointment>(
+    let mut appt = sqlx::query_as::<_, Appointment>(
         "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
                 status, notes, created_at, room_id, priority
          FROM appointments WHERE id = ?",
@@ -978,12 +967,6 @@ pub async fn reassign_appointment(
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
-
-    if !appt.is_active() {
-        return Err(AppError::BadRequest(
-            "Only a scheduled appointment can be reassigned".into(),
-        ));
-    }
 
     let date_str = appt.appointment_date.format("%Y-%m-%d").to_string();
     let (new_doctor_id, new_doctor_name) = find_alternative_doctor(
@@ -999,27 +982,28 @@ pub async fn reassign_appointment(
 
     let (start_mins, end_mins) = parse_slot(&appt.start_time, &appt.end_time)?;
 
-    // Move the appointment and its occupancy slots atomically
-    let mut tx = pool.begin().await?;
-    let updated = sqlx::query_as::<_, Appointment>(
-        "UPDATE appointments SET doctor_id = ? WHERE id = ?
-         RETURNING id, patient_id, doctor_id, appointment_date, start_time, end_time,
-                   status, notes, created_at, room_id, priority",
-    )
-    .bind(new_doctor_id)
-    .bind(appt.id)
-    .fetch_one(&mut *tx)
-    .await?;
+    // Business rule + state change live on the Appointment itself (mirrors
+    // cancel()): only a scheduled appointment can be reassigned. The "only
+    // scheduled" guard and the doctor change no longer live as a raw SQL
+    // status/field write in this service layer.
+    appt.reassign_to(new_doctor_id)?;
 
+    // Persist the new doctor and move its occupancy slots atomically.
+    let mut tx = pool.begin().await?;
+    sqlx::query("UPDATE appointments SET doctor_id = ? WHERE id = ?")
+        .bind(appt.doctor_id)
+        .bind(appt.id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
         .bind(appt.id)
         .execute(&mut *tx)
         .await?;
-    insert_slots(&mut tx, appt.id, new_doctor_id, &date_str, start_mins, end_mins, appt.room_id)
+    insert_slots(&mut tx, appt.id, appt.doctor_id, &date_str, start_mins, end_mins, appt.room_id)
         .await?;
     tx.commit().await?;
 
-    Ok((updated, new_doctor_name))
+    Ok((appt, new_doctor_name))
 }
 
 // ============================================================
@@ -1031,7 +1015,7 @@ pub async fn reassign_appointment(
 
 /// Bookable 30-minute START times within clinic working hours (08:00–16:30).
 pub fn start_time_slots() -> Vec<String> {
-    (8 * 60..17 * 60)
+    (CLINIC_OPEN_MINUTES..CLINIC_CLOSE_MINUTES)
         .step_by(SLOT_MINUTES as usize)
         .map(minutes_to_time)
         .collect()
@@ -1039,7 +1023,7 @@ pub fn start_time_slots() -> Vec<String> {
 
 /// Valid END times (08:30–17:00) — one slot after the earliest start, up to close.
 pub fn end_time_slots() -> Vec<String> {
-    ((8 * 60 + SLOT_MINUTES)..=17 * 60)
+    ((CLINIC_OPEN_MINUTES + SLOT_MINUTES)..=CLINIC_CLOSE_MINUTES)
         .step_by(SLOT_MINUTES as usize)
         .map(minutes_to_time)
         .collect()

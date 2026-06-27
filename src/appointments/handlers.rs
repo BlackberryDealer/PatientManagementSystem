@@ -244,7 +244,7 @@ pub async fn calendar_view(
     let mut calendar = CalendarMonth::new(year, month)?;
     let (from_date, to_date) = calendar.date_range();
     let counts = services::get_appointment_counts_by_date(
-        pool.get_ref(), user.role.as_str(), user.user_id, &from_date, &to_date,
+        pool.get_ref(), user.role, user.user_id, &from_date, &to_date,
     ).await?;
     calendar.build_grid(today, &counts);
 
@@ -280,7 +280,7 @@ pub async fn appointment_detail(
     let appointment_id = path.into_inner();
     // Ownership enforced in the service: patients see only their own appointments.
     let appointment = services::get_appointment_by_id_checked(
-        pool.get_ref(), appointment_id, user.user_id, user.role.as_str(),
+        pool.get_ref(), appointment_id, user.user_id, user.role,
     ).await?;
 
     let mut ctx = Context::new();
@@ -302,7 +302,7 @@ pub async fn cancel_appointment(
 ) -> Result<HttpResponse, AppError> {
     let appointment_id = path.into_inner();
     services::cancel_appointment_checked(
-        pool.get_ref(), appointment_id, user.user_id, user.role.as_str(),
+        pool.get_ref(), appointment_id, user.user_id, user.role,
     ).await?;
     audit::record(
         pool.get_ref(), &user, "appointment.cancelled", "appointment", Some(appointment_id), "",

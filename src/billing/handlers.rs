@@ -76,7 +76,7 @@ pub async fn invoice_detail(
     let invoice_id = path.into_inner();
     // Ownership rule (patients see only their own) lives in the service layer
     let invoice =
-        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, user.role.as_str())
+        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, user.role)
             .await?;
 
     let items = services::get_invoice_items(pool.get_ref(), invoice_id).await?;
@@ -105,7 +105,7 @@ pub async fn record_payment(
 
     if user.role == Role::Patient {
         // Ownership rule enforced by the service layer
-        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, user.role.as_str())
+        services::get_invoice_checked(pool.get_ref(), invoice_id, user.user_id, user.role)
             .await?;
     } else {
         require_admin(&user)?;
