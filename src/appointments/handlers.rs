@@ -69,7 +69,7 @@ pub async fn book_appointment(
         pool.get_ref(), &user, "appointment.booked", "appointment", Some(appointment.id),
         &format!("{} {}–{} with doctor #{}",
             appointment.appointment_date, appointment.start_time,
-            appointment.end_time, appointment.doctor_id),
+            appointment.end_time, appointment.doctor_id()),
     ).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))

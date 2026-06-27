@@ -1,6 +1,12 @@
+use crate::auth::Role;
 use crate::errors::AppError;
 use crate::users::models::{CreateStaffForm, Doctor, LoginForm, Patient, RegisterForm, User};
 use sqlx::SqlitePool;
+
+/// bcrypt work factor for all password hashing and verification. Single source
+/// of truth so registration, staff creation, and the login dummy-verify all
+/// spend the same amount of CPU (see `authenticate_user`).
+const BCRYPT_COST: u32 = 10;
 
 // ============================================================
 // Registration & Authentication
@@ -16,7 +22,12 @@ pub async fn register_user(
     // Validation first — nothing is hashed or persisted until this passes
     form.validate()?;
 
-    let password_hash = bcrypt::hash(&form.password, 10)?;
+    let password_hash = bcrypt::hash(&form.password, BCRYPT_COST)?;
+
+    // The user row and its role profile row must be created together — a user
+    // with no matching patient/doctor row is an orphan that breaks later
+    // id-lookups. Both inserts commit atomically (like invoice header + items).
+    let mut tx = pool.begin().await?;
 
     let user = sqlx::query_as::<_, User>(
         "INSERT INTO users (username, email, password_hash, role, full_name)
@@ -28,7 +39,7 @@ pub async fn register_user(
     .bind(&password_hash)
     .bind(&form.role)
     .bind(&form.full_name)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
         // A duplicate username/email is a user mistake (400), not a server fault
@@ -40,7 +51,7 @@ pub async fn register_user(
         "patient" => {
             sqlx::query("INSERT INTO patients (user_id) VALUES (?)")
                 .bind(user.id)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await?;
         }
         "doctor" => {
@@ -48,14 +59,15 @@ pub async fn register_user(
                 "INSERT INTO doctors (user_id, specialization, license_number) VALUES (?, ?, ?)",
             )
             .bind(user.id)
-            .bind("General Practice") // default, can be updated later
-            .bind("PENDING")
-            .execute(pool)
+            .bind(Doctor::DEFAULT_SPECIALIZATION) // can be updated later
+            .bind(Doctor::DEFAULT_LICENSE)
+            .execute(&mut *tx)
             .await?;
         }
         _ => { /* admin has no extra profile table */ }
     }
 
+    tx.commit().await?;
     Ok(user)
 }
 
@@ -69,7 +81,11 @@ pub async fn create_staff_user(
 ) -> Result<User, AppError> {
     form.validate()?;
 
-    let password_hash = bcrypt::hash(&form.password, 10)?;
+    let password_hash = bcrypt::hash(&form.password, BCRYPT_COST)?;
+
+    // User row + doctor profile commit atomically, so a failed profile insert
+    // can never leave an orphaned staff account behind.
+    let mut tx = pool.begin().await?;
 
     let user = sqlx::query_as::<_, User>(
         "INSERT INTO users (username, email, password_hash, role, full_name)
@@ -81,7 +97,7 @@ pub async fn create_staff_user(
     .bind(&password_hash)
     .bind(&form.role)
     .bind(&form.full_name)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| AppError::bad_request_on_unique(e, "That username or email is already taken."))?;
 
@@ -91,21 +107,22 @@ pub async fn create_staff_user(
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .unwrap_or("General Practice");
+            .unwrap_or(Doctor::DEFAULT_SPECIALIZATION);
         let license = form
             .license_number
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .unwrap_or("PENDING");
+            .unwrap_or(Doctor::DEFAULT_LICENSE);
         sqlx::query("INSERT INTO doctors (user_id, specialization, license_number) VALUES (?, ?, ?)")
             .bind(user.id)
             .bind(specialization)
             .bind(license)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
     }
 
+    tx.commit().await?;
     Ok(user)
 }
 
@@ -115,6 +132,9 @@ pub async fn authenticate_user(
     pool: &SqlitePool,
     form: &LoginForm,
 ) -> Result<User, AppError> {
+    // Validation first — empty credentials never reach the database
+    form.validate()?;
+
     let user = sqlx::query_as::<_, User>(
         "SELECT * FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)",
     )
@@ -125,9 +145,19 @@ pub async fn authenticate_user(
 
     match user {
         Some(u) if bcrypt::verify(&form.password, &u.password_hash)? => Ok(u),
-        _ => Err(AppError::Unauthorized(
+        Some(_) => Err(AppError::Unauthorized(
             "Invalid username/email or password".into(),
         )),
+        None => {
+            // Burn a comparable bcrypt workload even when no account matched, so
+            // the response time can't reveal whether a username/email exists
+            // (defeats account enumeration via timing). Same cost as a real
+            // verify of a stored hash.
+            let _ = bcrypt::hash(&form.password, BCRYPT_COST);
+            Err(AppError::Unauthorized(
+                "Invalid username/email or password".into(),
+            ))
+        }
     }
 }
 
@@ -193,14 +223,16 @@ pub async fn update_profile(
     // the form's own rules pass (Route -> Validation -> DB).
     form.validate()?;
     let user = update_user(pool, user_id, form).await?;
-    match user.role.as_str() {
-        "patient" => {
+    // Typed role match (exhaustive, no stringly-typed arms): which extension
+    // row a role implies is a domain decision and belongs here.
+    match user.role() {
+        Role::Patient => {
             update_patient(pool, user_id, form).await?;
         }
-        "doctor" => {
+        Role::Doctor => {
             update_doctor(pool, user_id, form).await?;
         }
-        _ => {} // admin has no extension row
+        Role::Admin => {} // admin has no extension row
     }
     Ok(())
 }
@@ -223,6 +255,18 @@ pub async fn update_user(
     .ok_or_else(|| AppError::NotFound("User not found".into()))
 }
 
+/// Trim-to-None: an absent, empty, or whitespace-only optional field becomes
+/// `None`, so the database stores a proper NULL instead of "". One helper for
+/// every nullable profile column, replacing the per-field `as_deref().filter()`
+/// boilerplate.
+fn non_empty(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 /// Update or insert patient-specific fields.
 pub async fn update_patient(
     pool: &SqlitePool,
@@ -234,11 +278,11 @@ pub async fn update_patient(
         .fetch_optional(pool)
         .await?;
 
-    let date_of_birth = form.date_of_birth.as_deref().filter(|s| !s.is_empty()).map(|s| s.to_string());
-    let phone = form.phone.as_deref().filter(|s| !s.is_empty()).map(|s| s.to_string());
-    let address = form.address.as_deref().filter(|s| !s.is_empty()).map(|s| s.to_string());
-    let blood_group = form.blood_group.as_deref().filter(|s| !s.is_empty()).map(|s| s.to_string());
-    let emergency_contact = form.emergency_contact.as_deref().filter(|s| !s.is_empty()).map(|s| s.to_string());
+    let date_of_birth = non_empty(&form.date_of_birth);
+    let phone = non_empty(&form.phone);
+    let address = non_empty(&form.address);
+    let blood_group = non_empty(&form.blood_group);
+    let emergency_contact = non_empty(&form.emergency_contact);
 
     if let Some((pid,)) = patient {
         let _ = pid;
@@ -274,9 +318,9 @@ pub async fn update_doctor(
         .fetch_optional(pool)
         .await?;
 
-    let specialization = form.specialization.as_deref().filter(|s| !s.is_empty()).unwrap_or("General Practice");
-    let license_number = form.license_number.as_deref().filter(|s| !s.is_empty()).unwrap_or("PENDING");
-    let phone = form.phone.as_deref().filter(|s| !s.is_empty()).map(|s| s.to_string());
+    let specialization = form.specialization.as_deref().filter(|s| !s.is_empty()).unwrap_or(Doctor::DEFAULT_SPECIALIZATION);
+    let license_number = form.license_number.as_deref().filter(|s| !s.is_empty()).unwrap_or(Doctor::DEFAULT_LICENSE);
+    let phone = non_empty(&form.phone);
 
     if let Some((did,)) = doctor {
         let _ = did;

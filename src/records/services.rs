@@ -20,16 +20,8 @@ pub async fn create_record(
 
     let doctor_id = db::get_doctor_id(pool, doctor_user_id).await?;
 
-    // The target patient must exist (clean 400 instead of an FK error),
-    // mirroring the precondition guard in `create_prescription`.
-    let patient_exists: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM patients WHERE id = ?")
-            .bind(form.patient_id)
-            .fetch_one(pool)
-            .await?;
-    if patient_exists.0 == 0 {
-        return Err(AppError::BadRequest("Selected patient does not exist".into()));
-    }
+    // The target patient must exist (clean 400 instead of an FK error).
+    db::ensure_patient_exists(pool, form.patient_id).await?;
 
     Ok(sqlx::query_as::<_, MedicalRecord>(
         "INSERT INTO medical_records (patient_id, doctor_id, appointment_id, diagnosis, treatment, notes)
@@ -139,15 +131,8 @@ pub async fn create_prescription(
 
     let doctor_id = db::get_doctor_id(pool, doctor_user_id).await?;
 
-    // The target patient must exist (clean 400 instead of an FK error)
-    let patient_exists: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM patients WHERE id = ?")
-            .bind(form.patient_id)
-            .fetch_one(pool)
-            .await?;
-    if patient_exists.0 == 0 {
-        return Err(AppError::BadRequest("Selected patient does not exist".into()));
-    }
+    // The target patient must exist (clean 400 instead of an FK error).
+    db::ensure_patient_exists(pool, form.patient_id).await?;
 
     Ok(sqlx::query_as::<_, Prescription>(
         "INSERT INTO prescriptions
@@ -226,9 +211,9 @@ pub async fn build_patient_timeline(
 
     for appt in appointments {
         let doctor = doctor_names
-            .get(&appt.doctor_id)
+            .get(&appt.doctor_id())
             .cloned()
-            .unwrap_or_else(|| format!("Doctor #{}", appt.doctor_id));
+            .unwrap_or_else(|| format!("Doctor #{}", appt.doctor_id()));
         events.push(TimelineEvent {
             event_type: "appointment".into(),
             icon: "fa-calendar-check".into(),

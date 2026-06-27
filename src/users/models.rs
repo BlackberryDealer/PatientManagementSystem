@@ -16,6 +16,16 @@ pub struct User {
     pub created_at: chrono::NaiveDateTime,
 }
 
+impl User {
+    /// The user's role as the typed `Role` enum rather than the raw stored
+    /// string, so callers get an exhaustive match instead of stringly-typed
+    /// comparisons. An unrecognised value falls back to the least-privileged
+    /// role (see `Role::from_session`).
+    pub fn role(&self) -> crate::auth::Role {
+        crate::auth::Role::from_session(&self.role)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RegisterForm {
     pub username: String,
@@ -66,6 +76,22 @@ impl RegisterForm {
 pub struct LoginForm {
     pub login: String,    // username or email
     pub password: String,
+}
+
+impl LoginForm {
+    /// Reject obviously empty credentials before the database lookup, so the
+    /// login path follows the same Route -> Validation -> DB shape as every
+    /// other form. The message is intentionally identical to an
+    /// authentication failure so an empty field leaks nothing about which
+    /// half was missing.
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        if self.login.trim().is_empty() || self.password.is_empty() {
+            return Err(crate::errors::AppError::Unauthorized(
+                "Invalid username/email or password".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Form an administrator uses to create a staff (doctor/admin) account — the
@@ -176,4 +202,15 @@ pub struct Doctor {
     pub specialization: String,
     pub license_number: String,
     pub phone: Option<String>,
+}
+
+impl Doctor {
+    /// Default specialization for a newly-provisioned doctor whose profile
+    /// hasn't been filled in yet. Single source of truth for the value that
+    /// was previously hard-coded across the registration/staff-creation/
+    /// profile-update paths.
+    pub const DEFAULT_SPECIALIZATION: &'static str = "General Practice";
+
+    /// Default licence-number placeholder until an admin records the real one.
+    pub const DEFAULT_LICENSE: &'static str = "PENDING";
 }

@@ -129,7 +129,7 @@ async fn test_reassignment_moves_to_free_doctor() {
         .unwrap();
 
     let (updated, new_doctor) = appt::reassign_appointment(&pool, appt_row.id).await.unwrap();
-    assert_eq!(updated.doctor_id, 2, "appointment should move to the alternative doctor");
+    assert_eq!(updated.doctor_id(), 2, "appointment should move to the alternative doctor");
     assert_eq!(new_doctor, "Dr rad2");
 
     // Occupancy slots must follow the appointment to the new doctor

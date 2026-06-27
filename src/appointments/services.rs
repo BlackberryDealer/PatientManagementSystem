@@ -145,12 +145,16 @@ pub(crate) struct PriorityItem {
     created_at: chrono::NaiveDateTime,
 }
 
-// BinaryHeap is a max-heap; we want the most urgent (lowest priority number)
-// to come out first, so we reverse the comparison.
+// BinaryHeap is a max-heap; `pop` yields the GREATEST element. We want the
+// most urgent (lowest priority number), then the oldest, to pop first — so the
+// winner must compare as the greatest. BOTH keys are reversed to achieve that:
+// a smaller priority number and an earlier created_at each make an item
+// "greater". (Reversing only the priority, as before, made `into_sorted_vec`
+// surface the LEAST urgent entry first — the auto-promotion bug.)
 impl Ord for PriorityItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.priority.cmp(&self.priority) // reversed: lower priority # wins
-            .then_with(|| self.created_at.cmp(&other.created_at)) // tie-break: oldest first
+        other.priority.cmp(&self.priority) // lower priority # = more urgent = greater
+            .then_with(|| other.created_at.cmp(&self.created_at)) // older = greater (pops first)
     }
 }
 impl PartialOrd for PriorityItem {
@@ -252,11 +256,24 @@ pub async fn book_with_priority(
     .fetch_all(pool)
     .await?;
 
-    // Verify new appointment has higher priority than ALL conflicting ones.
-    // Lower enum discriminant = more urgent; derived Ord makes `<` correct.
+    // `check_conflict` counts any non-cancelled appointment, but only a
+    // *scheduled* one can be bumped. If the overlap is entirely with a
+    // completed appointment, there is nothing to bump — say so clearly instead
+    // of falling through to a confusing slot-collision error on insert.
+    if conflicts.is_empty() {
+        return Err(AppError::BadRequest(
+            "This time slot is occupied by a completed appointment and cannot be overridden.\
+             \nPlease choose a different time."
+                .into(),
+        ));
+    }
+
+    // Verify new appointment outranks ALL conflicting ones. The triage
+    // precedence rule lives on the Priority type (outranks), not as an
+    // inline comparison here.
     let can_bump = conflicts
         .iter()
-        .all(|(_, pri, _, _, _)| new_priority < Priority::from_i32(*pri));
+        .all(|(_, pri, _, _, _)| new_priority.outranks(Priority::from_i32(*pri)));
 
     if !can_bump {
         return Err(AppError::BadRequest(
@@ -271,17 +288,7 @@ pub async fn book_with_priority(
 
     for (conflict_id, _, _, _, c_notes) in &conflicts {
         // Move the bumped appointment to the waitlist...
-        sqlx::query(
-            "INSERT INTO waitlist (patient_id, doctor_id, room_id, appointment_date,
-             requested_start, requested_end, priority, notes, status)
-             SELECT patient_id, doctor_id, room_id, appointment_date,
-                    start_time, end_time, priority, ?, 'waiting'
-             FROM appointments WHERE id = ?",
-        )
-        .bind(c_notes)
-        .bind(conflict_id)
-        .execute(&mut *tx)
-        .await?;
+        bump_to_waitlist(&mut tx, *conflict_id, c_notes).await?;
 
         // ...cancel it through the domain method so the "only a scheduled
         // appointment may be cancelled" rule lives in exactly one place
@@ -383,6 +390,29 @@ fn map_slot_conflict(e: sqlx::Error) -> AppError {
         }
     }
     AppError::DatabaseError(e)
+}
+
+/// Copy a bumped appointment onto the waitlist (preserving its slot, room, and
+/// priority, with an overridden `notes`) inside the booking transaction. Used
+/// when a higher-priority booking overrides lower-priority ones, so the
+/// displaced patients keep their place in the queue.
+async fn bump_to_waitlist(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    appointment_id: i64,
+    notes: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO waitlist (patient_id, doctor_id, room_id, appointment_date,
+         requested_start, requested_end, priority, notes, status)
+         SELECT patient_id, doctor_id, room_id, appointment_date,
+                start_time, end_time, priority, ?, 'waiting'
+         FROM appointments WHERE id = ?",
+    )
+    .bind(notes)
+    .bind(appointment_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 /// Write one occupancy row per 30-minute slot in `[start_mins, end_mins)`
@@ -569,9 +599,11 @@ pub async fn auto_promote_waitlist(
     doctor_id: i64,
     appointment_date: &str,
 ) -> Result<Option<Appointment>, AppError> {
-    let heap = build_priority_queue(pool, doctor_id, appointment_date).await?;
+    let mut heap = build_priority_queue(pool, doctor_id, appointment_date).await?;
 
-    for item in heap.into_sorted_vec() {
+    // `pop` drains the queue most-urgent-first (oldest first on ties), so the
+    // most urgent eligible patient claims the freed slot.
+    while let Some(item) = heap.pop() {
         let entry = sqlx::query_as::<_, WaitlistEntry>(
             "SELECT * FROM waitlist WHERE id = ? AND status = 'waiting'",
         )
@@ -800,7 +832,7 @@ pub async fn cancel_appointment(pool: &SqlitePool, appointment_id: i64) -> Resul
 
     // Auto-promote the most urgent waitlist entry for the freed slot
     let date_str = appt.appointment_date.format("%Y-%m-%d").to_string();
-    let _ = auto_promote_waitlist(pool, appt.doctor_id, &date_str).await;
+    let _ = auto_promote_waitlist(pool, appt.doctor_id(), &date_str).await;
 
     Ok(())
 }
@@ -969,7 +1001,7 @@ pub async fn reassign_appointment(
 
     let date_str = appt.appointment_date.format("%Y-%m-%d").to_string();
     let (new_doctor_id, new_doctor_name) = find_alternative_doctor(
-        pool, appt.doctor_id, &date_str, &appt.start_time, &appt.end_time, appt.room_id,
+        pool, appt.doctor_id(), &date_str, &appt.start_time, &appt.end_time, appt.room_id,
     )
     .await?
     .ok_or_else(|| {
@@ -990,7 +1022,7 @@ pub async fn reassign_appointment(
     // Persist the new doctor and move its occupancy slots atomically.
     let mut tx = pool.begin().await?;
     sqlx::query("UPDATE appointments SET doctor_id = ? WHERE id = ?")
-        .bind(appt.doctor_id)
+        .bind(appt.doctor_id())
         .bind(appt.id)
         .execute(&mut *tx)
         .await?;
@@ -998,7 +1030,7 @@ pub async fn reassign_appointment(
         .bind(appt.id)
         .execute(&mut *tx)
         .await?;
-    insert_slots(&mut tx, appt.id, appt.doctor_id, &date_str, start_mins, end_mins, appt.room_id)
+    insert_slots(&mut tx, appt.id, appt.doctor_id(), &date_str, start_mins, end_mins, appt.room_id)
         .await?;
     tx.commit().await?;
 

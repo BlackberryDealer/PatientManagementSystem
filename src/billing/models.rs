@@ -5,6 +5,29 @@ use serde::{Deserialize, Serialize};
 // Invoice
 // ============================================================
 
+/// Lifecycle status of an invoice. Stored as TEXT; both sqlx and serde render
+/// the variants lowercase to match the DB CHECK values and the template
+/// comparisons (`invoice.status == 'paid'`). Typed, so the badge match is
+/// exhaustive and an invalid status is unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum InvoiceStatus {
+    Pending,
+    Paid,
+    Cancelled,
+}
+
+impl InvoiceStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            InvoiceStatus::Pending => "pending",
+            InvoiceStatus::Paid => "paid",
+            InvoiceStatus::Cancelled => "cancelled",
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Invoice {
     pub id: i64,
@@ -12,7 +35,7 @@ pub struct Invoice {
     pub invoice_date: chrono::NaiveDate,
     pub due_date: chrono::NaiveDate,
     pub total_amount: f64,
-    status: String, // pending | paid | cancelled
+    status: InvoiceStatus, // pending | paid | cancelled
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -134,16 +157,15 @@ impl RecordPaymentForm {
 // ============================================================
 
 impl StatusManaged for Invoice {
-    fn current_status(&self) -> &str { &self.status }
+    fn current_status(&self) -> &str { self.status.as_str() }
 
-    fn is_active(&self) -> bool { self.status == "pending" }
+    fn is_active(&self) -> bool { self.status == InvoiceStatus::Pending }
 
     fn status_badge_class(&self) -> &str {
-        match self.status.as_str() {
-            "pending"   => "is-warning",
-            "paid"      => "is-success",
-            "cancelled" => "is-danger",
-            _           => "is-light",
+        match self.status {
+            InvoiceStatus::Pending   => "is-warning",
+            InvoiceStatus::Paid      => "is-success",
+            InvoiceStatus::Cancelled => "is-danger",
         }
     }
 }
@@ -152,7 +174,7 @@ impl Reportable for Invoice {
     fn generate_summary(&self) -> String {
         format!(
             "Invoice #{} | Due: {} | Total: £{:.2} | Status: {}",
-            self.id, self.due_date, self.total_amount, self.status
+            self.id, self.due_date, self.total_amount, self.current_status()
         )
     }
 }
@@ -182,13 +204,15 @@ impl Invoice {
                 "Only a pending invoice can be marked paid".into(),
             ));
         }
-        self.status = "paid".to_string();
+        self.status = InvoiceStatus::Paid;
         Ok(())
     }
 }
 
-/// Joined view: invoice with patient name for display.
-#[derive(Debug, Serialize)]
+/// Joined view: invoice with patient name for display. Column aliases in
+/// `INVOICE_VIEW_SELECT` match these field names, so rows deserialize directly
+/// via `FromRow` (no manual tuple mapping).
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct InvoiceView {
     pub id: i64,
     pub patient_name: String,
@@ -196,4 +220,19 @@ pub struct InvoiceView {
     pub due_date: chrono::NaiveDate,
     pub total_amount: f64,
     pub status: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InvoiceStatus;
+
+    // The billing templates compare `invoice.status == 'paid'` / `'pending'`,
+    // so the serde representation must stay lowercase and equal `as_str()`.
+    #[test]
+    fn invoice_status_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&InvoiceStatus::Pending).unwrap(), "\"pending\"");
+        assert_eq!(serde_json::to_string(&InvoiceStatus::Paid).unwrap(), "\"paid\"");
+        assert_eq!(serde_json::to_string(&InvoiceStatus::Cancelled).unwrap(), "\"cancelled\"");
+        assert_eq!(InvoiceStatus::Paid.as_str(), "paid");
+    }
 }

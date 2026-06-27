@@ -46,3 +46,17 @@ pub async fn get_doctor_id(pool: &SqlitePool, user_id: i64) -> Result<i64, AppEr
         .map(|(id,)| id)
         .ok_or_else(|| AppError::NotFound("Doctor profile not found".into()))
 }
+
+/// Reject a `patient_id` that doesn't exist, as a clean 400 instead of letting
+/// it surface later as a foreign-key failure. Shared by the record- and
+/// prescription-creation paths, which both reference a patient by row ID.
+pub async fn ensure_patient_exists(pool: &SqlitePool, patient_id: i64) -> Result<(), AppError> {
+    let exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM patients WHERE id = ?")
+        .bind(patient_id)
+        .fetch_one(pool)
+        .await?;
+    if exists.0 == 0 {
+        return Err(AppError::BadRequest("Selected patient does not exist".into()));
+    }
+    Ok(())
+}

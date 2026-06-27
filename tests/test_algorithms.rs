@@ -1,7 +1,6 @@
 ﻿//! Unit tests for the three scheduling algorithms.
 mod common;
 use common::*;
-use actix_web::test;
 use patient_management_system::appointments::models::{
     BookAppointmentForm, SuggestSlotForm, WaitlistForm,
 };
@@ -157,6 +156,57 @@ async fn test_cancel_triggers_waitlist_promotion() {
 
     // Verify the slot is booked again (for the waitlisted patient)
     assert!(services::check_conflict(&pool, 1, "2027-06-10", "10:00", "10:30", None, None).await.unwrap());
+}
+
+#[actix_web::test]
+async fn test_auto_promotion_picks_most_urgent_first() {
+    // Two patients are waitlisted for the SAME slot at different priorities.
+    // When the slot frees up, the MORE urgent one (priority 1) must win — even
+    // though the normal-priority patient joined the waitlist earlier. This is
+    // the priority-queue ordering that Algorithm 3 exists to guarantee.
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "apbooker").await;   // currently holds the slot
+    seed_patient(&pool, 3, "apnormal").await;   // waitlist, priority 3 (older)
+    seed_patient(&pool, 5, "apurgent").await;   // waitlist, priority 1 (newer)
+    seed_doctor(&pool, 2, "apdoc").await;
+
+    let booked = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-08-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    // Normal-priority patient joins first (older entry)...
+    services::add_to_waitlist(&pool, 3, &WaitlistForm {
+        doctor_id: 1, appointment_date: "2027-08-01".into(),
+        requested_start: "10:00".into(), requested_end: "10:30".into(),
+        priority: 3, room_id: None, notes: None,
+    }).await.unwrap();
+    // ...then the emergency patient joins (newer, but more urgent).
+    services::add_to_waitlist(&pool, 5, &WaitlistForm {
+        doctor_id: 1, appointment_date: "2027-08-01".into(),
+        requested_start: "10:00".into(), requested_end: "10:30".into(),
+        priority: 1, room_id: None, notes: None,
+    }).await.unwrap();
+
+    // Cancelling frees the slot and auto-promotes exactly one waitlist entry.
+    services::cancel_appointment(&pool, booked.id).await.unwrap();
+
+    // The freed slot must now belong to the emergency (priority-1) patient.
+    let urgent_patient_id =
+        patient_management_system::db::get_patient_id(&pool, 5).await.unwrap();
+    let holder: (i64,) = sqlx::query_as(
+        "SELECT patient_id FROM appointments
+         WHERE doctor_id = 1 AND appointment_date = '2027-08-01'
+           AND start_time = '10:00' AND status = 'scheduled'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        holder.0, urgent_patient_id,
+        "auto-promotion must give the freed slot to the most urgent waitlisted patient"
+    );
 }
 
 #[actix_web::test]

@@ -5,6 +5,17 @@ use crate::errors::AppError;
 use crate::traits::StatusManaged;
 use sqlx::SqlitePool;
 
+/// Shared SELECT for the joined invoice view. Each query appends its own
+/// `WHERE` / `ORDER BY`. Columns are aliased to match `InvoiceView` field names
+/// so rows deserialize directly via `FromRow`. Only static SQL is interpolated;
+/// all user values are bound as parameters.
+const INVOICE_VIEW_SELECT: &str = "\
+    SELECT i.id, u.full_name AS patient_name, i.invoice_date, i.due_date,
+           i.total_amount, i.status
+    FROM invoices i
+    JOIN patients p ON i.patient_id = p.id
+    JOIN users u ON p.user_id = u.id";
+
 // ============================================================
 // Invoice CRUD
 // ============================================================
@@ -57,22 +68,11 @@ pub async fn create_invoice(
 
 /// Get all invoices (admin view) with patient names.
 pub async fn get_all_invoices(pool: &SqlitePool) -> Result<Vec<InvoiceView>, AppError> {
-    let rows = sqlx::query_as::<_, (i64, String, chrono::NaiveDate, chrono::NaiveDate, f64, String)>(
-        "SELECT i.id, u.full_name AS patient_name, i.invoice_date, i.due_date, i.total_amount, i.status
-         FROM invoices i
-         JOIN patients p ON i.patient_id = p.id
-         JOIN users u ON p.user_id = u.id
-         ORDER BY i.invoice_date DESC",
-    )
+    Ok(sqlx::query_as::<_, InvoiceView>(&format!(
+        "{INVOICE_VIEW_SELECT} ORDER BY i.invoice_date DESC"
+    ))
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|(id, patient_name, invoice_date, due_date, total_amount, status)| {
-            InvoiceView { id, patient_name, invoice_date, due_date, total_amount, status }
-        })
-        .collect())
+    .await?)
 }
 
 /// Get invoices for a specific patient.
@@ -82,24 +82,12 @@ pub async fn get_invoices_for_patient(
 ) -> Result<Vec<InvoiceView>, AppError> {
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
-    let rows = sqlx::query_as::<_, (i64, String, chrono::NaiveDate, chrono::NaiveDate, f64, String)>(
-        "SELECT i.id, u.full_name AS patient_name, i.invoice_date, i.due_date, i.total_amount, i.status
-         FROM invoices i
-         JOIN patients p ON i.patient_id = p.id
-         JOIN users u ON p.user_id = u.id
-         WHERE i.patient_id = ?
-         ORDER BY i.invoice_date DESC",
-    )
+    Ok(sqlx::query_as::<_, InvoiceView>(&format!(
+        "{INVOICE_VIEW_SELECT} WHERE i.patient_id = ? ORDER BY i.invoice_date DESC"
+    ))
     .bind(patient_id)
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|(id, patient_name, invoice_date, due_date, total_amount, status)| {
-            InvoiceView { id, patient_name, invoice_date, due_date, total_amount, status }
-        })
-        .collect())
+    .await?)
 }
 
 /// Get a single invoice by ID.

@@ -2,6 +2,58 @@ use crate::traits::{Prioritized, Reportable, StatusManaged, TimeSlotted};
 use serde::{Deserialize, Serialize};
 
 // ============================================================
+// Lifecycle status enums (typed, not stringly-typed)
+// ============================================================
+// Stored as TEXT and compared by the Tera templates as lowercase strings, so
+// both sqlx (`FromRow`/binding) and serde render the variants in lowercase.
+// Using enums instead of `String` makes illegal states unrepresentable and lets
+// every `match` on status be exhaustive (no catch-all arm).
+
+/// Lifecycle status of an appointment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum AppointmentStatus {
+    Scheduled,
+    Completed,
+    Cancelled,
+}
+
+impl AppointmentStatus {
+    /// Canonical lowercase string — matches the DB CHECK values and the strings
+    /// the templates compare against.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AppointmentStatus::Scheduled => "scheduled",
+            AppointmentStatus::Completed => "completed",
+            AppointmentStatus::Cancelled => "cancelled",
+        }
+    }
+}
+
+/// Lifecycle status of a waitlist entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum WaitlistStatus {
+    Waiting,
+    Offered,
+    Accepted,
+    Expired,
+}
+
+impl WaitlistStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WaitlistStatus::Waiting => "waiting",
+            WaitlistStatus::Offered => "offered",
+            WaitlistStatus::Accepted => "accepted",
+            WaitlistStatus::Expired => "expired",
+        }
+    }
+}
+
+// ============================================================
 // Priority Levels (lower number = higher priority)
 // ============================================================
 
@@ -49,6 +101,14 @@ impl Priority {
     pub fn can_override(&self) -> bool {
         matches!(self, Priority::Emergency | Priority::Urgent)
     }
+
+    /// Triage precedence: may a case at *this* priority bump one currently
+    /// holding the slot at `occupant`? Only when strictly more urgent (lower
+    /// number). Keeps the pairwise comparison rule on the domain type, next
+    /// to `can_override`, instead of an inline `<` in the service layer.
+    pub fn outranks(&self, occupant: Priority) -> bool {
+        (*self as i32) < (occupant as i32)
+    }
 }
 
 // ============================================================
@@ -73,11 +133,11 @@ pub struct Room {
 pub struct Appointment {
     pub id: i64,
     pub patient_id: i64,
-    pub doctor_id: i64,
+    doctor_id: i64,            // private: only reassign_to() may change it
     pub appointment_date: chrono::NaiveDate,
     pub start_time: String,    // HH:MM
     pub end_time: String,      // HH:MM
-    status: String,            // scheduled | completed | cancelled
+    status: AppointmentStatus, // scheduled | completed | cancelled
     pub notes: Option<String>,
     pub created_at: chrono::NaiveDateTime,
     pub room_id: Option<i64>,
@@ -85,6 +145,12 @@ pub struct Appointment {
 }
 
 impl Appointment {
+    /// Read-only accessor for the assigned doctor (sibling of
+    /// `current_status`). The field is private so the only way to change it
+    /// is `reassign_to`, which enforces the "only a scheduled appointment may
+    /// be reassigned" rule — no caller can corrupt the assignment by hand.
+    pub fn doctor_id(&self) -> i64 { self.doctor_id }
+
     /// Cancel this appointment.
     ///
     /// Domain rule: only an active (scheduled) appointment may be cancelled —
@@ -97,7 +163,7 @@ impl Appointment {
                 "Appointment is already cancelled or completed".into(),
             ));
         }
-        self.status = "cancelled".to_string();
+        self.status = AppointmentStatus::Cancelled;
         Ok(())
     }
 
@@ -254,7 +320,7 @@ pub struct WaitlistEntry {
     pub requested_end: String,
     pub priority: i32,
     pub notes: Option<String>,
-    status: String,            // waiting | offered | accepted | expired
+    status: WaitlistStatus,    // waiting | offered | accepted | expired
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -264,12 +330,12 @@ impl WaitlistEntry {
     /// Domain rule: only an entry still in the `waiting` state can be
     /// accepted; offered/accepted/expired entries are final.
     pub fn accept(&mut self) -> Result<(), crate::errors::AppError> {
-        if self.status != "waiting" {
+        if self.status != WaitlistStatus::Waiting {
             return Err(crate::errors::AppError::BadRequest(
                 "Only a waiting entry can be promoted".into(),
             ));
         }
-        self.status = "accepted".to_string();
+        self.status = WaitlistStatus::Accepted;
         Ok(())
     }
 }
@@ -315,16 +381,15 @@ impl TimeSlotted for Appointment {
 }
 
 impl StatusManaged for Appointment {
-    fn current_status(&self) -> &str { &self.status }
+    fn current_status(&self) -> &str { self.status.as_str() }
 
-    fn is_active(&self) -> bool { self.status == "scheduled" }
+    fn is_active(&self) -> bool { self.status == AppointmentStatus::Scheduled }
 
     fn status_badge_class(&self) -> &str {
-        match self.status.as_str() {
-            "scheduled" => "is-info",
-            "completed" => "is-success",
-            "cancelled" => "is-danger",
-            _           => "is-light",
+        match self.status {
+            AppointmentStatus::Scheduled => "is-info",
+            AppointmentStatus::Completed => "is-success",
+            AppointmentStatus::Cancelled => "is-danger",
         }
     }
 }
@@ -347,7 +412,7 @@ impl Reportable for Appointment {
         format!(
             "Appointment on {} from {}–{} | Status: {} | Priority: {}",
             self.appointment_date, self.start_time, self.end_time,
-            self.status, self.priority_label()
+            self.current_status(), self.priority_label()
         )
     }
 }
@@ -358,17 +423,16 @@ impl TimeSlotted for WaitlistEntry {
 }
 
 impl StatusManaged for WaitlistEntry {
-    fn current_status(&self) -> &str { &self.status }
+    fn current_status(&self) -> &str { self.status.as_str() }
 
-    fn is_active(&self) -> bool { self.status == "waiting" }
+    fn is_active(&self) -> bool { self.status == WaitlistStatus::Waiting }
 
     fn status_badge_class(&self) -> &str {
-        match self.status.as_str() {
-            "waiting"  => "is-info",
-            "offered"  => "is-warning",
-            "accepted" => "is-success",
-            "expired"  => "is-light",
-            _          => "is-light",
+        match self.status {
+            WaitlistStatus::Waiting  => "is-info",
+            WaitlistStatus::Offered  => "is-warning",
+            WaitlistStatus::Accepted => "is-success",
+            WaitlistStatus::Expired  => "is-light",
         }
     }
 }
@@ -513,6 +577,22 @@ impl Prioritized for WaitlistEntry {
 #[cfg(test)]
 mod tests {
     use super::DaySchedule;
+
+    // --- status enums: serde output is the template contract ---
+    // The Tera templates compare `status == 'scheduled'` / `== 'waiting'`, so
+    // the serde representation MUST stay lowercase and equal `as_str()`.
+    #[test]
+    fn status_enums_serialize_lowercase() {
+        use super::{AppointmentStatus, WaitlistStatus};
+        assert_eq!(serde_json::to_string(&AppointmentStatus::Scheduled).unwrap(), "\"scheduled\"");
+        assert_eq!(serde_json::to_string(&AppointmentStatus::Completed).unwrap(), "\"completed\"");
+        assert_eq!(serde_json::to_string(&AppointmentStatus::Cancelled).unwrap(), "\"cancelled\"");
+        assert_eq!(serde_json::to_string(&WaitlistStatus::Waiting).unwrap(), "\"waiting\"");
+        assert_eq!(serde_json::to_string(&WaitlistStatus::Expired).unwrap(), "\"expired\"");
+        // serde output and the badge-logic `as_str()` must never diverge.
+        assert_eq!(AppointmentStatus::Scheduled.as_str(), "scheduled");
+        assert_eq!(WaitlistStatus::Accepted.as_str(), "accepted");
+    }
 
     // Working day: 08:00 (480) .. 17:00 (1020), matching the clinic hours.
     const OPEN: i32 = 8 * 60;
