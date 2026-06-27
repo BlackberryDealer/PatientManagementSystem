@@ -61,6 +61,13 @@ impl LineItem {
     pub fn total_price(&self) -> f64 {
         (self.quantity as f64) * self.unit_price
     }
+
+    /// Grand total of an invoice's line items. Keeps the money math on the
+    /// domain type instead of inline in the service layer (sibling of
+    /// `total_price`).
+    pub fn grand_total(items: &[LineItem]) -> f64 {
+        items.iter().map(LineItem::total_price).sum()
+    }
 }
 
 impl CreateInvoiceForm {

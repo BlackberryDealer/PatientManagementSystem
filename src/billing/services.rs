@@ -1,5 +1,5 @@
 use crate::auth::Role;
-use crate::billing::models::{CreateInvoiceForm, Invoice, InvoiceItem, InvoiceView, Payment, RecordPaymentForm};
+use crate::billing::models::{CreateInvoiceForm, Invoice, InvoiceItem, InvoiceView, LineItem, Payment, RecordPaymentForm};
 use crate::db;
 use crate::errors::AppError;
 use crate::traits::StatusManaged;
@@ -31,7 +31,8 @@ pub async fn create_invoice(
     // Validation: the form owns its own parsing rules
     let line_items = form.parse_line_items()?;
 
-    let grand_total: f64 = line_items.iter().map(|item| item.total_price()).sum();
+    // Money math lives on the domain type, not inline here.
+    let grand_total = LineItem::grand_total(&line_items);
 
     // Persist header + items atomically — an invoice can never exist
     // without its line items.
