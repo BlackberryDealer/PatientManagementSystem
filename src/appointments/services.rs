@@ -298,12 +298,26 @@ pub async fn book_with_priority(
         .execute(&mut *tx)
         .await?;
 
-        // ...cancel it, and free its slots so the urgent booking can take them.
-        sqlx::query("UPDATE appointments SET status = 'cancelled' WHERE id = ?")
-            .bind(conflict_id)
+        // ...cancel it through the domain method so the "only a scheduled
+        // appointment may be cancelled" rule lives in exactly one place
+        // (Appointment::cancel), instead of being duplicated as a raw SQL
+        // status write here.
+        let mut bumped = sqlx::query_as::<_, Appointment>(
+            "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                    status, notes, created_at, room_id, priority
+             FROM appointments WHERE id = ?",
+        )
+        .bind(conflict_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        bumped.cancel()?;
+        sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
+            .bind(bumped.current_status())
+            .bind(bumped.id)
             .execute(&mut *tx)
             .await?;
 
+        // Free its slots so the urgent booking can take them.
         sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
             .bind(conflict_id)
             .execute(&mut *tx)
@@ -617,7 +631,7 @@ pub async fn auto_promote_waitlist(
 
                 entry.accept()?; // encapsulated state transition (&mut self)
                 sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")
-                    .bind(&entry.status)
+                    .bind(entry.current_status())
                     .bind(entry.id)
                     .execute(pool)
                     .await?;
@@ -671,7 +685,7 @@ pub async fn promote_from_waitlist(
     // Encapsulated state transition, then persist the entry's new status
     entry.accept()?;
     sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")
-        .bind(&entry.status)
+        .bind(entry.current_status())
         .bind(entry.id)
         .execute(pool)
         .await?;
@@ -817,7 +831,7 @@ pub async fn cancel_appointment(pool: &SqlitePool, appointment_id: i64) -> Resul
     // so the freed slots become immediately bookable again.
     let mut tx = pool.begin().await?;
     sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
-        .bind(&appt.status)
+        .bind(appt.current_status())
         .bind(appt.id)
         .execute(&mut *tx)
         .await?;

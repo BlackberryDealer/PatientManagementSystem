@@ -139,6 +139,9 @@ pub async fn update_profile(
     user_id: i64,
     form: &EditProfileForm,
 ) -> Result<(), AppError> {
+    // Validation gate: no part of the payload reaches the database until
+    // the form's own rules pass (Route -> Validation -> DB).
+    form.validate()?;
     let user = update_user(pool, user_id, form).await?;
     match user.role.as_str() {
         "patient" => {

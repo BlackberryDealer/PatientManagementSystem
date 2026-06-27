@@ -77,7 +77,7 @@ pub struct Appointment {
     pub appointment_date: chrono::NaiveDate,
     pub start_time: String,    // HH:MM
     pub end_time: String,      // HH:MM
-    pub status: String,        // scheduled | completed | cancelled
+    status: String,            // scheduled | completed | cancelled
     pub notes: Option<String>,
     pub created_at: chrono::NaiveDateTime,
     pub room_id: Option<i64>,
@@ -153,7 +153,7 @@ pub struct WaitlistEntry {
     pub requested_end: String,
     pub priority: i32,
     pub notes: Option<String>,
-    pub status: String,        // waiting | offered | accepted | expired
+    status: String,            // waiting | offered | accepted | expired
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -235,6 +235,22 @@ impl Reportable for Appointment {
 impl TimeSlotted for WaitlistEntry {
     fn start_time(&self) -> &str { &self.requested_start }
     fn end_time(&self) -> &str { &self.requested_end }
+}
+
+impl StatusManaged for WaitlistEntry {
+    fn current_status(&self) -> &str { &self.status }
+
+    fn is_active(&self) -> bool { self.status == "waiting" }
+
+    fn status_badge_class(&self) -> &str {
+        match self.status.as_str() {
+            "waiting"  => "is-info",
+            "offered"  => "is-warning",
+            "accepted" => "is-success",
+            "expired"  => "is-light",
+            _          => "is-light",
+        }
+    }
 }
 
 // ============================================================

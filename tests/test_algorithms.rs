@@ -6,6 +6,7 @@ use patient_management_system::appointments::models::{
     BookAppointmentForm, SuggestSlotForm, WaitlistForm,
 };
 use patient_management_system::appointments::services;
+use patient_management_system::traits::StatusManaged;
 use sqlx::SqlitePool;
 
 async fn seed_patient(pool: &SqlitePool, uid: i64, name: &str) {
@@ -115,7 +116,7 @@ async fn test_waitlist_add() {
     seed_patient(&pool, 1, "pwl").await; seed_doctor(&pool, 2, "dwl").await;
     let f = WaitlistForm { doctor_id: 1, appointment_date: "2027-06-01".into(), requested_start: "10:00".into(), requested_end: "10:30".into(), priority: 2, room_id: None, notes: None };
     let e = services::add_to_waitlist(&pool, 1, &f).await.unwrap();
-    assert_eq!(e.status, "waiting");
+    assert_eq!(e.current_status(), "waiting");
 }
 
 #[actix_web::test]

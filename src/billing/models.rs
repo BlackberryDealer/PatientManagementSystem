@@ -12,7 +12,7 @@ pub struct Invoice {
     pub invoice_date: chrono::NaiveDate,
     pub due_date: chrono::NaiveDate,
     pub total_amount: f64,
-    pub status: String, // pending | paid | cancelled
+    status: String, // pending | paid | cancelled
     pub created_at: chrono::NaiveDateTime,
 }
 

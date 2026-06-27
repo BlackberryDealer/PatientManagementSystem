@@ -80,6 +80,24 @@ pub struct EditProfileForm {
     pub license_number: Option<String>,
 }
 
+impl EditProfileForm {
+    /// Profile edits must satisfy the same core rules as registration:
+    /// a non-empty full name and a plausible email address. Checked
+    /// before anything touches the database, mirroring `RegisterForm`.
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        use crate::errors::AppError;
+        if self.full_name.trim().is_empty() {
+            return Err(AppError::BadRequest("Full name is required".into()));
+        }
+        if !self.email.contains('@') {
+            return Err(AppError::BadRequest(
+                "A valid email address is required".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ============================================================
 // Patient — extended profile for patient-role users
 // ============================================================

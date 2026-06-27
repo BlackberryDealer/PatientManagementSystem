@@ -1,6 +1,7 @@
 use crate::billing::models::{CreateInvoiceForm, Invoice, InvoiceItem, InvoiceView, Payment, RecordPaymentForm};
 use crate::db;
 use crate::errors::AppError;
+use crate::traits::StatusManaged;
 use sqlx::SqlitePool;
 
 // ============================================================
@@ -208,7 +209,7 @@ pub async fn record_payment(
     if invoice.is_settled_by(total_paid.0.unwrap_or(0.0)) {
         invoice.mark_paid(); // encapsulated state transition (&mut self)
         sqlx::query("UPDATE invoices SET status = ? WHERE id = ?")
-            .bind(&invoice.status)
+            .bind(invoice.current_status())
             .bind(invoice.id)
             .execute(&mut *tx)
             .await?;
