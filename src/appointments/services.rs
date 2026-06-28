@@ -864,42 +864,59 @@ pub async fn cancel_appointment_checked(
     cancel_appointment(pool, appointment_id).await
 }
 
-/// Per-day appointment counts for the calendar view, scoped by role:
-/// patients see their own, doctors see theirs, admins see everything.
-/// Returns a map of "YYYY-MM-DD" → count for `[from, to]` inclusive.
-pub async fn get_appointment_counts_by_date(
+/// Per-day appointment counts for a patient. Returns a map of "YYYY-MM-DD" → count.
+pub async fn get_appointment_counts_for_patient(
     pool: &SqlitePool,
-    role: Role,
-    user_id: i64,
+    patient_user_id: i64,
     from: &str,
     to: &str,
 ) -> Result<std::collections::HashMap<String, usize>, AppError> {
-    let rows: Vec<(String, i64)> = match role {
-        Role::Patient => {
-            sqlx::query_as(
-                "SELECT a.appointment_date, COUNT(*) FROM appointments a
-                 JOIN patients p ON a.patient_id = p.id
-                 WHERE p.user_id = ? AND a.appointment_date >= ? AND a.appointment_date <= ? AND a.status != 'cancelled'
-                 GROUP BY a.appointment_date",
-            ).bind(user_id).bind(from).bind(to).fetch_all(pool).await?
-        }
-        Role::Doctor => {
-            sqlx::query_as(
-                "SELECT a.appointment_date, COUNT(*) FROM appointments a
-                 JOIN doctors d ON a.doctor_id = d.id
-                 WHERE d.user_id = ? AND a.appointment_date >= ? AND a.appointment_date <= ? AND a.status != 'cancelled'
-                 GROUP BY a.appointment_date",
-            ).bind(user_id).bind(from).bind(to).fetch_all(pool).await?
-        }
-        Role::Admin => {
-            sqlx::query_as(
-                "SELECT appointment_date, COUNT(*) FROM appointments
-                 WHERE appointment_date >= ? AND appointment_date <= ? AND status != 'cancelled'
-                 GROUP BY appointment_date",
-            ).bind(from).bind(to).fetch_all(pool).await?
-        }
-    };
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT a.appointment_date, COUNT(*) FROM appointments a
+         JOIN patients p ON a.patient_id = p.id
+         WHERE p.user_id = ? AND a.appointment_date >= ? AND a.appointment_date <= ?
+           AND a.status != 'cancelled'
+         GROUP BY a.appointment_date",
+    )
+    .bind(patient_user_id).bind(from).bind(to)
+    .fetch_all(pool).await?;
+    Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
+}
 
+/// Per-day appointment counts for a doctor. Returns a map of "YYYY-MM-DD" → count.
+pub async fn get_appointment_counts_for_doctor(
+    pool: &SqlitePool,
+    doctor_user_id: i64,
+    from: &str,
+    to: &str,
+) -> Result<std::collections::HashMap<String, usize>, AppError> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT a.appointment_date, COUNT(*) FROM appointments a
+         JOIN doctors d ON a.doctor_id = d.id
+         WHERE d.user_id = ? AND a.appointment_date >= ? AND a.appointment_date <= ?
+           AND a.status != 'cancelled'
+         GROUP BY a.appointment_date",
+    )
+    .bind(doctor_user_id).bind(from).bind(to)
+    .fetch_all(pool).await?;
+    Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
+}
+
+/// Per-day appointment counts across all patients (admin view).
+/// Returns a map of "YYYY-MM-DD" → count.
+pub async fn get_all_appointment_counts(
+    pool: &SqlitePool,
+    from: &str,
+    to: &str,
+) -> Result<std::collections::HashMap<String, usize>, AppError> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT appointment_date, COUNT(*) FROM appointments
+         WHERE appointment_date >= ? AND appointment_date <= ?
+           AND status != 'cancelled'
+         GROUP BY appointment_date",
+    )
+    .bind(from).bind(to)
+    .fetch_all(pool).await?;
     Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
 }
 

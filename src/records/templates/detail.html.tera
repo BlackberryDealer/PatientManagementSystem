@@ -30,7 +30,7 @@
         </header>
         <div class="card-content">
             <div class="content">
-                {{ record.diagnosis | default(value="<em class='has-text-grey'>Not specified</em>") }}
+                {% if record.diagnosis %}{{ record.diagnosis }}{% else %}<em class="has-text-grey">Not specified</em>{% endif %}
             </div>
         </div>
     </div>
@@ -43,7 +43,7 @@
         </header>
         <div class="card-content">
             <div class="content">
-                {{ record.treatment | default(value="<em class='has-text-grey'>Not specified</em>") }}
+                {% if record.treatment %}{{ record.treatment }}{% else %}<em class="has-text-grey">Not specified</em>{% endif %}
             </div>
         </div>
     </div>

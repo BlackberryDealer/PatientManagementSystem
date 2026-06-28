@@ -177,7 +177,7 @@ async fn seed_billing(pool: &SqlitePool) {
     sqlx::query("INSERT OR IGNORE INTO invoices (id, patient_id, invoice_date, due_date, total_amount, status) VALUES (1, 1, '2026-05-01', '2026-05-15', 150.00, 'paid')").execute(pool).await.unwrap();
     sqlx::query("INSERT OR IGNORE INTO invoice_items (invoice_id, description, quantity, unit_price, total_price) VALUES (1, 'Consultation', 1, 100.00, 100.00)").execute(pool).await.unwrap();
     sqlx::query("INSERT OR IGNORE INTO invoice_items (invoice_id, description, quantity, unit_price, total_price) VALUES (1, 'Blood Test', 1, 50.00, 50.00)").execute(pool).await.unwrap();
-    sqlx::query("INSERT OR IGNORE INTO payments (invoice_id, amount, payment_date, payment_method, transaction_ref) VALUES (1, 150.00, '2026-05-10', 'Credit Card', 'TXN-001')").execute(pool).await.unwrap();
+    sqlx::query("INSERT OR IGNORE INTO payments (invoice_id, amount, payment_method, transaction_ref) VALUES (1, 150.00, 'Credit Card', 'TXN-001')").execute(pool).await.unwrap();
 
     // Invoice 2: pending
     sqlx::query("INSERT OR IGNORE INTO invoices (id, patient_id, invoice_date, due_date, total_amount, status) VALUES (2, 2, '2026-05-20', '2026-06-20', 200.00, 'pending')").execute(pool).await.unwrap();
