@@ -19,6 +19,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/waitlist/{id}/promote", web::post().to(handlers::promote_waitlist))
             .route("/calendar", web::get().to(handlers::calendar_view))
             .route("/{id}", web::get().to(handlers::appointment_detail))
+            .route("/{id}/reschedule", web::get().to(handlers::reschedule_form))
+            .route("/{id}/reschedule", web::post().to(handlers::reschedule_appointment))
+            .route("/{id}/assign-room", web::post().to(handlers::assign_room))
             .route("/{id}/cancel", web::post().to(handlers::cancel_appointment))
             .route("/{id}/reassign", web::post().to(handlers::reassign_appointment)),
     );

@@ -126,6 +126,48 @@ impl Appointment {
         Ok(())
     }
 
+    /// Reschedule this appointment to a new date and time window, keeping the
+    /// same doctor and room.
+    ///
+    /// Domain rule (same as `cancel`/`reassign_to`): only an active/scheduled
+    /// appointment may move — completed or cancelled appointments are immutable
+    /// history. Keeping the rule *and* the field change on the entity means no
+    /// caller can shuffle a closed appointment's time by hand; the service
+    /// persists the new values and rebuilds the occupancy slots afterwards.
+    pub fn reschedule_to(
+        &mut self,
+        new_date: chrono::NaiveDate,
+        new_start: &str,
+        new_end: &str,
+    ) -> Result<(), crate::errors::AppError> {
+        if !self.is_active() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a scheduled appointment can be rescheduled".into(),
+            ));
+        }
+        self.appointment_date = new_date;
+        self.start_time = new_start.to_string();
+        self.end_time = new_end.to_string();
+        Ok(())
+    }
+
+    /// Assign (or change) the consultation room for this appointment.
+    ///
+    /// Domain rule (same family as `cancel`/`reassign_to`): only an
+    /// active/scheduled appointment may have its room set. Patients book
+    /// without a room (it stays `None` → "Pending Room Location" in the UI) and
+    /// a doctor assigns one afterwards; this method is that assignment step. The
+    /// caller persists the new room on the appointment and its occupancy slots.
+    pub fn assign_room(&mut self, room_id: i64) -> Result<(), crate::errors::AppError> {
+        if !self.is_active() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a scheduled appointment can be assigned a room".into(),
+            ));
+        }
+        self.room_id = Some(room_id);
+        Ok(())
+    }
+
     /// Read-only accessor for the triage priority as a typed enum.
     /// The field is private so the only way to change it is through a
     /// constructor — no caller can write an out-of-range integer by hand.
@@ -161,6 +203,42 @@ impl BookAppointmentForm {
     pub fn requested_priority(&self) -> Priority {
         Priority::from_i32(self.priority.unwrap_or(Priority::Normal as i32))
     }
+}
+
+/// Form submitted when moving an existing appointment to a new date/time.
+///
+/// Deliberately carries only the fields a reschedule may change (date + slot).
+/// The doctor and room stay as they were — changing the doctor is a separate
+/// concern already handled by `reassign_appointment` (Algorithm 4), so leaving
+/// them out here keeps the two features from overlapping and keeps the form
+/// the minimum a reschedule needs.
+#[derive(Debug, Deserialize)]
+pub struct RescheduleForm {
+    pub appointment_date: String, // YYYY-MM-DD
+    pub start_time: String,       // HH:MM
+    pub end_time: String,         // HH:MM
+}
+
+impl RescheduleForm {
+    /// Same input rules as a fresh booking (valid, non-past date and a
+    /// grid-aligned slot), so a rescheduled slot can never be one a brand-new
+    /// booking would have rejected. Returns the parsed date so the service does
+    /// not have to parse the same string a second time.
+    pub fn validate(&self) -> Result<chrono::NaiveDate, crate::errors::AppError> {
+        let date = crate::time::parse_booking_date(&self.appointment_date)?;
+        crate::time::parse_slot(&self.start_time, &self.end_time)?;
+        Ok(date)
+    }
+}
+
+/// Form a doctor submits to assign (or change) an appointment's room.
+///
+/// `room_id` is a plain `i64` (not optional): the assign UI always offers a
+/// concrete room, so there is no empty value to mis-parse — the same reason the
+/// staff booking form dropped its blank "no room" option.
+#[derive(Debug, Deserialize)]
+pub struct AssignRoomForm {
+    pub room_id: i64,
 }
 
 /// Form for the "suggest slot" feature — find next available time.
