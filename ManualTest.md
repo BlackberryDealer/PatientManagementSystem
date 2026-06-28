@@ -19,7 +19,7 @@ All passwords: **`password123`** (login works with username OR email)
 | Account | Role | Key Facts |
 |---------|------|-----------|
 | `admin` | Admin | Full system access |
-| `dr.smith` | Doctor | General Practice, Mon/Tue/Thu/Fri 9-5, Wed off, June 15 blocked |
+| `dr.smith` | Doctor | General Practice, Mon/Tue/Thu/Fri 9-5, Wed off, July 20 blocked |
 | `dr.jones` | Doctor | Cardiology, varied schedule |
 | `john.doe` | Patient | O+, born 1990-03-15, 3 appointments, 2 records, 2 prescriptions, 1 paid invoice |
 | `jane.doe` | Patient | A+, born 1985-07-22, 2 appointments, 1 record, 1 prescription, 1 pending invoice |
@@ -143,7 +143,7 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] Wed — NOT listed (day off)
 - [ ] Thu 09:00-17:00 (recurring)
 - [ ] Fri 09:00-17:00 (recurring)
-- [ ] June 15 shown as blocked (holiday)
+- [ ] July 20 shown as blocked (holiday)
 - [ ] Click **Set Availability** button
 
 ### 4. Set Availability (`/availability/set`)
