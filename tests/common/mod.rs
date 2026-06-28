@@ -3,6 +3,13 @@
 //! Uses a macro to avoid complex `Service` trait type annotations
 //! that conflict across actix-web / actix-http versions.
 
+// Many imports and helpers here are consumed exclusively by the exported macros
+// (`with_test_app!`, `register_and_login!`, `seed_and_login!`) which expand at
+// their call-sites in other crates. The compiler can't see those uses from
+// this module, so we suppress the false-positive warnings.
+#![allow(unused_imports)]
+#![allow(dead_code)]
+
 use actix_session::{storage::CookieSessionStore, SessionMiddleware};
 use actix_web::{cookie::Key, test, web, App};
 use patient_management_system::appointments;
@@ -28,11 +35,13 @@ pub fn test_tera() -> Tera {
         ("users/list.html.tera", "<html><body>Users: {{ users | length }}</body></html>"),
         ("users/profile.html.tera", "<html><body>Profile: {{ profile_user.full_name }}</body></html>"),
         ("users/new.html.tera", "<html><body>Add Staff</body></html>"),
+        ("users/edit.html.tera", "<html><body>Edit: {{ profile_user.full_name }}</body></html>"),
         ("appointments/list.html.tera", "<html><body>Apps: {{ appointments | length }}</body></html>"),
         ("appointments/book.html.tera", "<html><body>Book form</body></html>"),
         ("appointments/detail.html.tera", "<html><body>Appt #{{ appointment.id }}</body></html>"),
         ("appointments/suggest.html.tera", "<html><body>Suggest: {{ suggested_slot }}</body></html>"),
         ("appointments/waitlist.html.tera", "<html><body>Waitlist: {{ waitlist | length }}</body></html>"),
+        ("appointments/calendar.html.tera", "<html><body>Calendar: {{ month_name }} {{ year }}</body></html>"),
         ("availability/list.html.tera", "<html><body>Slots: {{ slots | length }}</body></html>"),
         ("availability/set.html.tera", "<html><body>Set avail</body></html>"),
         ("records/list.html.tera", "<html><body>Records: {{ records | length }}</body></html>"),

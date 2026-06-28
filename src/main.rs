@@ -19,8 +19,10 @@ use std::io::Write;
 
 fn load_module_templates(tera: &mut tera::Tera) -> Result<(), tera::Error> {
     let modules = ["users", "appointments", "availability", "records", "billing", "audit", "dashboard"];
+    // Resolve relative to Cargo.toml so the server can be started from any directory.
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
     for module in &modules {
-        let dir_path = format!("src/{}/templates", module);
+        let dir_path = format!("{}/src/{}/templates", manifest_dir, module);
         if let Ok(entries) = fs::read_dir(&dir_path) {
             for entry in entries {
                 if let Ok(entry) = entry {
