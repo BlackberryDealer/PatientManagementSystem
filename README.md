@@ -68,7 +68,6 @@ PatientManagementSystem/
 │   └── 003_audit_log.sql
 ├── templates/
 │   ├── base.html.tera
-│   ├── layout.html.tera
 │   └── shared/
 │       ├── navbar.html.tera
 │       └── footer.html.tera
