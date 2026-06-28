@@ -1,6 +1,6 @@
 use crate::appointments::models::{
-    Appointment, AppointmentView, BookAppointmentForm, DaySchedule, Room,
-    SuggestSlotForm, WaitlistEntry, WaitlistForm,
+    Appointment, AppointmentView, AssignRoomForm, BookAppointmentForm, DaySchedule, RescheduleForm,
+    Room, SuggestSlotForm, WaitlistEntry, WaitlistForm,
 };
 use crate::auth::Role;
 use crate::db;
@@ -1131,6 +1131,198 @@ pub async fn reassign_appointment(
     tx.commit().await?;
 
     Ok((appt, new_doctor_name))
+}
+
+// ============================================================
+// Reschedule: move an existing appointment to a new date/time
+// ============================================================
+
+/// Reschedule a scheduled appointment to a new date/time, keeping its doctor
+/// and room.
+///
+/// Why this shape: a reschedule is "cancel-and-rebook minus the paperwork" —
+/// the new slot must clear the very same availability, conflict, and occupancy
+/// rules as a fresh booking. Rather than duplicate that logic, this reuses the
+/// exact helpers the booking path uses (`ensure_doctor_available`,
+/// `check_conflict`, `insert_slots`) and lets the `appointment_slots` UNIQUE
+/// index stay the authoritative double-booking guard. The row update and the
+/// slot rebuild run in one transaction so a half-moved appointment can never be
+/// observed.
+pub async fn reschedule_appointment(
+    pool: &SqlitePool,
+    appointment_id: i64,
+    form: &RescheduleForm,
+) -> Result<Appointment, AppError> {
+    // Validation owns the input rules and hands back the parsed date.
+    let new_date = form.validate()?;
+    let date_str = &form.appointment_date;
+
+    let mut appt = sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE id = ?",
+    )
+    .bind(appointment_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+
+    // Availability is a doctor-level rule that needs the DB, so it stays in the
+    // service layer exactly as it does for booking.
+    ensure_doctor_available(
+        pool, appt.doctor_id(), date_str, &form.start_time, &form.end_time,
+    ).await?;
+
+    // Exclude THIS appointment from the conflict scan: otherwise a small nudge
+    // that still overlaps its own current slot would be flagged as a conflict
+    // with itself. `check_conflict`'s `exclude_appointment_id` parameter exists
+    // for precisely this case.
+    let room_id = appt.room_id.unwrap_or_else(|| {
+        // Should never happen with auto-allocation, but fall back gracefully
+        1
+    });
+    let conflict = check_conflict(
+        pool, appt.doctor_id(), date_str,
+        &form.start_time, &form.end_time, room_id, Some(appointment_id),
+    ).await?;
+    if conflict {
+        return Err(AppError::BadRequest(
+            "The new time slot conflicts with an existing appointment.\
+             \nPlease choose a different time.".into(),
+        ));
+    }
+
+    let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
+
+    // Entity owns the "only a scheduled appointment may move" rule and the field
+    // change (mirrors cancel()/reassign_to()).
+    appt.reschedule_to(new_date, &form.start_time, &form.end_time)?;
+
+    // Persist the move and rebuild the occupancy ledger atomically. The old
+    // slots are freed FIRST so a forward shift overlapping the appointment's own
+    // previous slot doesn't trip the UNIQUE index against itself; that same
+    // index still backstops any genuine race with another booking.
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "UPDATE appointments SET appointment_date = ?, start_time = ?, end_time = ? WHERE id = ?",
+    )
+    .bind(appt.appointment_date)
+    .bind(&appt.start_time)
+    .bind(&appt.end_time)
+    .bind(appt.id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
+        .bind(appt.id)
+        .execute(&mut *tx)
+        .await?;
+    insert_slots(&mut tx, appt.id, appt.doctor_id(), date_str, start_mins, end_mins, room_id)
+        .await?;
+    tx.commit().await?;
+
+    Ok(appt)
+}
+
+/// Reschedule with patient ownership enforcement (mirrors
+/// `cancel_appointment_checked`): a patient may only move their own
+/// appointment; doctors and admins may move any.
+pub async fn reschedule_appointment_checked(
+    pool: &SqlitePool,
+    appointment_id: i64,
+    user_id: i64,
+    role: Role,
+    form: &RescheduleForm,
+) -> Result<Appointment, AppError> {
+    if role == Role::Patient {
+        let patient_id = crate::db::get_patient_id(pool, user_id).await?;
+        let owns: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
+        )
+        .bind(appointment_id)
+        .bind(patient_id)
+        .fetch_one(pool)
+        .await?;
+        if owns.0 == 0 {
+            return Err(AppError::Forbidden(
+                "You can only reschedule your own appointments.".into(),
+            ));
+        }
+    }
+    reschedule_appointment(pool, appointment_id, form).await
+}
+
+// ============================================================
+// Room assignment: a doctor allocates a room to a patient's booking
+// ============================================================
+
+/// Assign (or change) the consultation room for an appointment.
+///
+/// Why this shape: patients book without a room, so the booking exists with
+/// `room_id = NULL` and its occupancy slots carry a NULL room (which the partial
+/// room-unique index ignores). Assigning a room stamps that room onto both the
+/// appointment row and every one of its slots inside one transaction. The slot
+/// UPDATE is the authoritative room double-booking guard: the
+/// `(room_id, date, slot_time)` UNIQUE index rejects the write if the room is
+/// already taken for any of those slots, and the whole transaction rolls back —
+/// the same race-proof mechanism the booking path relies on.
+pub async fn assign_room(
+    pool: &SqlitePool,
+    appointment_id: i64,
+    form: &AssignRoomForm,
+) -> Result<Appointment, AppError> {
+    let mut appt = sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE id = ?",
+    )
+    .bind(appointment_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+
+    // Reject a stale/inactive room id up front with a clear 400, rather than
+    // letting it surface later as a foreign-key error.
+    let room_active: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM rooms WHERE id = ? AND is_active = 1")
+            .bind(form.room_id)
+            .fetch_one(pool)
+            .await?;
+    if room_active.0 == 0 {
+        return Err(AppError::BadRequest(
+            "That room does not exist or is no longer active.".into(),
+        ));
+    }
+
+    // Entity owns the "only a scheduled appointment may be assigned a room" rule.
+    appt.assign_room(form.room_id)?;
+
+    let mut tx = pool.begin().await?;
+    sqlx::query("UPDATE appointments SET room_id = ? WHERE id = ?")
+        .bind(form.room_id)
+        .bind(appt.id)
+        .execute(&mut *tx)
+        .await?;
+    // Stamp the room onto every occupancy slot; a UNIQUE-index violation here
+    // means the room is already booked for one of these times.
+    sqlx::query("UPDATE appointment_slots SET room_id = ? WHERE appointment_id = ?")
+        .bind(form.room_id)
+        .bind(appt.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::Database(db) = &e {
+                if db.is_unique_violation() {
+                    return AppError::BadRequest(
+                        "That room is already booked for this time slot.\
+                         \nPlease choose a different room.".into(),
+                    );
+                }
+            }
+            AppError::DatabaseError(e)
+        })?;
+    tx.commit().await?;
+
+    Ok(appt)
 }
 
 // ============================================================

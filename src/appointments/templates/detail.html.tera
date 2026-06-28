@@ -11,8 +11,11 @@
 <div class="box fade-in">
     <div class="is-flex is-align-items-center is-justify-content-space-between mb-5">
         <div>
-            <h1 class="title mb-1">Appointment #{{ appointment.id }}</h1>
-            <p class="subtitle is-6 has-text-grey">{{ appointment.appointment_date }}</p>
+            <h1 class="title mb-2">Appointment #{{ appointment.id }}</h1>
+            {# Plain sized text, not Bulma `.subtitle`: a `.subtitle` directly
+               after a `.title` gets a -1.5rem top margin, which pulled the date
+               up into the heading and overlapped it. #}
+            <p class="is-size-6 has-text-grey">{{ appointment.appointment_date }}</p>
         </div>
         <span class="tag is-medium
             {% if appointment.status == 'scheduled' %}is-primary
@@ -42,6 +45,37 @@
                     <div class="mb-4">
                         <p class="is-size-7 has-text-grey mb-1">TIME</p>
                         <p class="is-size-5 has-text-weight-semibold"><i class="fas fa-clock mr-2 has-text-link"></i>{{ appointment.start_time }} – {{ appointment.end_time }}</p>
+                    </div>
+                    <div class="mb-4">
+                        <p class="is-size-7 has-text-grey mb-1">ROOM</p>
+                        {% if appointment.room_name %}
+                        <p class="is-size-5 has-text-weight-semibold"><i class="fas fa-door-open mr-2 has-text-link"></i>{{ appointment.room_name }}</p>
+                        {% else %}
+                        <p class="is-size-5 has-text-weight-semibold has-text-warning-dark"><i class="fas fa-hourglass-half mr-2"></i>Pending Room Location</p>
+                        {% endif %}
+                        {# A patient books without a room; a doctor/admin allocates one here.
+                           Only offered while the appointment is still scheduled. #}
+                        {% if (user.role == "doctor" or user.role == "admin") and appointment.status == "scheduled" %}
+                        <form method="POST" action="/appointments/{{ appointment.id }}/assign-room" class="mt-2">
+                            <div class="field has-addons">
+                                <div class="control is-expanded">
+                                    <div class="select is-small is-fullwidth">
+                                        {# No blank option, so a valid room id is always submitted. #}
+                                        <select name="room_id" required>
+                                            {% for r in rooms %}
+                                            <option value="{{ r.id }}" {% if appointment.room_name == r.name %}selected{% endif %}>{{ r.name }} ({{ r.room_type }})</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="control">
+                                    <button type="submit" class="button is-link is-small">
+                                        <i class="fas fa-check mr-1"></i>{% if appointment.room_name %}Change{% else %}Assign{% endif %}
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                        {% endif %}
                     </div>
                     {% if appointment.notes %}
                     <div>
@@ -93,6 +127,9 @@
             <i class="fas fa-arrow-left mr-1"></i>Back to Appointments
         </a>
         {% if appointment.status == "scheduled" %}
+        <a class="button is-info is-light" href="/appointments/{{ appointment.id }}/reschedule">
+            <i class="fas fa-clock-rotate-left mr-1"></i>Reschedule
+        </a>
         <form method="POST" action="/appointments/{{ appointment.id }}/cancel" style="display:inline;">
             <button class="button is-danger is-light" type="submit" onclick="return confirm('Cancel appointment #{{ appointment.id }}? This cannot be undone.')">
                 <i class="fas fa-ban mr-1"></i>Cancel Appointment

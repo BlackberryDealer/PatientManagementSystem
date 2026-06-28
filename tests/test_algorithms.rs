@@ -2,7 +2,7 @@
 mod common;
 use common::*;
 use patient_management_system::appointments::models::{
-    BookAppointmentForm, SuggestSlotForm, WaitlistForm,
+    AssignRoomForm, BookAppointmentForm, RescheduleForm, SuggestSlotForm, WaitlistForm,
 };
 use patient_management_system::appointments::services;
 use patient_management_system::auth::Role;
@@ -501,4 +501,158 @@ async fn test_cancel_releases_slots_for_rebooking() {
         start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
     }).await;
     assert!(rebook.is_ok(), "freed slot should be rebookable");
+}
+
+// ============================================================
+// Reschedule: move an existing appointment to a new date/time
+// ============================================================
+
+// Moving an appointment must occupy the new slot AND free the old one, so the
+// vacated time becomes bookable again (proves the slot ledger is rebuilt).
+#[actix_web::test]
+async fn test_reschedule_moves_and_frees_old_slot() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "rp1").await;
+    seed_doctor(&pool, 2, "rd1").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let moved = services::reschedule_appointment(&pool, appt.id, &RescheduleForm {
+        appointment_date: "2027-06-01".into(),
+        start_time: "11:00".into(), end_time: "11:30".into(),
+    }).await.unwrap();
+    assert_eq!(moved.start_time, "11:00");
+
+    assert!(!services::check_conflict(&pool, 1, "2027-06-01", "10:00", "10:30", None, None).await.unwrap(),
+        "old slot should be free after the move");
+    assert!(services::check_conflict(&pool, 1, "2027-06-01", "11:00", "11:30", None, None).await.unwrap(),
+        "new slot should be occupied after the move");
+}
+
+// Rescheduling onto a DIFFERENT appointment's slot is a real conflict and must
+// be rejected (the new slot faces the same conflict rules as a fresh booking).
+#[actix_web::test]
+async fn test_reschedule_into_conflict_rejected() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "rp2").await;
+    seed_doctor(&pool, 2, "rd2").await;
+    let a1 = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "11:00".into(), end_time: "11:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let r = services::reschedule_appointment(&pool, a1.id, &RescheduleForm {
+        appointment_date: "2027-06-01".into(),
+        start_time: "11:00".into(), end_time: "11:30".into(),
+    }).await;
+    assert!(r.is_err(), "moving onto another appointment's slot must be rejected");
+}
+
+// Extending an appointment over its OWN current slot must succeed — the
+// conflict scan excludes the appointment being moved, so it never collides with
+// itself.
+#[actix_web::test]
+async fn test_reschedule_extending_over_own_slot_allowed() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "rp3").await;
+    seed_doctor(&pool, 2, "rd3").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let moved = services::reschedule_appointment(&pool, appt.id, &RescheduleForm {
+        appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "11:00".into(),
+    }).await.unwrap();
+    assert_eq!(moved.end_time, "11:00");
+}
+
+// A patient may not reschedule someone else's appointment (ownership guard,
+// mirroring cancel_appointment_checked).
+#[actix_web::test]
+async fn test_reschedule_rejects_other_patients_appointment() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "rp4").await; // user 1 -> patient id 1 (owner)
+    seed_patient(&pool, 3, "rp5").await; // user 3 -> a different patient
+    seed_doctor(&pool, 2, "rd4").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let r = services::reschedule_appointment_checked(
+        &pool, appt.id, 3, Role::Patient,
+        &RescheduleForm {
+            appointment_date: "2027-06-01".into(),
+            start_time: "11:00".into(), end_time: "11:30".into(),
+        },
+    ).await;
+    assert!(r.is_err(), "a patient must not move another patient's appointment");
+}
+
+// ============================================================
+// Room assignment: doctor allocates a room to a patient's booking
+// ============================================================
+
+// A patient books without a room; assigning one stamps it on the appointment,
+// and the same room cannot then be double-booked for an overlapping slot.
+#[actix_web::test]
+async fn test_assign_room_sets_room_and_blocks_double_booking() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "arp1").await;
+    seed_doctor(&pool, 2, "ard1").await; // doctor id 1
+    seed_doctor(&pool, 3, "ard2").await; // doctor id 2
+    let room_id = sqlx::query("INSERT INTO rooms (name, room_type) VALUES ('Test Room', 'consultation')")
+        .execute(&pool).await.unwrap().last_insert_rowid();
+
+    // Two same-time bookings with different doctors, neither has a room yet.
+    let a1 = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "09:00".into(), end_time: "09:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+    let a2 = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 2, appointment_date: "2027-06-01".into(),
+        start_time: "09:00".into(), end_time: "09:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    // Booking starts as "pending room" (NULL room).
+    assert_eq!(a1.room_id, None);
+
+    // Assigning the room to a1 succeeds and records it.
+    let updated = services::assign_room(&pool, a1.id, &AssignRoomForm { room_id }).await.unwrap();
+    assert_eq!(updated.room_id, Some(room_id));
+
+    // The same room for a2's overlapping slot must be rejected.
+    let r = services::assign_room(&pool, a2.id, &AssignRoomForm { room_id }).await;
+    assert!(r.is_err(), "a room cannot be double-booked for the same time slot");
+}
+
+// An inactive (or non-existent) room id is rejected with a clear error.
+#[actix_web::test]
+async fn test_assign_room_rejects_unknown_room() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "arp3").await;
+    seed_doctor(&pool, 2, "ard3").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "09:00".into(), end_time: "09:30".into(),
+        room_id: None, priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let r = services::assign_room(&pool, appt.id, &AssignRoomForm { room_id: 99999 }).await;
+    assert!(r.is_err(), "assigning a non-existent room must fail");
 }

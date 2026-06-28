@@ -59,7 +59,7 @@
                     {% if a.room_name %}
                     <span class="tag is-light"><i class="fas fa-door-open mr-1"></i>{{ a.room_name }}</span>
                     {% else %}
-                    <span class="has-text-grey-light">—</span>
+                    <span class="tag is-warning is-light"><i class="fas fa-hourglass-half mr-1"></i>Pending Room Location</span>
                     {% endif %}
                 </td>
                 <td>

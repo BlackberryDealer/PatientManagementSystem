@@ -1,0 +1,117 @@
+{% extends "base.html.tera" %}
+
+{# Reschedule only changes the date/time — the doctor and room are fixed here
+   on purpose (changing the doctor is the separate "Reassign" action), so this
+   form stays the minimum a reschedule needs. The dropdowns are prefilled with
+   the appointment's current slot and only offer grid-aligned times. #}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/appointments"><i class="fas fa-calendar-check mr-1"></i>Appointments</a></li>
+        <li><a href="/appointments/{{ appointment.id }}">#{{ appointment.id }}</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Reschedule</a></li>
+    </ul>
+</nav>
+
+<h1 class="title"><i class="fas fa-clock-rotate-left mr-2"></i>Reschedule Appointment #{{ appointment.id }}</h1>
+<p class="subtitle is-6 has-text-grey mb-5">
+    Keeping the same doctor ({{ appointment.doctor_name }}) — pick a new date and time.
+    The new slot is checked for conflicts, exactly like a new booking.
+</p>
+
+<div class="box fade-in">
+    <form method="POST" action="/appointments/{{ appointment.id }}/reschedule">
+        <div class="field">
+            <label class="label"><i class="fas fa-calendar-alt mr-1"></i>New Date</label>
+            <div class="control">
+                <input class="input" type="date" name="appointment_date" required
+                       value="{{ appointment.appointment_date }}">
+            </div>
+            <p class="help">Must be today or a future date.</p>
+        </div>
+
+        <div class="columns">
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-clock mr-1"></i>Start Time</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="start_time" required>
+                                {% for s in start_slots %}
+                                <option value="{{ s }}" {% if s == appointment.start_time %}selected{% endif %}>{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-clock"></i></div>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-6">
+                <div class="field">
+                    <label class="label"><i class="fas fa-clock mr-1"></i>End Time</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="end_time" required>
+                                {% for e in end_slots %}
+                                <option value="{{ e }}" {% if e == appointment.end_time %}selected{% endif %}>{{ e }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-clock"></i></div>
+                    </div>
+                    <p class="help">Appointments run in fixed 30-minute blocks.</p>
+                </div>
+            </div>
+        </div>
+
+        <hr>
+
+        <div class="field is-grouped">
+            <div class="control">
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-check-circle mr-1"></i>Save New Time
+                </button>
+            </div>
+            <div class="control">
+                <a class="button is-light is-medium" href="/appointments/{{ appointment.id }}">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Keep the end-time options strictly after the chosen start time (minimum a
+    // single 30-minute block), so an end <= start is impossible to express in
+    // the UI. The server still validates, but this stops invalid combinations
+    // from ever being submitted.
+    (function () {
+        const start = document.querySelector('select[name="start_time"]');
+        const end = document.querySelector('select[name="end_time"]');
+        if (!start || !end) return;
+
+        function syncEnd() {
+            const s = start.value;
+            let firstValid = null;
+            for (const opt of end.options) {
+                const invalid = s && opt.value <= s; // zero-padded "HH:MM" compares correctly
+                opt.disabled = invalid;
+                opt.hidden = invalid;
+                if (!invalid && firstValid === null) firstValid = opt.value;
+            }
+            // If the current end is now invalid, snap to the earliest valid one
+            // (i.e. start + 30 minutes).
+            if (s && (!end.value || end.value <= s) && firstValid !== null) {
+                end.value = firstValid;
+            }
+        }
+
+        start.addEventListener('change', syncEnd);
+        syncEnd(); // run once so the prefilled slot is consistent on load
+    })();
+</script>
+{% endblock %}

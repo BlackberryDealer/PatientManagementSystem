@@ -2,7 +2,7 @@ use actix_web::{web, HttpResponse};
 use tera::Context;
 
 use crate::appointments::models::{
-    BookAppointmentForm, CalendarMonth, SuggestSlotForm, WaitlistForm,
+    AssignRoomForm, BookAppointmentForm, CalendarMonth, RescheduleForm, SuggestSlotForm, WaitlistForm,
 };
 use crate::appointments::services;
 use crate::audit::services as audit;
@@ -279,12 +279,41 @@ pub async fn appointment_detail(
         pool.get_ref(), appointment_id, user.user_id, user.role,
     ).await?;
 
+    // Rooms power the staff "assign room" dropdown on the detail page. Cheap
+    // query; harmless for patients (their template branch never reads it).
+    let rooms = services::get_all_rooms(pool.get_ref()).await?;
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("appointment", &appointment);
+    ctx.insert("rooms", &rooms);
     ctx.insert("title", &format!("Appointment #{}", appointment.id));
     let rendered = tera.render("appointments/detail.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
+}
+
+// ============================================================
+// POST /appointments/{id}/assign-room — doctor allocates a room
+// ============================================================
+
+/// Assign (or change) the consultation room for an appointment. Staff only:
+/// patients book without a room and a doctor allocates one afterwards.
+pub async fn assign_room(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+    form: web::Form<AssignRoomForm>,
+) -> Result<HttpResponse, AppError> {
+    require_doctor(&user)?; // doctor or admin
+    let appointment_id = path.into_inner();
+    let appointment = services::assign_room(pool.get_ref(), appointment_id, &form).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.room_assigned", "appointment", Some(appointment.id),
+        &format!("Assigned room #{}", form.room_id),
+    ).await;
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/appointments/{}", appointment.id)))
+        .finish())
 }
 
 // ============================================================
@@ -305,6 +334,62 @@ pub async fn cancel_appointment(
     ).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", "/appointments"))
+        .finish())
+}
+
+// ============================================================
+// GET /appointments/{id}/reschedule — show the reschedule form
+// ============================================================
+
+/// Render the reschedule form, prefilled with the appointment's current
+/// date/time. Reuses `get_appointment_by_id_checked` so the same ownership rule
+/// that governs viewing also gates who may open the form (patients: own only).
+pub async fn reschedule_form(
+    pool: web::Data<sqlx::SqlitePool>,
+    tera: web::Data<tera::Tera>,
+    path: web::Path<i64>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    let appointment_id = path.into_inner();
+    let appointment = services::get_appointment_by_id_checked(
+        pool.get_ref(), appointment_id, user.user_id, user.role,
+    ).await?;
+
+    let mut ctx = Context::new();
+    ctx.insert("user", &user);
+    ctx.insert("appointment", &appointment);
+    // Same grid-aligned slot options the booking form offers, so the user can
+    // only express a valid slot in the UI (the server re-validates regardless).
+    ctx.insert("start_slots", &services::start_time_slots());
+    ctx.insert("end_slots", &services::end_time_slots());
+    ctx.insert("title", &format!("Reschedule Appointment #{}", appointment.id));
+    let rendered = tera.render("appointments/reschedule.html.tera", &ctx)?;
+    Ok(HttpResponse::Ok().body(rendered))
+}
+
+// ============================================================
+// POST /appointments/{id}/reschedule — move to a new date/time
+// ============================================================
+
+/// Move an appointment to a new slot. Ownership is enforced in the service
+/// (patients may only reschedule their own), mirroring the cancel path.
+pub async fn reschedule_appointment(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+    form: web::Form<RescheduleForm>,
+) -> Result<HttpResponse, AppError> {
+    let appointment_id = path.into_inner();
+    let appointment = services::reschedule_appointment_checked(
+        pool.get_ref(), appointment_id, user.user_id, user.role, &form,
+    ).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.rescheduled", "appointment", Some(appointment.id),
+        &format!("Moved to {} {}–{}",
+            appointment.appointment_date, appointment.start_time, appointment.end_time),
+    ).await;
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/appointments/{}", appointment.id)))
         .finish())
 }
 

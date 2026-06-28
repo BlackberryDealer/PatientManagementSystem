@@ -75,10 +75,10 @@ PatientManagementSystem/
 │   └── shared/
 │       ├── navbar.html.tera
 │       └── footer.html.tera
-├── tests/                   # Integration test suite (129 tests)
+├── tests/                   # Integration test suite (135 tests)
 │   ├── common/mod.rs        # Test infrastructure & macros
 │   ├── test_auth.rs         # Authentication & authorization (19 tests)
-│   ├── test_algorithms.rs   # Scheduling algorithms (26 tests)
+│   ├── test_algorithms.rs   # Scheduling algorithms + reschedule + room assignment (32 tests)
 │   ├── test_appointments.rs # Appointment booking (16 tests)
 │   ├── test_availability.rs # Doctor availability (3 tests)
 │   ├── test_records.rs      # Medical records + PDF export (6 tests)
@@ -250,9 +250,9 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 | Criterion | Weight | Our Approach |
 |---|---|---|
 | System Architecture & OOP Design | 15% | Modular crate with 5 domains; 4 custom traits (`TimeSlotted`, `StatusManaged`, `Prioritized`, `Reportable`) demonstrating polymorphism; `FromRequest`/`ResponseError`/`FromRow` trait impls; structs with `impl` blocks; separation of concerns (models/services/handlers) |
-| Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 4 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap, greedy doctor reassignment); transactional priority override; waitlist with promotion; session-based auth; role guards; automatic doctor-room allocation |
+| Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 4 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap, greedy doctor reassignment); transactional priority override; appointment rescheduling (transactional slot-rebuild); automatic doctor-room allocation; waitlist with promotion; session-based auth; role guards |
 | Database Design & Integration | 10% | 13 normalized tables across 4 migrations; foreign keys with CASCADE/SET NULL; composite + partial-unique indexes on the slot-occupancy ledger; SQLx migrations |
-| Frontend Design & SSR | 10% | Tera template inheritance (29 templates); Font Awesome 6 icons; Bulma responsive CSS with mobile navbar; itemized invoice builder; hero-style empty states; breadcrumbs; fade-in animations |
+| Frontend Design & SSR | 10% | Tera template inheritance (30 templates); Font Awesome 6 icons; Bulma responsive CSS with mobile navbar; itemized invoice builder; hero-style empty states; breadcrumbs; fade-in animations |
 | Documentation, Presentation & Demo | 10% | Professional README; WALKTHROUGH.md guide; inline code documentation; clear setup instructions |
 
 ### Individual Extended Features (40%)
@@ -288,19 +288,19 @@ Aligned with the spec v1.2.2 submission structure:
 cargo test
 ```
 
-### Test Coverage (129 tests, 8 suites)
+### Test Coverage (135 tests, 8 suites)
 
 | Test Suite | Tests | Covers |
 |---|---|---|
 | `test_auth.rs` | 19 | Registration (patient/doctor/admin), duplicate rejection, login success/failure/nonexistent, login-with-email, logout, role guards, admin-only routes, profile PII anti-enumeration |
-| `test_algorithms.rs` | 26 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after/full/gap/multi-gap), priority (bump/equal-rejected/normal-gate/ordering-proof), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers) |
+| `test_algorithms.rs` | 32 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after/full/gap/multi-gap), priority (bump/equal-rejected/normal-gate/ordering-proof), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers), **reschedule (move+frees-old-slot / conflict-rejected / self-overlap-allowed / ownership)**, **room assignment (sets-room / blocks-double-booking / unknown-room-rejected)** |
 | `test_appointments.rs` | 16 | Booking form, HTTP booking (success/conflict/invalid-time), priority booking HTTP, cancel HTTP + list-verify, waitlist (doctor/patient), suggest form, promote forbidden (patient) |
 | `test_availability.rs` | 3 | Doctor availability page, set-availability form, submit + verify persistence |
 | `test_records.rs` | 6 | Records list, create form (doctor), patient blocked from create, HTTP create-submit + detail verification, **PDF export download (content-type + `%PDF` magic), PDF ownership enforcement** |
 | `test_billing.rs` | 6 | Billing page (patient), create-invoice requires admin, admin creates invoice (single/multi-item), bad items rejected, payment recording |
 | `test_extended.rs` | 17 | Availability enforcement (blocked/recurring/open-default/past-date), doctor reassignment (success/failure-no-alternative/skips-busy), patient timeline (multi-entity merge), prescriptions, medical reports, audit logging, dashboard stats |
 | **Unit tests** (in `src/`) | **36** | Trait default-method tests (overlap/duration/priority/status), `DaySchedule` pure gap-finding, enum serialization round-trips, **PDF word-wrap + real `%PDF` byte rendering** |
-| **Total** | **129** | **100% pass rate** |
+| **Total** | **135** | **100% pass rate** |
 
 ### Architecture
 

@@ -92,6 +92,12 @@
             </div>
         </div>
 
+        {# Room and priority are clinical/resource decisions, so they are shown
+           only to staff (doctor/admin). A patient's form omits these fields
+           entirely — room_id is then simply absent and decodes to "no room",
+           which also avoids the empty-string parse error the old
+           "-- No specific room --" option produced. #}
+        {% if user.role == "doctor" or user.role == "admin" %}
         <hr>
 
         <div class="columns">
@@ -112,6 +118,7 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
         <hr>
 
@@ -121,12 +128,16 @@
                     <i class="fas fa-check-circle mr-1"></i>Book (Standard)
                 </button>
             </div>
+            {# Priority override (bumping a lower-priority booking) is a triage
+               decision, so it is staff-only — patients only get standard booking. #}
+            {% if user.role == "doctor" or user.role == "admin" %}
             <div class="control">
                 <button class="button is-danger is-medium" type="submit" formaction="/appointments/book/priority"
                         title="If slot is taken by a lower-priority appointment, it will be bumped">
                     <i class="fas fa-star mr-1"></i>Book (Priority Override)
                 </button>
             </div>
+            {% endif %}
             <div class="control">
                 <a class="button is-light is-medium" href="/appointments">
                     <i class="fas fa-times mr-1"></i>Cancel
