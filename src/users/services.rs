@@ -336,8 +336,13 @@ pub async fn update_doctor(
         .fetch_optional(pool)
         .await?;
 
-    let specialization = form.specialization.as_deref().filter(|s| !s.is_empty()).unwrap_or(Doctor::DEFAULT_SPECIALIZATION);
-    let license_number = form.license_number.as_deref().filter(|s| !s.is_empty()).unwrap_or(Doctor::DEFAULT_LICENSE);
+    // Reuse the shared `non_empty` helper (trim + drop blanks) like
+    // `update_patient` and `create_staff_user`, falling back to the defaults
+    // when the field is absent or whitespace-only.
+    let specialization =
+        non_empty(&form.specialization).unwrap_or_else(|| Doctor::DEFAULT_SPECIALIZATION.to_string());
+    let license_number =
+        non_empty(&form.license_number).unwrap_or_else(|| Doctor::DEFAULT_LICENSE.to_string());
     let phone = non_empty(&form.phone);
 
     if let Some((did,)) = doctor {
@@ -346,7 +351,7 @@ pub async fn update_doctor(
             "UPDATE doctors SET specialization = ?, license_number = ?, phone = ? WHERE user_id = ?
              RETURNING id, user_id, specialization, license_number, phone",
         )
-        .bind(specialization).bind(license_number).bind(&phone)
+        .bind(&specialization).bind(&license_number).bind(&phone)
         .bind(user_id)
         .fetch_one(pool).await
         .map_err(|e| e.into())
@@ -356,7 +361,7 @@ pub async fn update_doctor(
              VALUES (?, ?, ?, ?)
              RETURNING id, user_id, specialization, license_number, phone",
         )
-        .bind(user_id).bind(specialization).bind(license_number).bind(&phone)
+        .bind(user_id).bind(&specialization).bind(&license_number).bind(&phone)
         .fetch_one(pool).await
         .map_err(|e| e.into())
     }

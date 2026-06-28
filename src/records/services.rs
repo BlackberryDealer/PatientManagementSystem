@@ -2,8 +2,8 @@ use crate::auth::Role;
 use crate::db;
 use crate::errors::AppError;
 use crate::records::models::{
-    CreateRecordForm, MedicalRecord, Prescription, PrescriptionForm, RecordReportData,
-    TimelineEvent, TimelineEventKind,
+    CreateRecordForm, MedicalRecord, Prescription, PrescriptionForm, RecordDetail,
+    RecordReportData, TimelineEvent, TimelineEventKind,
 };
 use crate::traits::{Reportable, StatusManaged};
 use sqlx::SqlitePool;
@@ -96,6 +96,27 @@ pub async fn get_record_checked(
     Ok(record)
 }
 
+/// Assemble the record-detail view (record + resolved patient/doctor names),
+/// enforcing the same patient-ownership rule as `get_record_checked`. All the
+/// persistence lives here so the route handler stays a pure HTTP-lifecycle
+/// function (Route -> Logic/DB -> render).
+pub async fn get_record_detail_checked(
+    pool: &SqlitePool,
+    record_id: i64,
+    user_id: i64,
+    role: Role,
+) -> Result<RecordDetail, AppError> {
+    let record = get_record_checked(pool, record_id, user_id, role).await?;
+    // Names fall back to "#id" rather than erroring (matching the previous
+    // inline handler behaviour), so a record pointing at a removed patient or
+    // doctor row still renders.
+    let patient_name = get_patient_name(pool, record.patient_id)
+        .await
+        .unwrap_or_else(|_| format!("Patient #{}", record.patient_id));
+    let doctor_name = get_doctor_name(pool, record.doctor_id).await?;
+    Ok(RecordDetail { record, patient_name, doctor_name })
+}
+
 /// Get prescriptions for a patient.
 pub async fn get_prescriptions_for_patient(
     pool: &SqlitePool,
@@ -177,6 +198,20 @@ pub async fn get_patient_name(pool: &SqlitePool, patient_id: i64) -> Result<Stri
     .await?
     .map(|(name,)| name)
     .ok_or_else(|| AppError::NotFound("Patient not found".into()))
+}
+
+/// Display name for a doctor by their doctors-table row ID (sibling of
+/// `get_patient_name`). Falls back to "Doctor #N" rather than erroring, so a
+/// record pointing at a since-removed doctor still renders.
+pub async fn get_doctor_name(pool: &SqlitePool, doctor_id: i64) -> Result<String, AppError> {
+    Ok(sqlx::query_as::<_, (String,)>(
+        "SELECT u.full_name FROM doctors d JOIN users u ON d.user_id = u.id WHERE d.id = ?",
+    )
+    .bind(doctor_id)
+    .fetch_optional(pool)
+    .await?
+    .map(|(name,)| name)
+    .unwrap_or_else(|| format!("Doctor #{doctor_id}")))
 }
 
 /// Build a patient's full chronological history: appointments, medical

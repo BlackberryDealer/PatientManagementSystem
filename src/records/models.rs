@@ -204,6 +204,17 @@ impl TimelineEvent {
     }
 }
 
+/// Joined view: a medical record plus its resolved patient/doctor display
+/// names, for the detail page. Mirrors `RecordReportData` — the service layer
+/// owns every name lookup so the route handler only extracts inputs and
+/// renders (it never queries the database itself).
+#[derive(Debug, Serialize)]
+pub struct RecordDetail {
+    pub record: MedicalRecord,
+    pub patient_name: String,
+    pub doctor_name: String,
+}
+
 /// Data bundle for the printable medical report (advanced feature,
 /// project spec: "medical report generation").
 #[derive(Debug, Serialize)]

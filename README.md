@@ -31,7 +31,8 @@ Each team member implements one or more advanced features aligned with the offic
 |---|---|---|---|
 | **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage via `BinaryHeap` | Lennon | ✅ Implemented |
 | **Time slot validation** | Conflict detection & earliest-slot suggestion algorithm | Lennon | ✅ Implemented |
-| **Scheduling algorithms** | Doctor-room auto-allocation (daily room assignment per doctor) | Dylan | ✅ Implemented |
+| **Scheduling algorithms** | Lazy doctor-room auto-allocation (`resolve_room()`) with 3-level fallback and race-safe `INSERT OR IGNORE`; availability enforcement engine — 3-rule priority system (blocked → windowed → open default) in the critical path of all 4 booking algorithms | Dylan | ✅ Implemented |
+| **Audit logging** | Immutable action trail (`src/audit/`) recording actor, action, entity, and entity ID across appointments, records, and PDF export; admin-only view | Dylan | ✅ Implemented |
 | **Patient history timelines** | Chronological record view with appointment/record/prescription/invoice merging | Raees | ✅ Implemented |
 | **Medical report PDF generation** | Server-side PDF export of a medical report via the pure-Rust `printpdf` crate (paginated, word-wrapped, no external binaries) | Raees | ✅ Implemented |
 | **Role-based staff access** | Type-level role enforcement via Rust trait system (`AuthUser`, `require_role`) | Afif | ✅ Implemented |
@@ -169,7 +170,7 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availabili
 |---|---|---|---|
 | `users` + `auth` | Patient Registration, Doctor Management | **Role-based staff access** — type-level role enforcement | Afif |
 | `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist with `BinaryHeap` priority triage; **Time slot validation** — overlap detection & earliest-slot algorithm | Lennon |
-| `availability` | Doctor Management | **Scheduling algorithms** — doctor-room auto-allocation (daily room assignment per doctor) | Dylan |
+| `availability` + `audit` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement used by all 4 booking paths; **Audit logging** — immutable cross-cutting action trail | Dylan |
 | `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view with multi-entity merging | Raees |
 | `billing` | Billing | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates | Hanzalah |
 
