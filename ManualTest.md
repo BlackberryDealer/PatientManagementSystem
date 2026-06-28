@@ -1,5 +1,3 @@
----
-
 # 🏥 Manual Vetting Guide
 
 ## Step 1 — Start the Server
