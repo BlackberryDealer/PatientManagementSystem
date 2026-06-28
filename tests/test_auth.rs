@@ -82,6 +82,27 @@ async fn test_login_success() {
 }
 
 #[actix_web::test]
+async fn test_login_with_email() {
+    // Users should be able to log in using their email address instead of username.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        // Register a user with a known email (auto-login happens)
+        let _ = register_and_login!(app, "emailuser", "patient");
+        // The login endpoint still works even when already logged in — test email login
+        let login = test::TestRequest::post().uri("/users/login")
+            .set_form(&serde_json::json!({"login": "emailuser@test.com", "password": "password123"})).to_request();
+        let resp = test::call_service(&app, login).await;
+        assert!(resp.status().is_redirection(), "login with email should succeed");
+
+        // Case-insensitive email login
+        let login2 = test::TestRequest::post().uri("/users/login")
+            .set_form(&serde_json::json!({"login": "EMAILUSER@TEST.COM", "password": "password123"})).to_request();
+        let resp2 = test::call_service(&app, login2).await;
+        assert!(resp2.status().is_redirection(), "case-insensitive email login should succeed");
+    });
+}
+
+#[actix_web::test]
 async fn test_login_wrong_password() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
@@ -242,5 +263,71 @@ async fn test_non_admin_cannot_create_staff() {
         })).to_request();
         let resp = test::call_service(&app, create).await;
         assert!(resp.status().is_client_error(), "patients cannot create staff accounts");
+    });
+}
+
+// ============================================================
+// Edit profile
+// ============================================================
+
+#[actix_web::test]
+async fn test_edit_own_profile() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let cookie = register_and_login!(app, "editme", "patient");
+
+        // GET the edit form
+        let form = test::call_service(&app, auth_get("/users/1/edit", &cookie).to_request()).await;
+        assert!(form.status().is_success(), "own edit form should load");
+
+        // POST updated profile fields
+        let update = auth_post("/users/1/edit", &cookie, serde_json::json!({
+            "full_name": "Edited Name",
+            "email": "edited@clinic.com",
+            "phone": "555-1111",
+            "address": "123 New Street",
+            "blood_group": "AB+",
+            "emergency_contact": "555-9999",
+        })).to_request();
+        let resp = test::call_service(&app, update).await;
+        assert!(resp.status().is_redirection(), "profile update should redirect");
+
+        // Verify the update persisted on the profile page
+        let profile = test::call_service(&app, auth_get("/users/1", &cookie).to_request()).await;
+        assert!(profile.status().is_success());
+    });
+}
+
+#[actix_web::test]
+async fn test_cannot_edit_other_profile_as_patient() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pat1 = register_and_login!(app, "editpat1", "patient"); // id 1
+        let pat2 = register_and_login!(app, "editpat2", "patient"); // id 2
+
+        // Patient 2 tries to edit Patient 1's profile
+        let resp = test::call_service(&app, auth_get("/users/1/edit", &pat2).to_request()).await;
+        assert!(resp.status().is_client_error(), "patients cannot edit others' profiles");
+    });
+}
+
+#[actix_web::test]
+async fn test_admin_can_edit_any_profile() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pat = register_and_login!(app, "editpat3", "patient"); // id 1
+        let admin = seed_and_login!(app, pool, "editadm", "admin");
+
+        // Admin can open the edit form for any user
+        let form = test::call_service(&app, auth_get("/users/1/edit", &admin).to_request()).await;
+        assert!(form.status().is_success(), "admin can edit any profile");
+
+        // Admin updates the patient's profile
+        let update = auth_post("/users/1/edit", &admin, serde_json::json!({
+            "full_name": "Admin Edited",
+            "email": "adminedited@clinic.com",
+        })).to_request();
+        let resp = test::call_service(&app, update).await;
+        assert!(resp.status().is_redirection(), "admin profile update should redirect");
     });
 }

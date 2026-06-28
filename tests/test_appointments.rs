@@ -257,3 +257,43 @@ async fn test_patient_cannot_view_other_patients_appointment() {
         assert!(resp3.status().is_success(), "owner can view their own appointment");
     });
 }
+
+// ============================================================
+// Calendar view
+// ============================================================
+
+#[actix_web::test]
+async fn test_calendar_view_loads() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "caldoc", "doctor");
+
+        // Calendar page should render for logged-in users
+        let resp = test::call_service(&app, auth_get("/appointments/calendar", &dcookie).to_request()).await;
+        assert!(resp.status().is_success(), "calendar page should render");
+    });
+}
+
+#[actix_web::test]
+async fn test_calendar_view_with_query_params() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let cookie = register_and_login!(app, "calpat", "patient");
+
+        // Navigate to a specific month via query params
+        let resp = test::call_service(&app,
+            auth_get("/appointments/calendar?year=2027&month=6", &cookie).to_request()
+        ).await;
+        assert!(resp.status().is_success(), "calendar with query params should render");
+    });
+}
+
+#[actix_web::test]
+async fn test_calendar_requires_login() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let req = test::TestRequest::get().uri("/appointments/calendar").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_client_error(), "calendar requires authentication");
+    });
+}
