@@ -252,8 +252,9 @@ PatientManagementSystem/
 ├── migrations/                 ← 🗄️ Database schema versions
 │   ├── 001_initial_schema.sql  ←    Creates all 13 tables and indexes
 │   ├── 002_rooms_priority.sql  ←    Seeds default consultation rooms
-│   ├── 003_audit_log.sql       ←    Immutable audit-trail table
-│   └── 004_fix_payment_dates.sql ←  Data migration: normalise payment timestamps
+│   ├── 003_audit_log.sql       ←    Immutable action trail table
+│   ├── 004_fix_payment_dates.sql
+│   └── 005_doctor_room_assignments.sql ← Doctor-room auto-allocation table
 │
 ├── tests/                      ← 🧪 Integration test suite (129 tests)
 │   ├── common/
@@ -295,7 +296,7 @@ PatientManagementSystem/
     │
     ├── appointments/           ← 📅 Appointment scheduling module (CORE)
     │   ├── mod.rs
-    │   ├── models.rs           ←    Appointment, Room, Priority, WaitlistEntry, forms
+    │   ├── models.rs           ←    Appointment, Room, DoctorRoomAssignment, Priority, WaitlistEntry, forms
     │   ├── services.rs         ←    4 scheduling algorithms, waitlist, priority queue
     │   ├── handlers.rs         ←    List, book, priority-book, suggest, waitlist, cancel
     │   └── templates/
@@ -894,17 +895,17 @@ pub async fn check_conflict(
     appointment_date: &str,
     start_time: &str,
     end_time: &str,
-    room_id: Option<i64>,              // NEW: also checks room conflicts
+    room_id: i64,                        // Always checked — rooms are auto-assigned
     exclude_appointment_id: Option<i64>,
 ) -> Result<bool, AppError> {
-    // Builds SQL dynamically: always checks doctor + date,
-    // optionally checks room_id and/or excludes a specific appointment
+    // Builds SQL: always checks doctor + date + room,
+    // optionally excludes a specific appointment
 }
 ```
 
 **How it works:** The overlap condition is `A_start < B_end AND A_end > B_start`. The SQL binds are intentionally swapped: `end_time` (new) goes to the first `?`, `start_time` (new) goes to the second `?`. This single condition catches ALL three overlap cases (new-starts-during, new-ends-during, new-envelops-existing).
 
-**Room support:** When `room_id` is provided, the query also checks `AND room_id = ?`, preventing double-booking of consultation rooms and equipment.
+**Room support:** Every appointment has an auto-assigned room, so `room_id` is always checked (`AND room_id = ?`). This prevents double-booking of both doctors and consultation rooms/equipment.
 
 #### Algorithm 2: Earliest Available Slot
 
@@ -963,9 +964,9 @@ pub async fn book_with_priority(
 
 > **"BinaryHeap"** = A tree-based data structure where the "largest" (or in our case, "most urgent") element is always at the top. Insertion and extraction are O(log n). We use it to efficiently retrieve the highest-priority patient from the waitlist.
 
-### 9.2b Rooms & Resource Scheduling
+### 9.2b Rooms & Resource Scheduling (Auto-Allocation)
 
-The `rooms` table (migration 002) adds resource coordination to the system. Six rooms are seeded automatically:
+The `rooms` table (migration 002) provides six consultation and specialist rooms seeded automatically. A `doctor_room_assignments` table (migration 005) allocates one room per doctor per day:
 
 | Room | Type | Floor |
 |---|---|---|
@@ -974,7 +975,13 @@ The `rooms` table (migration 002) adds resource coordination to the system. Six 
 | X-Ray Suite | equipment | Floor 3 |
 | Lab Room | lab | Floor 3 |
 
-Appointments can optionally assign a room via the booking form's room dropdown. When a room is specified, `check_conflict` also verifies that the room isn't double-booked at that time — same overlap logic, same SQL, just with an additional `AND room_id = ?` clause.
+**How auto-allocation works:**
+1. At booking time, `resolve_room()` checks if the doctor already has a room assigned for that date.
+2. If yes → reuses it. If no → claims the first available active room and persists the assignment.
+3. Every appointment always has a room — room conflicts are always checked via `AND room_id = ?` in `check_conflict`.
+4. Patients never see a room dropdown; the booking form shows "Auto-Assigned Room" instead.
+
+This design ensures each doctor works from a consistent room each day while eliminating manual room selection from the patient booking flow.
 
 ### 9.2c Waitlist & Priority Queue
 

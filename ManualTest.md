@@ -66,7 +66,7 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] Doctor dropdown shows Dr. Smith and Dr. Jones
 - [ ] Date picker (YYYY-MM-DD format)
 - [ ] Start/End time dropdowns on 30-min grid
-- [ ] Room dropdown (optional)
+- [ ] Room is auto-assigned (no manual room selection)
 - [ ] Priority radio buttons: Emergency, Urgent, Normal, Follow-up
 - [ ] Notes textarea
 - [ ] **Try booking a past date** (e.g. 2020-01-01) → should show error

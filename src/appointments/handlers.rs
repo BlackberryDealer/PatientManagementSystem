@@ -42,12 +42,10 @@ pub async fn book_form(
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let doctors = services::get_all_doctors(pool.get_ref()).await?;
-    let rooms = services::get_all_rooms(pool.get_ref()).await?;
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("doctors", &doctors);
-    ctx.insert("rooms", &rooms);
     ctx.insert("start_slots", &services::start_time_slots());
     ctx.insert("end_slots", &services::end_time_slots());
     ctx.insert("title", "Book Appointment");
@@ -106,12 +104,10 @@ pub async fn suggest_slot_form(
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     let doctors = services::get_all_doctors(pool.get_ref()).await?;
-    let rooms = services::get_all_rooms(pool.get_ref()).await?;
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("doctors", &doctors);
-    ctx.insert("rooms", &rooms);
     ctx.insert("suggested_slot", &Option::<String>::None);
     ctx.insert("title", "Find Available Slot");
     let rendered = tera.render("appointments/suggest.html.tera", &ctx)?;
@@ -130,12 +126,10 @@ pub async fn suggest_slot(
 ) -> Result<HttpResponse, AppError> {
     let result = services::find_earliest_slot(pool.get_ref(), &form).await?;
     let doctors = services::get_all_doctors(pool.get_ref()).await?;
-    let rooms = services::get_all_rooms(pool.get_ref()).await?;
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("doctors", &doctors);
-    ctx.insert("rooms", &rooms);
     ctx.insert("suggested_slot", &result);
     ctx.insert("form_doctor_id", &form.doctor_id);
     ctx.insert("form_date", &form.appointment_date);

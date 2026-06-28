@@ -43,8 +43,8 @@
 
             <div class="column is-6">
                 <div class="notification is-info is-light">
-                    <p><i class="fas fa-info-circle mr-1"></i><strong>Conflict Detection Active</strong></p>
-                    <p class="is-size-7 mt-1">The system prevents double-booking by checking for overlapping appointments. If the slot is already taken, you'll be asked to pick a different time.</p>
+                    <p><i class="fas fa-info-circle mr-1"></i><strong>Auto-Assigned Room</strong></p>
+                    <p class="is-size-7 mt-1">A room is automatically assigned from the doctor's daily allocation. The system prevents double-booking by checking for overlapping appointments.</p>
                 </div>
             </div>
         </div>
@@ -95,22 +95,6 @@
         <hr>
 
         <div class="columns">
-            <div class="column is-6">
-                <div class="field">
-                    <label class="label"><i class="fas fa-door-open mr-1"></i>Room <span class="has-text-grey">(optional)</span></label>
-                    <div class="control">
-                        <div class="select is-fullwidth">
-                            <select name="room_id">
-                                <option value="">-- No specific room --</option>
-                                {% for r in rooms %}
-                                <option value="{{ r.id }}">{{ r.name }} ({{ r.room_type }})</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </div>
-                    <p class="help">Assign a consultation room. Room conflicts are also checked.</p>
-                </div>
-            </div>
             <div class="column is-6">
                 <div class="field">
                     <label class="label"><i class="fas fa-flag mr-1"></i>Priority</label>

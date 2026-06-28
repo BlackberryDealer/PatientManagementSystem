@@ -25,6 +25,7 @@ async fn main() {
     sqlx::query("DELETE FROM medical_records").execute(&pool).await.unwrap();
     sqlx::query("DELETE FROM waitlist").execute(&pool).await.unwrap();
     sqlx::query("DELETE FROM appointments").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM doctor_room_assignments").execute(&pool).await.unwrap();
     sqlx::query("DELETE FROM doctor_availability").execute(&pool).await.unwrap();
     sqlx::query("DELETE FROM audit_log").execute(&pool).await.unwrap();
     sqlx::query("DELETE FROM patients").execute(&pool).await.unwrap();
@@ -36,6 +37,7 @@ async fn main() {
 
     seed_users(&pool).await;
     seed_availability(&pool).await;
+    seed_room_assignments(&pool).await;
     seed_appointments(&pool).await;
     seed_medical_records(&pool).await;
     seed_prescriptions(&pool).await;
@@ -113,6 +115,33 @@ async fn seed_availability(pool: &SqlitePool) {
     ).execute(pool).await.unwrap();
 
     println!("done (11 slots)");
+}
+
+async fn seed_room_assignments(pool: &SqlitePool) {
+    print!("  Creating room assignments... ");
+
+    // Doctor 1 (Dr. Smith) → Consultation Room A on most days
+    // Doctor 2 (Dr. Jones) → Consultation Room B on most days
+    let assignments = [
+        // doctor_id, room_id, date
+        (1, 1, "2026-07-06"),
+        (2, 2, "2026-07-06"),
+        (1, 1, "2026-07-07"),
+        (2, 2, "2026-07-07"),
+        (1, 1, "2026-07-08"),
+        (2, 2, "2026-07-08"),
+    ];
+
+    for (doc, room, date) in &assignments {
+        sqlx::query(
+            "INSERT OR IGNORE INTO doctor_room_assignments (doctor_id, room_id, assignment_date)
+             VALUES (?, ?, ?)",
+        )
+        .bind(doc).bind(room).bind(date)
+        .execute(pool).await.unwrap();
+    }
+
+    println!("done (6 assignments)");
 }
 
 async fn seed_appointments(pool: &SqlitePool) {

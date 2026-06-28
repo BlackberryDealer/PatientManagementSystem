@@ -68,7 +68,8 @@ PatientManagementSystem/
 │   ├── 001_initial_schema.sql
 │   ├── 002_rooms_priority.sql
 │   ├── 003_audit_log.sql
-│   └── 004_fix_payment_dates.sql
+│   ├── 004_fix_payment_dates.sql
+│   └── 005_doctor_room_assignments.sql
 ├── templates/
 │   ├── base.html.tera
 │   └── shared/
@@ -168,7 +169,7 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availabili
 |---|---|---|---|
 | `users` + `auth` | Patient Registration, Doctor Management | **Role-based staff access** — type-level role enforcement | Afif |
 | `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist with `BinaryHeap` priority triage; **Time slot validation** — overlap detection & earliest-slot algorithm | Lennon |
-| `availability` | Doctor Management | **Scheduling algorithms** — multi-resource scheduling (rooms, equipment, staff) | Dylan |
+| `availability` | Doctor Management | **Scheduling algorithms** — doctor-room auto-allocation (daily room assignment per doctor) | Dylan |
 | `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view with multi-entity merging | Raees |
 | `billing` | Billing | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates | Hanzalah |
 
@@ -190,15 +191,16 @@ The schema is fully normalized with 13 tables across 4 migrations:
 - `users` — authentication & role (patient/doctor/admin)
 - `patients`, `doctors` — role-specific profile tables
 - `doctor_availability` — recurring weekly slots + blocked dates
-- `appointments` — scheduled meetings with priority (1-4) and room assignment
+- `appointments` — scheduled meetings with priority (1-4) and auto-assigned rooms
 - `rooms` — consultation rooms, procedure rooms, and equipment resources
+- `doctor_room_assignments` — daily doctor-to-room allocation (one room per doctor per day)
 - `waitlist` — priority queue for patients awaiting slots
 - `medical_records` — diagnosis & treatment per appointment
 - `prescriptions` — medication orders
 - `invoices`, `invoice_items`, `payments` — billing module
 - `audit_log` — immutable action trail (who did what, when)
 
-See `migrations/001_initial_schema.sql`, `migrations/002_rooms_priority.sql`, `migrations/003_audit_log.sql`, and `migrations/004_fix_payment_dates.sql` for the full DDL and data migrations.
+See `migrations/001_initial_schema.sql` through `migrations/005_doctor_room_assignments.sql` for the full DDL and data migrations.
 
 ---
 
@@ -206,14 +208,14 @@ See `migrations/001_initial_schema.sql`, `migrations/002_rooms_priority.sql`, `m
 
 ### Scheduling Algorithms (All Implemented)
 
-- **Algorithm 1 — Time Interval Overlap Detection**: `check_conflict()` prevents double-booking using the overlap condition `start_time < ? AND end_time > ?`. Supports both doctor and room conflict checking. Returns `bool` — `true` if a conflict exists.
+- **Algorithm 1 — Time Interval Overlap Detection**: `check_conflict()` prevents double-booking using the overlap condition `start_time < ? AND end_time > ?`. Always checks both doctor and room conflicts (rooms are auto-assigned per doctor/day). Returns `bool` — `true` if a conflict exists.
 - **Algorithm 2 — Earliest Available Slot**: `find_earliest_slot()` scans a doctor's schedule for a given date, walks through the gaps between existing appointments, and returns the first free slot ≥ the requested duration. Working hours: 08:00–17:00. Route: `GET/POST /appointments/suggest`.
 - **Algorithm 3 — Priority-Based Scheduling**: `book_with_priority()` allows Emergency (1) and Urgent (2) appointments to bump lower-priority ones to the waitlist. Uses Rust's `BinaryHeap<PriorityItem>` for the priority queue (reversed `Ord` implementation). Bumping is transactional — all mutations run inside `pool.begin()...tx.commit()`. Route: `POST /appointments/book/priority`.
 - **Algorithm 4 — Doctor Reassignment (greedy, load-balanced)**: `find_alternative_doctor()` ranks every other doctor by same-specialization-first (continuity of care) then fewest appointments that day (load balancing), and picks the first who is both available and conflict-free. `reassign_appointment()` moves the appointment and its occupancy slots atomically. Route: `POST /appointments/{id}/reassign`.
 
-### Room & Resource Scheduling
+### Room & Resource Scheduling (Auto-Allocation)
 
-- **`rooms` table**: 6 seeded rooms (3 consultation, 1 procedure, 1 X-ray, 1 lab). Appointments can optionally assign a room. Room conflicts are checked alongside doctor conflicts.
+- **`rooms` table**: 6 seeded rooms (3 consultation, 1 procedure, 1 equipment, 1 lab). Rooms are automatically assigned per doctor per day via the `doctor_room_assignments` table — patients no longer select a room manually. The first booking of the day claims a free room for that doctor. Room conflicts are always checked alongside doctor conflicts.
 - **`waitlist` table**: Tracks bumped patients with priority, status (waiting→offered→accepted→expired), and promotion support. Routes: `GET /appointments/waitlist`, `POST /appointments/waitlist/join`, `POST /appointments/waitlist/{id}/promote`.
 
 ### OOP Traits (`src/traits.rs`)
@@ -248,7 +250,7 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 | Criterion | Weight | Our Approach |
 |---|---|---|
 | System Architecture & OOP Design | 15% | Modular crate with 5 domains; 4 custom traits (`TimeSlotted`, `StatusManaged`, `Prioritized`, `Reportable`) demonstrating polymorphism; `FromRequest`/`ResponseError`/`FromRow` trait impls; structs with `impl` blocks; separation of concerns (models/services/handlers) |
-| Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 4 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap, greedy doctor reassignment); transactional priority override; waitlist with promotion; session-based auth; role guards; room/resource scheduling |
+| Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 4 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap, greedy doctor reassignment); transactional priority override; waitlist with promotion; session-based auth; role guards; automatic doctor-room allocation |
 | Database Design & Integration | 10% | 13 normalized tables across 4 migrations; foreign keys with CASCADE/SET NULL; composite + partial-unique indexes on the slot-occupancy ledger; SQLx migrations |
 | Frontend Design & SSR | 10% | Tera template inheritance (29 templates); Font Awesome 6 icons; Bulma responsive CSS with mobile navbar; itemized invoice builder; hero-style empty states; breadcrumbs; fade-in animations |
 | Documentation, Presentation & Demo | 10% | Professional README; WALKTHROUGH.md guide; inline code documentation; clear setup instructions |
@@ -257,7 +259,7 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 
 | Criterion | Weight | Evidence |
 |---|---|---|
-| Extended Feature Development | 15% | Each member's advanced feature (see table above) — independently implemented with measurable complexity: priority-queue waitlist, multi-resource scheduling, patient timelines, **server-side PDF report generation**, analytics dashboard, audit logging |
+| Extended Feature Development | 15% | Each member's advanced feature (see table above) — independently implemented with measurable complexity: priority-queue waitlist, doctor-room auto-allocation, patient timelines, **server-side PDF report generation**, analytics dashboard, audit logging |
 | Technical Complexity & Problem Solving | 15% | 4 scheduling algorithms with an O(log n) BinaryHeap priority queue; transactional database mutations; race-proof slot-occupancy ledger (UNIQUE-index double-booking guard); trait-based FromRequest extractors; pure-Rust PDF generation with manual page layout, word-wrap, and pagination; async/await throughout |
 | Individual Understanding & Contribution | 10% | Clear explanation during demo; documented in report; visible commit history per module |
 

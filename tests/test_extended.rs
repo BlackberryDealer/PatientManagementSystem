@@ -51,7 +51,6 @@ fn booking(doctor_id: i64, date: &str, start: &str, end: &str) -> BookAppointmen
         appointment_date: date.into(),
         start_time: start.into(),
         end_time: end.into(),
-        room_id: None,
         priority: Some(3),
         notes: None,
     }

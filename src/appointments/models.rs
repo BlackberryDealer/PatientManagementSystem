@@ -68,6 +68,22 @@ pub struct Room {
 }
 
 // ============================================================
+// DoctorRoomAssignment — doctor gets a room per day
+// ============================================================
+
+/// Each doctor is assigned exactly one room per day. Patients no longer
+/// choose a room when booking — the system resolves it automatically from
+/// this assignment. If no explicit assignment exists, the first booking of
+/// the day auto-claims any free room for that doctor.
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DoctorRoomAssignment {
+    pub id: i64,
+    pub doctor_id: i64,
+    pub room_id: i64,
+    pub assignment_date: chrono::NaiveDate,
+}
+
+// ============================================================
 // Appointment — core scheduling entity
 // ============================================================
 
@@ -133,13 +149,14 @@ impl Appointment {
 }
 
 /// Form data submitted when a patient books an appointment.
+/// Room is auto-assigned from the doctor's daily room allocation —
+/// patients no longer select a room manually.
 #[derive(Debug, Deserialize)]
 pub struct BookAppointmentForm {
     pub doctor_id: i64,
     pub appointment_date: String, // YYYY-MM-DD
     pub start_time: String,       // HH:MM
     pub end_time: String,         // HH:MM
-    pub room_id: Option<i64>,
     pub priority: Option<i32>,
     pub notes: Option<String>,
 }
@@ -164,12 +181,12 @@ impl BookAppointmentForm {
 }
 
 /// Form for the "suggest slot" feature — find next available time.
+/// Room is auto-assigned from the doctor's daily room allocation.
 #[derive(Debug, Deserialize)]
 pub struct SuggestSlotForm {
     pub doctor_id: i64,
     pub appointment_date: String,
     pub duration_minutes: i32,
-    pub room_id: Option<i64>,
 }
 
 impl SuggestSlotForm {
@@ -292,6 +309,7 @@ impl WaitlistEntry {
 }
 
 /// Form to add a patient to the waitlist.
+/// Room is auto-assigned from the doctor's daily room allocation.
 #[derive(Debug, Deserialize)]
 pub struct WaitlistForm {
     pub doctor_id: i64,
@@ -299,7 +317,6 @@ pub struct WaitlistForm {
     pub requested_start: String,
     pub requested_end: String,
     pub priority: i32,
-    pub room_id: Option<i64>,
     pub notes: Option<String>,
 }
 

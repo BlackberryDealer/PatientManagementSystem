@@ -25,7 +25,7 @@ use std::collections::BinaryHeap;
 /// Two intervals [A_start, A_end) and [B_start, B_end) overlap iff:
 ///   A_start < B_end AND A_end > B_start
 ///
-/// If `room_id` is provided, also checks room conflicts.
+/// Room is always checked — every appointment has an auto-assigned room.
 /// Returns `true` if a conflict exists.
 pub async fn check_conflict(
     pool: &SqlitePool,
@@ -33,7 +33,7 @@ pub async fn check_conflict(
     appointment_date: &str,
     start_time: &str,
     end_time: &str,
-    room_id: Option<i64>,
+    room_id: i64,
     exclude_appointment_id: Option<i64>,
 ) -> Result<bool, AppError> {
     let mut sql = String::from(
@@ -41,12 +41,10 @@ pub async fn check_conflict(
          WHERE doctor_id = ?
            AND appointment_date = ?
            AND status != 'cancelled'
-           AND start_time < ? AND end_time > ?",
+           AND start_time < ? AND end_time > ?
+           AND room_id = ?",
     );
 
-    if room_id.is_some() {
-        sql.push_str(" AND room_id = ?");
-    }
     if exclude_appointment_id.is_some() {
         sql.push_str(" AND id != ?");
     }
@@ -55,11 +53,9 @@ pub async fn check_conflict(
         .bind(doctor_id)
         .bind(appointment_date)
         .bind(end_time)   // A_start < B_end → start_time < end_time (new end)
-        .bind(start_time); // A_end > B_start → end_time > start_time (new start)
+        .bind(start_time) // A_end > B_start → end_time > start_time (new start)
+        .bind(room_id);
 
-    if let Some(rid) = room_id {
-        query = query.bind(rid);
-    }
     if let Some(eid) = exclude_appointment_id {
         query = query.bind(eid);
     }
@@ -88,30 +84,16 @@ pub async fn find_earliest_slot(
     form.validate()?;
 
     // Fetch existing appointments for the doctor on that date, sorted by start time.
-    // Also include any room conflicts if a room was specified.
-    let existing = if let Some(rid) = form.room_id {
-        sqlx::query_as::<_, (String, String)>(
-            "SELECT start_time, end_time FROM appointments
-             WHERE (doctor_id = ? OR room_id = ?) AND appointment_date = ?
-               AND status != 'cancelled'
-             ORDER BY start_time",
-        )
-        .bind(form.doctor_id)
-        .bind(rid)
-        .bind(&form.appointment_date)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as::<_, (String, String)>(
-            "SELECT start_time, end_time FROM appointments
-             WHERE doctor_id = ? AND appointment_date = ? AND status != 'cancelled'
-             ORDER BY start_time",
-        )
-        .bind(form.doctor_id)
-        .bind(&form.appointment_date)
-        .fetch_all(pool)
-        .await?
-    };
+    // Room is auto-assigned per doctor/day so we check doctor-level conflicts only.
+    let existing = sqlx::query_as::<_, (String, String)>(
+        "SELECT start_time, end_time FROM appointments
+         WHERE doctor_id = ? AND appointment_date = ? AND status != 'cancelled'
+         ORDER BY start_time",
+    )
+    .bind(form.doctor_id)
+    .bind(&form.appointment_date)
+    .fetch_all(pool)
+    .await?;
 
     // Map the booked rows to minute intervals, then delegate the gap-finding
     // math to the DaySchedule domain object (pure + unit-testable). Rows are
@@ -229,17 +211,20 @@ pub async fn book_with_priority(
     // Look up patient
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
+    // Auto-assign room from the doctor's daily allocation
+    let room_id = resolve_room(pool, form.doctor_id, &form.appointment_date).await?;
+
     // Check for conflicts
     let has_conflict = check_conflict(
         pool, form.doctor_id, &form.appointment_date,
-        &form.start_time, &form.end_time, form.room_id, None,
+        &form.start_time, &form.end_time, room_id, None,
     ).await?;
 
     if !has_conflict {
         return insert_appointment(
             pool, patient_id, form.doctor_id, &form.appointment_date,
             &form.start_time, &form.end_time, new_priority as i32,
-            form.room_id, &form.notes,
+            room_id, &form.notes,
         ).await;
     }
 
@@ -326,7 +311,7 @@ pub async fn book_with_priority(
         &form.start_time,
         &form.end_time,
         new_priority as i32,
-        form.room_id,
+        room_id,
         &form.notes,
         start_mins,
         end_mins,
@@ -343,6 +328,7 @@ pub async fn book_with_priority(
 // ============================================================
 
 /// Book an appointment after checking conflicts.
+/// Room is auto-assigned from the doctor's daily room allocation.
 pub async fn book_appointment(
     pool: &SqlitePool,
     patient_user_id: i64,
@@ -356,12 +342,14 @@ pub async fn book_appointment(
     ).await?;
 
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
-
     let priority = form.requested_priority() as i32;
+
+    // Auto-assign room from the doctor's daily allocation
+    let room_id = resolve_room(pool, form.doctor_id, &form.appointment_date).await?;
 
     let has_conflict = check_conflict(
         pool, form.doctor_id, &form.appointment_date,
-        &form.start_time, &form.end_time, form.room_id, None,
+        &form.start_time, &form.end_time, room_id, None,
     ).await?;
 
     if has_conflict {
@@ -375,7 +363,7 @@ pub async fn book_appointment(
     insert_appointment(
         pool, patient_id, form.doctor_id, &form.appointment_date,
         &form.start_time, &form.end_time, priority,
-        form.room_id, &form.notes,
+        room_id, &form.notes,
     ).await
 }
 
@@ -426,7 +414,7 @@ async fn insert_slots(
     date: &str,
     start_mins: i32,
     end_mins: i32,
-    room_id: Option<i64>,
+    room_id: i64,
 ) -> Result<(), AppError> {
     let mut m = start_mins;
     while m < end_mins {
@@ -459,7 +447,7 @@ async fn insert_appointment_in_tx(
     start: &str,
     end: &str,
     priority: i32,
-    room_id: Option<i64>,
+    room_id: i64,
     notes: &Option<String>,
     start_mins: i32,
     end_mins: i32,
@@ -498,7 +486,7 @@ async fn insert_appointment(
     start: &str,
     end: &str,
     priority: i32,
-    room_id: Option<i64>,
+    room_id: i64,
     notes: &Option<String>,
 ) -> Result<Appointment, AppError> {
     let (start_mins, end_mins) = parse_slot(start, end)?;
@@ -529,6 +517,9 @@ pub async fn add_to_waitlist(
 
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
+    // Auto-assign room from the doctor's daily allocation
+    let room_id = resolve_room(pool, form.doctor_id, &form.appointment_date).await?;
+
     Ok(sqlx::query_as::<_, WaitlistEntry>(
         "INSERT INTO waitlist (patient_id, doctor_id, room_id, appointment_date,
          requested_start, requested_end, priority, notes, status)
@@ -538,7 +529,7 @@ pub async fn add_to_waitlist(
     )
     .bind(patient_id)
     .bind(form.doctor_id)
-    .bind(form.room_id)
+    .bind(room_id)
     .bind(&form.appointment_date)
     .bind(&form.requested_start)
     .bind(&form.requested_end)
@@ -618,13 +609,19 @@ pub async fn auto_promote_waitlist(
                 entry.start_time(), entry.end_time(),
             ).await.is_ok();
 
+            // Resolve room: use the stored one from the original booking, or auto-assign
+            let room_id = match entry.room_id {
+                Some(rid) => rid,
+                None => resolve_room(pool, entry.doctor_id, appointment_date).await?,
+            };
+
             // Use TimeSlotted trait to check conflict before querying DB
             let conflict = check_conflict(
                 pool, entry.doctor_id,
                 appointment_date,
                 entry.start_time(), // from TimeSlotted trait
                 entry.end_time(),   // from TimeSlotted trait
-                entry.room_id, None,
+                room_id, None,
             ).await?;
 
             if available && !conflict {
@@ -633,7 +630,7 @@ pub async fn auto_promote_waitlist(
                     appointment_date,
                     entry.start_time(), entry.end_time(),
                     entry.priority_level(), // from Prioritized trait
-                    entry.room_id, &entry.notes,
+                    room_id, &entry.notes,
                 ).await?;
 
                 entry.accept()?; // encapsulated state transition (&mut self)
@@ -670,11 +667,18 @@ pub async fn promote_from_waitlist(
         pool, entry.doctor_id, &date_str,
         &entry.requested_start, &entry.requested_end,
     ).await.is_ok();
+
+    // Resolve room: use the stored one from the original booking, or auto-assign
+    let room_id = match entry.room_id {
+        Some(rid) => rid,
+        None => resolve_room(pool, entry.doctor_id, &date_str).await?,
+    };
+
     let conflict = check_conflict(
         pool, entry.doctor_id,
         &date_str,
         &entry.requested_start, &entry.requested_end,
-        entry.room_id, None,
+        room_id, None,
     ).await?;
 
     if conflict || !available {
@@ -686,7 +690,7 @@ pub async fn promote_from_waitlist(
         pool, entry.patient_id, entry.doctor_id,
         &date_str,
         &entry.requested_start, &entry.requested_end,
-        entry.priority_level(), entry.room_id, &entry.notes,
+        entry.priority_level(), room_id, &entry.notes,
     ).await?;
 
     // Encapsulated state transition, then persist the entry's new status
@@ -920,7 +924,75 @@ pub async fn get_all_appointment_counts(
     Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
 }
 
-/// Get all doctors for dropdowns.
+/// Room auto-assignment: each doctor gets one room per day.
+/// Returns the existing assignment if one exists, otherwise claims
+/// the first available active room for that doctor+date and returns it.
+///
+/// "At the start of each day, a doctor is allocated a room."
+/// The first booking of the day triggers lazy auto-assignment.
+async fn resolve_room(
+    pool: &SqlitePool,
+    doctor_id: i64,
+    appointment_date: &str,
+) -> Result<i64, AppError> {
+    // 1. Already assigned for this date?
+    if let Some((room_id,)) = sqlx::query_as::<_, (i64,)>(
+        "SELECT room_id FROM doctor_room_assignments
+         WHERE doctor_id = ? AND assignment_date = ?",
+    )
+    .bind(doctor_id)
+    .bind(appointment_date)
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(room_id);
+    }
+
+    // 2. Find an active room NOT already assigned to another doctor on this date
+    let free_room = sqlx::query_as::<_, (i64, String)>(
+        "SELECT r.id, r.name FROM rooms r
+         WHERE r.is_active = 1
+           AND r.id NOT IN (
+               SELECT room_id FROM doctor_room_assignments
+               WHERE assignment_date = ? AND doctor_id != ?
+           )
+         LIMIT 1",
+    )
+    .bind(appointment_date)
+    .bind(doctor_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let room_id = match free_room {
+        Some((id, _)) => id,
+        None => {
+            // 3. Fallback: any active room (doctors may share if needed;
+            //    the appointment_slots UNIQUE index prevents double-booking)
+            let (id,) = sqlx::query_as::<_, (i64,)>(
+                "SELECT id FROM rooms WHERE is_active = 1 LIMIT 1",
+            )
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::Internal(
+                "No active rooms available in the system.".into(),
+            ))?;
+            id
+        }
+    };
+
+    // 4. Persist the assignment so subsequent bookings reuse it
+    sqlx::query(
+        "INSERT OR IGNORE INTO doctor_room_assignments (doctor_id, room_id, assignment_date)
+         VALUES (?, ?, ?)",
+    )
+    .bind(doctor_id)
+    .bind(room_id)
+    .bind(appointment_date)
+    .execute(pool)
+    .await?;
+
+    Ok(room_id)
+}
 pub async fn get_all_doctors(pool: &SqlitePool) -> Result<Vec<(i64, String)>, AppError> {
     Ok(sqlx::query_as::<_, (i64, String)>(
         "SELECT d.id, u.full_name FROM doctors d JOIN users u ON d.user_id = u.id ORDER BY u.full_name",
@@ -958,7 +1030,7 @@ pub async fn find_alternative_doctor(
     appointment_date: &str,
     start_time: &str,
     end_time: &str,
-    room_id: Option<i64>,
+    room_id: i64,
 ) -> Result<Option<(i64, String)>, AppError> {
     let candidates = sqlx::query_as::<_, (i64, String)>(
         "SELECT d.id, u.full_name
@@ -1017,8 +1089,15 @@ pub async fn reassign_appointment(
     .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
 
     let date_str = appt.appointment_date.format("%Y-%m-%d").to_string();
+
+    // Resolve room: use the stored one, or auto-assign for the original doctor
+    let room_id = match appt.room_id {
+        Some(rid) => rid,
+        None => resolve_room(pool, appt.doctor_id(), &date_str).await?,
+    };
+
     let (new_doctor_id, new_doctor_name) = find_alternative_doctor(
-        pool, appt.doctor_id(), &date_str, &appt.start_time, &appt.end_time, appt.room_id,
+        pool, appt.doctor_id(), &date_str, &appt.start_time, &appt.end_time, room_id,
     )
     .await?
     .ok_or_else(|| {
@@ -1047,7 +1126,7 @@ pub async fn reassign_appointment(
         .bind(appt.id)
         .execute(&mut *tx)
         .await?;
-    insert_slots(&mut tx, appt.id, appt.doctor_id(), &date_str, start_mins, end_mins, appt.room_id)
+    insert_slots(&mut tx, appt.id, appt.doctor_id(), &date_str, start_mins, end_mins, room_id)
         .await?;
     tx.commit().await?;
 
