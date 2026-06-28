@@ -172,6 +172,38 @@ pub async fn record_report(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
+/// GET /records/{id}/report.pdf — download the same medical report as a PDF.
+///
+/// Reuses the exact data bundle the HTML report renders from, then streams it
+/// through the pure-Rust PDF generator. Same ownership rule as the record
+/// itself (patients may only export their own).
+pub async fn record_report_pdf(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    let record_id = path.into_inner();
+    let record =
+        services::get_record_checked(pool.get_ref(), record_id, user.user_id, user.role)
+            .await?;
+    let report = services::build_record_report(pool.get_ref(), record).await?;
+
+    let pdf_bytes = crate::records::pdf::render_record_report_pdf(&report)?;
+
+    audit::record(
+        pool.get_ref(), &user, "record.report_exported", "medical_record", Some(record_id),
+        "Exported medical report as PDF",
+    ).await;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/pdf")
+        .append_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"medical-report-{record_id}.pdf\""),
+        ))
+        .body(pdf_bytes))
+}
+
 /// GET /records/{id} — view a single medical record
 pub async fn record_detail(
     pool: web::Data<sqlx::SqlitePool>,

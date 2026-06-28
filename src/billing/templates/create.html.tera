@@ -9,41 +9,73 @@
 </nav>
 
 <h1 class="title"><i class="fas fa-plus-circle mr-2"></i>Create Invoice</h1>
-<p class="subtitle is-6 has-text-grey mb-5">Generate a new invoice for a patient. Payment can be recorded after creation.</p>
+<p class="subtitle is-6 has-text-grey mb-5">Generate a new itemized invoice for a patient. Payment can be recorded after creation.</p>
 
 <div class="box fade-in">
-    <form method="POST" action="/billing/create">
+    <form method="POST" action="/billing/create" id="invoice-form">
         <div class="columns">
             <div class="column is-6">
                 <div class="field">
                     <label class="label"><i class="fas fa-user mr-1"></i>Patient ID</label>
                     <div class="control has-icons-left">
-                        <input class="input is-medium" type="number" name="patient_id" placeholder="Enter patient ID" required>
+                        <input class="input" type="number" name="patient_id" placeholder="Enter patient ID" required>
                         <span class="icon is-small is-left"><i class="fas fa-hashtag"></i></span>
                     </div>
                     <p class="help">The unique ID of the patient to bill.</p>
                 </div>
-
+            </div>
+            <div class="column is-6">
                 <div class="field">
                     <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Due Date</label>
                     <div class="control">
-                        <input class="input is-medium" type="date" name="due_date" required>
+                        <input class="input" type="date" name="due_date" required>
                     </div>
                     <p class="help">When the payment is expected.</p>
                 </div>
             </div>
-
-            <div class="column is-6">
-                <div class="notification is-warning is-light">
-                    <p><i class="fas fa-exclamation-triangle mr-1"></i><strong>Itemized Billing</strong></p>
-                    <p class="is-size-7 mt-1">This prototype creates an invoice with a default consultation fee ($100.00). Custom line items and itemized billing UI are planned for a future release.</p>
-                    <p class="is-size-7 mt-2"><i class="fas fa-lightbulb mr-1"></i>The invoice total can be manually adjusted after creation.</p>
-                </div>
-            </div>
         </div>
 
-        <!-- Stub: items field (JSON) — implement itemized form in production -->
-        <input type="hidden" name="items" value='[{"description":"Consultation","quantity":1,"unit_price":100.0}]'>
+        <label class="label"><i class="fas fa-list-ul mr-1"></i>Line Items</label>
+
+        <!-- JS-enhanced itemized builder. Each row is assembled into the
+             pipe-delimited `items` field (Description|quantity|unit_price) that
+             the server parses, with a live invoice total. -->
+        <div id="js-items">
+            <table class="table is-fullwidth is-bordered">
+                <thead>
+                    <tr>
+                        <th>Description</th>
+                        <th class="has-text-right" style="width:7rem">Qty</th>
+                        <th class="has-text-right" style="width:10rem">Unit Price</th>
+                        <th class="has-text-right" style="width:10rem">Line Total</th>
+                        <th style="width:3rem"></th>
+                    </tr>
+                </thead>
+                <tbody id="items-body"><!-- rows injected by JS --></tbody>
+                <tfoot>
+                    <tr>
+                        <th colspan="3" class="has-text-right">Invoice Total</th>
+                        <th class="has-text-right" id="grand-total">$0.00</th>
+                        <th></th>
+                    </tr>
+                </tfoot>
+            </table>
+            <button type="button" class="button is-link is-light" id="add-item">
+                <i class="fas fa-plus mr-1"></i>Add line item
+            </button>
+        </div>
+
+        <!-- Server-parsed field. JS assigns its name on load, so with JavaScript
+             disabled it is not submitted and the no-JS fallback below takes over. -->
+        <textarea id="items-field" class="is-hidden"></textarea>
+
+        <noscript>
+            <p class="help mb-2">Enter one line item per row as
+                <code>Description|quantity|unit_price</code> — e.g.
+                <code>Consultation Fee|1|80.00</code>.</p>
+            <textarea class="textarea" name="items" rows="4"
+                      placeholder="Consultation Fee|1|80.00">Consultation Fee|1|100.00</textarea>
+        </noscript>
 
         <hr>
 
@@ -61,4 +93,70 @@
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var body = document.getElementById('items-body');
+    var field = document.getElementById('items-field');
+    var totalEl = document.getElementById('grand-total');
+    // Activate the hidden field only when JS is available (otherwise the
+    // <noscript> textarea is the one that submits).
+    field.name = 'items';
+
+    function money(n) { return '$' + (isFinite(n) ? n : 0).toFixed(2); }
+
+    function makeRow(desc, qty, price) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td><input class="input is-small i-desc" type="text" placeholder="Description" value="' + (desc || '') + '"></td>' +
+            '<td><input class="input is-small has-text-right i-qty" type="number" min="1" step="1" value="' + (qty || 1) + '"></td>' +
+            '<td><input class="input is-small has-text-right i-price" type="number" min="0" step="0.01" value="' + (price || '0.00') + '"></td>' +
+            '<td class="has-text-right i-total">$0.00</td>' +
+            '<td class="has-text-centered"><button type="button" class="delete i-remove" title="Remove"></button></td>';
+        body.appendChild(tr);
+        sync();
+    }
+
+    function sync() {
+        var lines = [], grand = 0;
+        body.querySelectorAll('tr').forEach(function (tr) {
+            var desc = tr.querySelector('.i-desc').value.trim();
+            var qty = parseInt(tr.querySelector('.i-qty').value, 10);
+            var price = parseFloat(tr.querySelector('.i-price').value);
+            if (!isFinite(qty)) qty = 0;
+            if (!isFinite(price)) price = 0;
+            var lineTotal = qty * price;
+            tr.querySelector('.i-total').textContent = money(lineTotal);
+            if (desc && qty > 0 && price >= 0) {
+                lines.push(desc + '|' + qty + '|' + price.toFixed(2));
+                grand += lineTotal;
+            }
+        });
+        field.value = lines.join('\n');
+        totalEl.textContent = money(grand);
+    }
+
+    body.addEventListener('input', sync);
+    body.addEventListener('click', function (e) {
+        if (!e.target.classList.contains('i-remove')) return;
+        var rows = body.querySelectorAll('tr');
+        if (rows.length > 1) {
+            e.target.closest('tr').remove();
+        } else {
+            // Keep at least one row — just reset its fields.
+            e.target.closest('tr').querySelectorAll('input').forEach(function (i) {
+                i.value = i.classList.contains('i-qty') ? '1'
+                        : i.classList.contains('i-price') ? '0.00' : '';
+            });
+        }
+        sync();
+    });
+    document.getElementById('add-item').addEventListener('click', function () { makeRow('', 1, '0.00'); });
+
+    // Seed one example row.
+    makeRow('Consultation Fee', 1, '100.00');
+})();
+</script>
 {% endblock %}

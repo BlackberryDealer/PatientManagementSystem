@@ -12,9 +12,14 @@
         </nav>
     </div>
     <div class="level-right">
-        <button class="button is-primary" onclick="window.print()">
-            <i class="fas fa-print mr-1"></i>Print Report
-        </button>
+        <div class="buttons">
+            <a class="button is-link" href="/records/{{ report.record.id }}/report.pdf">
+                <i class="fas fa-file-pdf mr-1"></i>Download PDF
+            </a>
+            <button class="button is-primary" onclick="window.print()">
+                <i class="fas fa-print mr-1"></i>Print Report
+            </button>
+        </div>
     </div>
 </div>
 

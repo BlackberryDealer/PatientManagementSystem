@@ -1,5 +1,6 @@
 pub mod handlers;
 pub mod models;
+pub mod pdf;
 pub mod services;
 
 use actix_web::web;
@@ -15,6 +16,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/prescriptions/create", web::get().to(handlers::prescription_form))
             .route("/prescriptions/create", web::post().to(handlers::create_prescription))
             .route("/{id}", web::get().to(handlers::record_detail))
-            .route("/{id}/report", web::get().to(handlers::record_report)),
+            .route("/{id}/report", web::get().to(handlers::record_report))
+            .route("/{id}/report.pdf", web::get().to(handlers::record_report_pdf)),
     );
 }

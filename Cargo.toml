@@ -19,3 +19,6 @@ dotenv = "0.15"
 env_logger = "0.11"
 log = "0.4"
 getrandom = "0.2"
+# Pure-Rust PDF generation for printable medical reports (no system binaries or
+# external font files required — uses the standard built-in Helvetica fonts).
+printpdf = { version = "0.7", default-features = false }

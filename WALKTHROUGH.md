@@ -250,18 +250,21 @@ PatientManagementSystem/
 ├── WALKTHROUGH.md              ← 📚 This file! The comprehensive guide.
 │
 ├── migrations/                 ← 🗄️ Database schema versions
-│   ├── 001_initial_schema.sql  ←    Creates all 12 tables and indexes
-│   └── 002_rooms_priority.sql  ←    Seeds default consultation rooms
+│   ├── 001_initial_schema.sql  ←    Creates all 13 tables and indexes
+│   ├── 002_rooms_priority.sql  ←    Seeds default consultation rooms
+│   ├── 003_audit_log.sql       ←    Immutable audit-trail table
+│   └── 004_fix_payment_dates.sql ←  Data migration: normalise payment timestamps
 │
-├── tests/                      ← � Integration test suite (47 tests)
+├── tests/                      ← 🧪 Integration test suite (129 tests)
 │   ├── common/
 │   │   └── mod.rs              ←    Test macros, in-memory DB, auth helpers
-│   ├── test_auth.rs            ←    Registration, login, role guards (11)
-│   ├── test_algorithms.rs      ←    Scheduling algorithm unit tests (19)
-│   ├── test_appointments.rs    ←    HTTP booking & waitlist tests (9)
+│   ├── test_auth.rs            ←    Registration, login, role guards (19)
+│   ├── test_algorithms.rs      ←    Scheduling algorithm tests (26)
+│   ├── test_appointments.rs    ←    HTTP booking & waitlist tests (16)
 │   ├── test_availability.rs    ←    Availability CRUD tests (3)
-│   ├── test_records.rs         ←    Medical records tests (4)
-│   └── test_billing.rs         ←    Invoice & payment tests (7)
+│   ├── test_records.rs         ←    Medical records + PDF export tests (6)
+│   ├── test_billing.rs         ←    Invoice & payment tests (6)
+│   └── test_extended.rs        ←    Reassignment, timeline, audit, dashboard (17)
 │
 ├── templates/                  ← 🎨 Root HTML templates (loaded first by Tera)
 │   ├── base.html.tera          ←    The HTML skeleton every page uses
@@ -311,25 +314,28 @@ PatientManagementSystem/
     │       ├── list.html.tera
     │       └── set.html.tera
     │
-    ├── records/                ← 📋 Medical records module
+    ├── records/                ← 📋 Medical records, prescriptions, timeline & PDF
     │   ├── mod.rs
-    │   ├── models.rs           ←    MedicalRecord, CreateRecordForm, Prescription
-    │   ├── services.rs         ←    Create/list records, prescriptions
-    │   ├── handlers.rs         ←    CRUD endpoints
-    │   └── templates/
-    │       ├── list.html.tera
-    │       ├── create.html.tera
-    │       └── detail.html.tera
+    │   ├── models.rs           ←    MedicalRecord, Prescription, RecordReportData, TimelineEvent
+    │   ├── services.rs         ←    Create/list records, prescriptions, timeline, report data
+    │   ├── pdf.rs              ←    Pure-Rust PDF generation for medical reports
+    │   ├── handlers.rs         ←    CRUD endpoints + PDF export
+    │   └── templates/          ←    list, create, detail, timeline, report, prescription_form
     │
-    └── billing/                ← 💰 Billing & invoices module
-        ├── mod.rs
-        ├── models.rs           ←    Invoice, InvoiceItem, Payment, forms
-        ├── services.rs         ←    Invoice CRUD, payment processing, PDF stub
-        ├── handlers.rs         ←    List, create, view, pay endpoints
-        └── templates/
-            ├── list.html.tera
-            ├── create.html.tera
-            └── detail.html.tera
+    ├── billing/                ← 💰 Billing & invoices module
+    │   ├── mod.rs
+    │   ├── models.rs           ←    Invoice, InvoiceItem, Payment, forms
+    │   ├── services.rs         ←    Invoice CRUD, payment processing (partial payments)
+    │   ├── handlers.rs         ←    List, create, view, pay endpoints
+    │   └── templates/          ←    list, create (itemized builder), detail
+    │
+    ├── audit/                  ← 📝 Immutable action trail (who did what, when)
+    │   ├── mod.rs · models.rs · services.rs · handlers.rs
+    │   └── templates/list.html.tera
+    │
+    └── dashboard/              ← 📊 Admin analytics & statistics
+        ├── mod.rs · models.rs · services.rs · handlers.rs
+        └── templates/index.html.tera
 ```
 
 ### The Module Pattern
@@ -429,14 +435,14 @@ let mut tera = match tera::Tera::new("templates/**/*.tera") {
 };
 
 load_module_templates(&mut tera).expect("Failed to load module templates");
-tera.autoescape_on(vec![]);
+tera.autoescape_on(vec![".tera"]);
 ```
 
 | Line | What It Does |
 |---|---|
 | `Tera::new("templates/**/*.tera")` | Loads all `.tera` files from `templates/` using a glob pattern |
 | `load_module_templates(&mut tera)` | Our custom function — walks through `src/{module}/templates/` and loads each `.tera` file |
-| `tera.autoescape_on(vec![])` | Disables HTML auto-escaping since our `.tera` files are already HTML |
+| `tera.autoescape_on(vec![".tera"])` | **Enables** HTML auto-escaping for all `.tera` templates, so any user-supplied value interpolated with `{{ }}` is escaped — a key XSS defence. Use the `\| safe` filter only for trusted, pre-escaped HTML. |
 
 The `load_module_templates()` function is interesting. It:
 1. Iterates over the 5 module names: `["users", "appointments", "availability", "records", "billing"]`
@@ -978,7 +984,7 @@ The `waitlist` table tracks patients who were bumped (or manually added) while w
 
 **Routes:** `/availability` (list), `/availability/set` (form + submit)
 
-Manages when doctors are available. Currently, the availability data is SET but not yet CHECKED during appointment booking (marked as a TODO in `appointments/services.rs`). This is a deliberate separation — the availability module is the data source, and the appointments module is the consumer. Connecting them is a future enhancement.
+Manages when doctors are available. The availability module is the data source, and the appointments module is the consumer: every booking path (`book_appointment`, `book_with_priority`, and waitlist promotion) calls `ensure_doctor_available()` before confirming, so a booking outside a doctor's declared working window — or on a blocked/leave date — is rejected. The containment rule lives on the `TimeSlotted::contains` trait method, so the availability service no longer compares raw time fields by hand.
 
 ### 9.4 Medical Records Module
 
@@ -1457,15 +1463,19 @@ cargo test -- --nocapture
 tests/
 ├── common/
 │   └── mod.rs              # Shared test infrastructure
-├── test_auth.rs            # 11 tests — registration, login, role guards
-├── test_algorithms.rs      # 11 tests — all 3 scheduling algorithms
-├── test_appointments.rs    # 3 tests — appointment pages
+├── test_auth.rs            # 19 tests — registration, login, role guards
+├── test_algorithms.rs      # 26 tests — all 4 scheduling algorithms
+├── test_appointments.rs    # 16 tests — appointment pages & booking
 ├── test_availability.rs    # 3 tests — availability CRUD
-├── test_records.rs         # 3 tests — medical records
-└── test_billing.rs         # 4 tests — invoices & payments
+├── test_records.rs         # 6 tests — medical records + PDF export
+├── test_billing.rs         # 6 tests — invoices & payments
+└── test_extended.rs        # 17 tests — reassignment, timeline, audit, dashboard
 ```
 
-**Total: 47 tests across 6 suites — 100% pass rate.**
+Plus **36 unit tests** inside `src/` (trait default methods, the `DaySchedule` gap-finder,
+enum serialisation, and the PDF word-wrap + rendering).
+
+**Total: 129 tests across 8 integration suites + inline unit tests — 100% pass rate.**
 
 ### 16.4 The `with_test_app!` Macro
 

@@ -157,7 +157,11 @@ pub async fn get_invoice_payments(
 /// Flow: validate the form, check the invoice can accept payments,
 /// then insert the payment and (if settled) flip the status — all in
 /// one transaction so the books always balance.
-/// TODO: Implement partial payment tracking and overpayment refund.
+///
+/// Partial payments are supported: each call appends a payment row, and the
+/// invoice only flips to `paid` once the accumulated total settles it (see
+/// `Invoice::is_settled_by`). Overpayment is accepted but not auto-refunded —
+/// refund handling is intentionally out of scope for this system.
 pub async fn record_payment(
     pool: &SqlitePool,
     invoice_id: i64,
