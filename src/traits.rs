@@ -97,34 +97,86 @@ pub trait Reportable {
 }
 
 // ============================================================
+// Priority Levels — single source of truth for triage mapping
+// ============================================================
+
+/// Priority levels matching hospital triage standards.
+/// 1 = Emergency (life-threatening), 2 = Urgent, 3 = Normal, 4 = Follow-up.
+///
+/// This is the **single source of truth** for priority→label and
+/// priority→CSS mapping. The `Prioritized` trait defaults delegate here
+/// so the mapping is never duplicated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub enum Priority {
+    Emergency = 1,
+    Urgent = 2,
+    Normal = 3,
+    FollowUp = 4,
+}
+
+impl Priority {
+    pub fn from_i32(v: i32) -> Self {
+        match v {
+            1 => Priority::Emergency,
+            2 => Priority::Urgent,
+            4 => Priority::FollowUp,
+            _ => Priority::Normal,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Priority::Emergency => "Emergency",
+            Priority::Urgent => "Urgent",
+            Priority::Normal => "Normal",
+            Priority::FollowUp => "Follow-up",
+        }
+    }
+
+    pub fn css_class(&self) -> &'static str {
+        match self {
+            Priority::Emergency => "is-danger",
+            Priority::Urgent => "is-warning",
+            Priority::Normal => "is-info",
+            Priority::FollowUp => "is-success",
+        }
+    }
+
+    /// Triage rule: only Emergency and Urgent cases may bump an existing
+    /// booking out of its slot. Normal and Follow-up visits must use
+    /// standard booking or join the waitlist.
+    pub fn can_override(&self) -> bool {
+        matches!(self, Priority::Emergency | Priority::Urgent)
+    }
+
+    /// Triage precedence: may a case at *this* priority bump one currently
+    /// holding the slot at `occupant`? Only when strictly more urgent (lower
+    /// number).
+    pub fn outranks(&self, occupant: Priority) -> bool {
+        (*self as i32) < (occupant as i32)
+    }
+}
+
+// ============================================================
 // Prioritized — Abstraction over numeric priority
 // ============================================================
 
 /// Any entity with a 1–4 priority level (1 = Emergency, 4 = Follow-up).
 ///
-/// Default methods provide shared label/badge logic; concrete types
+/// All label/badge logic delegates to the `Priority` enum — the single
+/// source of truth for the priority→display mapping. Concrete types
 /// supply only their own priority field via `priority_level`.
 pub trait Prioritized {
     fn priority_level(&self) -> i32;
 
+    /// Human-readable label (e.g. "Emergency"). Delegates to `Priority::label`.
     fn priority_label(&self) -> &str {
-        match self.priority_level() {
-            1 => "Emergency",
-            2 => "Urgent",
-            3 => "Normal",
-            4 => "Follow-up",
-            _ => "Unknown",
-        }
+        Priority::from_i32(self.priority_level()).label()
     }
 
+    /// Bulma CSS badge class (e.g. "is-danger"). Delegates to `Priority::css_class`.
     fn priority_badge_class(&self) -> &str {
-        match self.priority_level() {
-            1 => "is-danger",
-            2 => "is-warning",
-            3 => "is-info",
-            4 => "is-success",
-            _ => "is-light",
-        }
+        Priority::from_i32(self.priority_level()).css_class()
     }
 
     /// Returns `true` if this entity has higher urgency (lower number) than `other`.
@@ -283,7 +335,8 @@ mod tests {
         assert_eq!(PriItem(2).priority_label(), "Urgent");
         assert_eq!(PriItem(3).priority_label(), "Normal");
         assert_eq!(PriItem(4).priority_label(), "Follow-up");
-        assert_eq!(PriItem(99).priority_label(), "Unknown");
+        // Out-of-range values fall back to Normal (same as Priority::from_i32)
+        assert_eq!(PriItem(99).priority_label(), "Normal");
     }
 
     #[test]

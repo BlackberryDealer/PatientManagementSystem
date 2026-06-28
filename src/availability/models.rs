@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 
 /// Represents a doctor's availability slot — either a recurring
 /// weekly time window or a one-off blocked/leave date.
-/// Note: `is_recurring` and `is_blocked` are `i32` (not `bool`)
-/// because SQLite stores BOOLEAN as INTEGER 0/1.
+///
+/// `is_recurring` and `is_blocked` are private so callers use the
+/// `recurring()` / `blocked()` accessors which return proper Rust
+/// `bool` values instead of leaking SQLite's INTEGER 0/1 convention.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DoctorAvailability {
     pub id: i64,
@@ -12,9 +14,9 @@ pub struct DoctorAvailability {
     pub day_of_week: i32,       // 0=Sun .. 6=Sat
     pub start_time: String,     // HH:MM
     pub end_time: String,       // HH:MM
-    pub is_recurring: i32,      // 1 = recurring weekly, 0 = one-off
+    is_recurring: i32,          // 1 = recurring weekly, 0 = one-off (private: use recurring())
     pub specific_date: Option<chrono::NaiveDate>,
-    pub is_blocked: i32,        // 1 = blocked/unavailable, 0 = available
+    is_blocked: i32,            // 1 = blocked/unavailable, 0 = available (private: use blocked())
 }
 
 impl DoctorAvailability {
