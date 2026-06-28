@@ -143,7 +143,20 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availabili
 ### First Steps
 1. Run `cargo run --bin seed` to populate test data
 2. Visit **http://localhost:8080/users/login**
-3. Login with any seeded account (e.g. `john.doe` / `password123`)
+3. Login with any seeded account — all use password `password123`
+
+### Default Test Accounts
+
+| Username | Email | Password | Role |
+|---|---|---|---|
+| `admin` | `admin@clinic.com` | `password123` | **Admin** |
+| `dr.smith` | `dr.smith@clinic.com` | `password123` | Doctor |
+| `dr.jones` | `dr.jones@clinic.com` | `password123` | Doctor |
+| `john.doe` | `john.doe@email.com` | `password123` | Patient |
+| `jane.doe` | `jane.doe@email.com` | `password123` | Patient |
+| `bob.wilson` | `bob.wilson@email.com` | `password123` | Patient |
+
+> The admin account has access to the dashboard, billing management, staff user creation, and all admin-only routes.
 
 ---
 
