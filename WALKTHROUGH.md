@@ -296,7 +296,7 @@ PatientManagementSystem/
     ├── appointments/           ← 📅 Appointment scheduling module (CORE)
     │   ├── mod.rs
     │   ├── models.rs           ←    Appointment, Room, Priority, WaitlistEntry, forms
-    │   ├── services.rs         ←    3 scheduling algorithms, waitlist, priority queue
+    │   ├── services.rs         ←    4 scheduling algorithms, waitlist, priority queue
     │   ├── handlers.rs         ←    List, book, priority-book, suggest, waitlist, cancel
     │   └── templates/
     │       ├── list.html.tera
@@ -365,18 +365,24 @@ Let's trace through `src/main.rs` line by line:
 ### 5.1 Module Declarations
 
 ```rust
-mod auth;
-mod db;
-mod errors;
+// Cross-cutting infrastructure
+pub mod auth;
+pub mod db;
+pub mod errors;
+pub mod time;     // clinic-hours / slot-grid time helpers
+pub mod traits;   // OOP traits: TimeSlotted, StatusManaged, Prioritized, Reportable
 
-mod users;
-mod appointments;
-mod availability;
-mod records;
-mod billing;
+// Business domains (one folder each)
+pub mod users;
+pub mod appointments;
+pub mod availability;
+pub mod records;
+pub mod billing;
+pub mod audit;      // immutable action trail
+pub mod dashboard;  // admin analytics
 ```
 
-In Rust, `mod` tells the compiler "these modules exist as separate files." Without these lines, Rust wouldn't know about `src/users/mod.rs`, `src/db.rs`, etc. This is how Rust organizes code across multiple files — you declare the module in the parent, and Rust finds the corresponding file.
+These declarations live in `src/lib.rs` (the library crate), so both `main.rs` and the integration tests can share the same modules. In Rust, `mod` tells the compiler "these modules exist as separate files." Without these lines, Rust wouldn't know about `src/users/mod.rs`, `src/db.rs`, etc. This is how Rust organizes code across multiple files — you declare the module in the parent, and Rust finds the corresponding file.
 
 > **The difference between `mod` and `use`:**
 > - `mod foo;` — "There is a module called `foo`. Find it in `foo.rs` or `foo/mod.rs`."
@@ -445,7 +451,7 @@ tera.autoescape_on(vec![".tera"]);
 | `tera.autoescape_on(vec![".tera"])` | **Enables** HTML auto-escaping for all `.tera` templates, so any user-supplied value interpolated with `{{ }}` is escaped — a key XSS defence. Use the `\| safe` filter only for trusted, pre-escaped HTML. |
 
 The `load_module_templates()` function is interesting. It:
-1. Iterates over the 5 module names: `["users", "appointments", "availability", "records", "billing"]`
+1. Iterates over the 7 module names: `["users", "appointments", "availability", "records", "billing", "audit", "dashboard"]`
 2. Reads each `src/{module}/templates/` directory
 3. For every `.tera` file, reads its content and registers it with the name `{module}/{filename}`
 
@@ -877,7 +883,7 @@ The `Some(u) if condition` is a **match guard** — it only matches `Some(u)` if
 
 **Routes:** `/appointments` (list), `/appointments/book` (form + submit), `/appointments/book/priority` (priority override), `/appointments/suggest` (find slot), `/appointments/waitlist` (view queue), `/appointments/waitlist/join`, `/appointments/waitlist/{id}/promote`, `/appointments/{id}` (detail), `/appointments/{id}/cancel` (cancel)
 
-This is the most important module — it contains **three scheduling algorithms** implementing the project's core focus.
+This is the most important module — it contains **four scheduling algorithms** implementing the project's core focus: the three covered in depth below, plus a greedy, load-balanced **doctor reassignment** algorithm (`find_alternative_doctor` / `reassign_appointment`) that moves a scheduled appointment to the best available alternative doctor when the original goes on leave.
 
 #### Algorithm 1: Time Interval Overlap Detection
 
@@ -988,9 +994,13 @@ Manages when doctors are available. The availability module is the data source, 
 
 ### 9.4 Medical Records Module
 
-**Routes:** `/records` (list), `/records/create` (form + submit), `/records/{id}` (detail)
+**Routes:** `/records` (list), `/records/create` (form + submit), `/records/{id}` (detail), `/records/{id}/report` (printable report), `/records/{id}/report.pdf` (**PDF download**), `/records/timeline` (patient history), `/records/prescriptions/create` (write prescription)
 
 Allows doctors to create medical records with diagnosis, treatment, and notes. Records can optionally link to an appointment. Patients can view their own records (with prescriptions listed separately). This demonstrates a common pattern: **role-filtered queries** — the same `/records` URL shows different data based on who's logged in.
+
+**Patient history timeline** (`/records/timeline`) merges appointments, records, prescriptions, and invoices into one chronological view — each source contributes its own line via the `Reportable` trait (polymorphism in action).
+
+**Medical report PDF generation** (`/records/{id}/report.pdf`) is an advanced feature: the same data that renders the HTML report is fed to `src/records/pdf.rs`, which builds a paginated, word-wrapped A4 PDF with the pure-Rust `printpdf` crate (built-in Helvetica fonts — no external binaries or font files). The handler streams it back as `application/pdf` with a `Content-Disposition: attachment` header, reusing the record's ownership rule so patients can only export their own.
 
 ### 9.5 Billing Module
 
@@ -1492,7 +1502,7 @@ with_test_app!(pool, app, {
 The macro:
 1. Creates stub Tera templates so pages render without the real filesystem
 2. Generates a session encryption key
-3. Configures all 5 module routes
+3. Configures all 7 module routes
 4. Wraps everything in `test::init_service()` which returns an opaque type
 5. The `app` variable is available in the code block
 
