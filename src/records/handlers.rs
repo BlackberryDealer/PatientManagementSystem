@@ -37,13 +37,17 @@ pub async fn list_records(
 
 /// GET /records/create — show create record form (doctor only)
 pub async fn create_record_form(
+    pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     require_doctor(&user)?;
 
+    let patients = services::get_all_patients(pool.get_ref()).await?;
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
+    ctx.insert("patients", &patients);
     ctx.insert("title", "Create Medical Record");
     let rendered = tera.render("records/create.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))

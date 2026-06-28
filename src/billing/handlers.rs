@@ -35,13 +35,17 @@ pub async fn list_invoices(
 
 /// GET /billing/create — show create invoice form (admin only)
 pub async fn create_invoice_form(
+    pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
     require_admin(&user)?;
 
+    let patients = services::get_all_patients(pool.get_ref()).await?;
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
+    ctx.insert("patients", &patients);
     ctx.insert("title", "Create Invoice");
     let rendered = tera.render("billing/create.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))

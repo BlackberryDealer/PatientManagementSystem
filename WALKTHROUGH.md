@@ -990,6 +990,7 @@ The `waitlist` table tracks patients who were bumped (or manually added) while w
 - **Status workflow:** `waiting` → `offered` (slot found) → `accepted` (booked) or `expired`
 - **Promotion:** Doctors/admins can promote waitlist entries via `/appointments/waitlist/{id}/promote`. If the slot is now free, the patient is automatically booked and the waitlist entry marked accepted.
 - **Ordering:** The waitlist view is ORDER BY `priority ASC, created_at ASC` — most urgent patients first, then oldest entries first.
+- **Patient & doctor names:** Waitlist queries JOIN on `users` and `doctors` tables to show real names (e.g. "John Doe" / "Dr. Sarah Smith") instead of raw IDs.
 
 
 
@@ -1003,7 +1004,7 @@ Manages when doctors are available. The availability module is the data source, 
 
 **Routes:** `/records` (list), `/records/create` (form + submit), `/records/{id}` (detail), `/records/{id}/report` (printable report), `/records/{id}/report.pdf` (**PDF download**), `/records/timeline` (patient history), `/records/prescriptions/create` (write prescription)
 
-Allows doctors to create medical records with diagnosis, treatment, and notes. Records can optionally link to an appointment. Patients can view their own records (with prescriptions listed separately). This demonstrates a common pattern: **role-filtered queries** — the same `/records` URL shows different data based on who's logged in.
+Allows doctors to create medical records with diagnosis, treatment, and notes. Records can optionally link to an appointment. The patient is selected from a searchable dropdown (not manual ID entry). The **Create Medical Record** button on the appointment detail page pre-fills patient and appointment IDs. Patients can view their own records (with prescriptions listed separately). This demonstrates a common pattern: **role-filtered queries** — the same `/records` URL shows different data based on who's logged in.
 
 **Patient history timeline** (`/records/timeline`) merges appointments, records, prescriptions, and invoices into one chronological view — each source contributes its own line via the `Reportable` trait (polymorphism in action).
 
@@ -1014,7 +1015,7 @@ Allows doctors to create medical records with diagnosis, treatment, and notes. R
 **Routes:** `/billing` (list), `/billing/create` (form + submit), `/billing/{id}` (detail), `/billing/{id}/pay` (record payment)
 
 Handles the full billing lifecycle:
-1. Admin creates invoice → status: `pending`
+1. Admin selects a patient from a searchable dropdown (not manual ID entry) and creates an invoice with itemized line items → status: `pending`
 2. Admin records payment → system checks if fully paid
 3. If total paid >= invoice total → status: `paid`
 

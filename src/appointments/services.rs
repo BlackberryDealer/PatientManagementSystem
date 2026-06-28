@@ -547,8 +547,15 @@ pub async fn get_waitlist_for_doctor(
 ) -> Result<Vec<WaitlistEntry>, AppError> {
     let doctor_id = crate::db::get_doctor_id(pool, doctor_user_id).await?;
     Ok(sqlx::query_as::<_, WaitlistEntry>(
-        "SELECT * FROM waitlist WHERE doctor_id = ? AND status = 'waiting'
-         ORDER BY priority ASC, created_at ASC",
+        "SELECT w.*, COALESCE(pu.full_name, 'Patient #' || w.patient_id) AS patient_name,
+                COALESCE(du.full_name, 'Doctor #' || w.doctor_id) AS doctor_name
+         FROM waitlist w
+         JOIN patients p ON w.patient_id = p.id
+         JOIN users pu ON p.user_id = pu.id
+         JOIN doctors d ON w.doctor_id = d.id
+         JOIN users du ON d.user_id = du.id
+         WHERE w.doctor_id = ? AND w.status = 'waiting'
+         ORDER BY w.priority ASC, w.created_at ASC",
     )
     .bind(doctor_id)
     .fetch_all(pool)
@@ -561,8 +568,13 @@ pub async fn get_waitlist_for_patient(
     patient_user_id: i64,
 ) -> Result<Vec<WaitlistEntry>, AppError> {
     Ok(sqlx::query_as::<_, WaitlistEntry>(
-        "SELECT w.* FROM waitlist w
+        "SELECT w.*, COALESCE(pu.full_name, 'Patient #' || w.patient_id) AS patient_name,
+                COALESCE(du.full_name, 'Doctor #' || w.doctor_id) AS doctor_name
+         FROM waitlist w
          JOIN patients p ON w.patient_id = p.id
+         JOIN users pu ON p.user_id = pu.id
+         JOIN doctors d ON w.doctor_id = d.id
+         JOIN users du ON d.user_id = du.id
          WHERE p.user_id = ? AND w.status = 'waiting'
          ORDER BY w.priority ASC, w.created_at ASC",
     )
@@ -574,7 +586,15 @@ pub async fn get_waitlist_for_patient(
 /// Get all pending waitlist entries (admin view).
 pub async fn get_all_waitlist(pool: &SqlitePool) -> Result<Vec<WaitlistEntry>, AppError> {
     Ok(sqlx::query_as::<_, WaitlistEntry>(
-        "SELECT * FROM waitlist WHERE status = 'waiting' ORDER BY priority ASC, created_at ASC",
+        "SELECT w.*, COALESCE(pu.full_name, 'Patient #' || w.patient_id) AS patient_name,
+                COALESCE(du.full_name, 'Doctor #' || w.doctor_id) AS doctor_name
+         FROM waitlist w
+         JOIN patients p ON w.patient_id = p.id
+         JOIN users pu ON p.user_id = pu.id
+         JOIN doctors d ON w.doctor_id = d.id
+         JOIN users du ON d.user_id = du.id
+         WHERE w.status = 'waiting'
+         ORDER BY w.priority ASC, w.created_at ASC",
     )
     .fetch_all(pool)
     .await?)
@@ -715,7 +735,8 @@ pub async fn promote_from_waitlist(
 const APPOINTMENT_VIEW_SELECT: &str = "\
     SELECT a.id, u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
            a.appointment_date, a.start_time, a.end_time, a.status, a.notes,
-           r.name AS room_name, a.priority
+           r.name AS room_name, a.priority,
+           a.patient_id, a.doctor_id
     FROM appointments a
     JOIN patients p ON a.patient_id = p.id
     JOIN users u_p ON p.user_id = u_p.id

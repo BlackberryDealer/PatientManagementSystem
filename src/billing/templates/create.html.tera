@@ -16,12 +16,19 @@
         <div class="columns">
             <div class="column is-6">
                 <div class="field">
-                    <label class="label"><i class="fas fa-user mr-1"></i>Patient ID</label>
+                    <label class="label"><i class="fas fa-user mr-1"></i>Patient</label>
                     <div class="control has-icons-left">
-                        <input class="input" type="number" name="patient_id" placeholder="Enter patient ID" required>
-                        <span class="icon is-small is-left"><i class="fas fa-hashtag"></i></span>
+                        <div class="select is-fullwidth">
+                            <select name="patient_id" required>
+                                <option value="">-- Select patient --</option>
+                                {% for p in patients %}
+                                <option value="{{ p.0 }}">{{ p.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-user"></i></div>
                     </div>
-                    <p class="help">The unique ID of the patient to bill.</p>
+                    <p class="help">Select the patient to bill.</p>
                 </div>
             </div>
             <div class="column is-6">

@@ -345,6 +345,10 @@ pub struct AppointmentView {
     pub notes: Option<String>,
     pub room_name: Option<String>,
     pub priority: i32,
+    #[sqlx(default)]
+    pub patient_id: i64,
+    #[sqlx(default)]
+    pub doctor_id: i64,
 }
 
 // ============================================================
@@ -364,6 +368,10 @@ pub struct WaitlistEntry {
     pub notes: Option<String>,
     status: WaitlistStatus,    // waiting | offered | accepted | expired
     pub created_at: chrono::NaiveDateTime,
+    #[sqlx(default)]
+    pub patient_name: String,  // resolved via JOIN in list queries
+    #[sqlx(default)]
+    pub doctor_name: String,   // resolved via JOIN in list queries
 }
 
 impl WaitlistEntry {

@@ -279,14 +279,9 @@ pub async fn appointment_detail(
         pool.get_ref(), appointment_id, user.user_id, user.role,
     ).await?;
 
-    // Rooms power the staff "assign room" dropdown on the detail page. Cheap
-    // query; harmless for patients (their template branch never reads it).
-    let rooms = services::get_all_rooms(pool.get_ref()).await?;
-
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("appointment", &appointment);
-    ctx.insert("rooms", &rooms);
     ctx.insert("title", &format!("Appointment #{}", appointment.id));
     let rendered = tera.render("appointments/detail.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))

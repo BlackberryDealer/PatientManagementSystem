@@ -76,6 +76,15 @@ pub async fn get_all_invoices(pool: &SqlitePool) -> Result<Vec<InvoiceView>, App
     .await?)
 }
 
+/// Get all patients as (id, name) for dropdowns.
+pub async fn get_all_patients(pool: &SqlitePool) -> Result<Vec<(i64, String)>, AppError> {
+    Ok(sqlx::query_as::<_, (i64, String)>(
+        "SELECT p.id, u.full_name FROM patients p JOIN users u ON p.user_id = u.id ORDER BY u.full_name",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Get invoices for a specific patient.
 pub async fn get_invoices_for_patient(
     pool: &SqlitePool,

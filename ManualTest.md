@@ -57,9 +57,11 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] **Cancel** button only on "scheduled" appointments
 
 ### 4. Appointment Detail (`/appointments/1`)
-- [ ] Shows patient name, doctor name, date, time, room name, priority badge, status
+- [ ] Shows patient name, doctor name, date, time, priority badge, status
+- [ ] Room shows "Auto-Assigned" (room is resolved automatically)
 - [ ] Notes visible
 - [ ] Cancel button visible if status is "scheduled"
+- [ ] **Create Medical Record** button visible to doctor/admin for scheduled appointments
 - [ ] **Try to view someone else's appointment**: go to `/appointments/4` → should be FORBIDDEN (403)
 
 ### 5. Book an Appointment (`/appointments/book`)
@@ -158,9 +160,10 @@ All passwords: **`password123`** (login works with username OR email)
 
 ### 5. Medical Records
 - [ ] Can view records for any patient (doctor access)
-- [ ] **Create Record** button → form loads
-- [ ] Select patient, enter diagnosis + treatment → submit → redirects
-- [ ] **Write Prescription** → form loads → fill medication/dosage/frequency → submit
+- [ ] **Create Record** button → form loads with patient dropdown (not manual ID entry)
+- [ ] Select patient from dropdown, enter diagnosis + treatment → submit → redirects
+- [ ] **Write Prescription** → form loads → patient dropdown + medication/dosage/frequency → submit
+- [ ] Can also create record from appointment detail page via **Create Medical Record** button
 
 ### 6. Suggest a Slot (`/appointments/suggest`)
 - [ ] Select a doctor, enter a date, enter duration (e.g. 60 mins)
@@ -168,8 +171,10 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] Test with a fully booked scenario
 
 ### 7. Waitlist (`/appointments/waitlist`)
-- [ ] Shows entries waiting for slots
+- [ ] Shows entries waiting for slots with real patient and doctor names
 - [ ] 3 entries seeded (1 Emergency, 1 Urgent, 1 Normal)
+- [ ] Patient name column shows actual name (not "Patient #123")
+- [ ] Doctor name column shows which doctor the patient is waiting for
 - [ ] Doctor can see **Promote** button → click on one
 - [ ] If slot is free, patient gets booked; if not, returns to waitlist
 
@@ -217,7 +222,7 @@ All passwords: **`password123`** (login works with username OR email)
 
 ### 7. Billing (Admin)
 - [ ] `/billing` → sees ALL invoices (not just own)
-- [ ] `/billing/create` → create new invoice for any patient
+- [ ] `/billing/create` → create new invoice for any patient (patient dropdown, not manual ID)
 - [ ] Enter items in pipe-delimited format: `Consultation|1|80.00`
 - [ ] Submit → verify invoice appears with correct total
 - [ ] Record payment on a pending invoice → verify status flips to "paid" when settled

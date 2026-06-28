@@ -19,7 +19,8 @@
         <thead>
             <tr>
                 <th><abbr title="Position">#</abbr></th>
-                <th>Patient ID</th>
+                <th>Patient</th>
+                <th>Doctor</th>
                 <th>Date</th>
                 <th>Time</th>
                 <th>Priority</th>
@@ -32,7 +33,10 @@
             <tr>
                 <td class="has-text-grey is-size-7">#{{ w.id }}</td>
                 <td>
-                    <span class="has-text-weight-semibold"><i class="fas fa-user has-text-success mr-1"></i>Patient #{{ w.patient_id }}</span>
+                    <span class="has-text-weight-semibold"><i class="fas fa-user has-text-success mr-1"></i>{{ w.patient_name }}</span>
+                </td>
+                <td>
+                    <span class="has-text-weight-semibold"><i class="fas fa-user-md has-text-info mr-1"></i>{{ w.doctor_name }}</span>
                 </td>
                 <td>{{ w.appointment_date }}</td>
                 <td>{{ w.requested_start }} – {{ w.requested_end }}</td>
