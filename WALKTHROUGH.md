@@ -265,7 +265,6 @@ PatientManagementSystem/
 │
 ├── templates/                  ← 🎨 Root HTML templates (loaded first by Tera)
 │   ├── base.html.tera          ←    The HTML skeleton every page uses
-│   ├── layout.html.tera        ←    Two-column layout with sidebar
 │   └── shared/                 ←    Reusable template pieces
 │       ├── navbar.html.tera    ←    Top navigation bar
 │       └── footer.html.tera    ←    Page footer
@@ -1028,7 +1027,7 @@ base.html.tera                    ← HTML skeleton (<!DOCTYPE>, <head>, <body>)
 ├── block: head_extra             ← Extra CSS/JS in <head>
 └── block: scripts                ← Extra JavaScript at end of <body>
 
-layout.html.tera extends base     ← Two-column layout with sidebar
+
 ├── block: sidebar                ← Navigation menu
 └── block: main_content           ← 👈 Filled by page templates
 
