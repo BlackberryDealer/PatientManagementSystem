@@ -1,5 +1,5 @@
 use crate::appointments::models::{
-    Appointment, AppointmentView, BookAppointmentForm, DaySchedule, Priority, Room,
+    Appointment, AppointmentView, BookAppointmentForm, DaySchedule, Room,
     SuggestSlotForm, WaitlistEntry, WaitlistForm,
 };
 use crate::auth::Role;
@@ -10,7 +10,7 @@ use crate::time::{
     minutes_to_time, parse_slot, time_to_minutes, CLINIC_CLOSE_MINUTES,
     CLINIC_OPEN_MINUTES, SLOT_MINUTES,
 };
-use crate::traits::{Prioritized, StatusManaged, TimeSlotted};
+use crate::traits::{Prioritized, Priority, StatusManaged, TimeSlotted};
 use sqlx::SqlitePool;
 use std::collections::BinaryHeap;
 

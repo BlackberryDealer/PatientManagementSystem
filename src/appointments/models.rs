@@ -1,4 +1,4 @@
-use crate::traits::{Prioritized, Reportable, StatusManaged, TimeSlotted};
+use crate::traits::{Prioritized, Priority, Reportable, StatusManaged, TimeSlotted};
 use serde::{Deserialize, Serialize};
 
 // ============================================================
@@ -50,64 +50,6 @@ impl WaitlistStatus {
             WaitlistStatus::Accepted => "accepted",
             WaitlistStatus::Expired => "expired",
         }
-    }
-}
-
-// ============================================================
-// Priority Levels (lower number = higher priority)
-// ============================================================
-
-/// Priority levels matching hospital triage standards.
-/// 1 = Emergency (life-threatening), 2 = Urgent, 3 = Normal, 4 = Follow-up.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum Priority {
-    Emergency = 1,
-    Urgent = 2,
-    Normal = 3,
-    FollowUp = 4,
-}
-
-impl Priority {
-    pub fn from_i32(v: i32) -> Self {
-        match v {
-            1 => Priority::Emergency,
-            2 => Priority::Urgent,
-            4 => Priority::FollowUp,
-            _ => Priority::Normal,
-        }
-    }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            Priority::Emergency => "Emergency",
-            Priority::Urgent => "Urgent",
-            Priority::Normal => "Normal",
-            Priority::FollowUp => "Follow-up",
-        }
-    }
-
-    pub fn css_class(&self) -> &'static str {
-        match self {
-            Priority::Emergency => "is-danger",
-            Priority::Urgent => "is-warning",
-            Priority::Normal => "is-info",
-            Priority::FollowUp => "is-success",
-        }
-    }
-
-    /// Triage rule: only Emergency and Urgent cases may bump an existing
-    /// booking out of its slot. Normal and Follow-up visits must use
-    /// standard booking or join the waitlist.
-    pub fn can_override(&self) -> bool {
-        matches!(self, Priority::Emergency | Priority::Urgent)
-    }
-
-    /// Triage precedence: may a case at *this* priority bump one currently
-    /// holding the slot at `occupant`? Only when strictly more urgent (lower
-    /// number). Keeps the pairwise comparison rule on the domain type, next
-    /// to `can_override`, instead of an inline `<` in the service layer.
-    pub fn outranks(&self, occupant: Priority) -> bool {
-        (*self as i32) < (occupant as i32)
     }
 }
 
