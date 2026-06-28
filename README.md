@@ -75,10 +75,10 @@ PatientManagementSystem/
 │   └── shared/
 │       ├── navbar.html.tera
 │       └── footer.html.tera
-├── tests/                   # Integration test suite (135 tests)
+├── tests/                   # Integration test suite (133 tests)
 │   ├── common/mod.rs        # Test infrastructure & macros
 │   ├── test_auth.rs         # Authentication & authorization (19 tests)
-│   ├── test_algorithms.rs   # Scheduling algorithms + reschedule + room assignment (32 tests)
+│   ├── test_algorithms.rs   # Scheduling algorithms + reschedule (30 tests)
 │   ├── test_appointments.rs # Appointment booking (16 tests)
 │   ├── test_availability.rs # Doctor availability (3 tests)
 │   ├── test_records.rs      # Medical records + PDF export (6 tests)
@@ -288,19 +288,19 @@ Aligned with the spec v1.2.2 submission structure:
 cargo test
 ```
 
-### Test Coverage (135 tests, 8 suites)
+### Test Coverage (133 tests, 8 suites)
 
 | Test Suite | Tests | Covers |
 |---|---|---|
 | `test_auth.rs` | 19 | Registration (patient/doctor/admin), duplicate rejection, login success/failure/nonexistent, login-with-email, logout, role guards, admin-only routes, profile PII anti-enumeration |
-| `test_algorithms.rs` | 32 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after/full/gap/multi-gap), priority (bump/equal-rejected/normal-gate/ordering-proof), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers), **reschedule (move+frees-old-slot / conflict-rejected / self-overlap-allowed / ownership)**, **room assignment (sets-room / blocks-double-booking / unknown-room-rejected)** |
+| `test_algorithms.rs` | 30 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after/full/gap/multi-gap), priority (bump/equal-rejected/normal-gate/ordering-proof), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers), **reschedule (move+frees-old-slot / conflict-rejected / self-overlap-allowed / ownership)** |
 | `test_appointments.rs` | 16 | Booking form, HTTP booking (success/conflict/invalid-time), priority booking HTTP, cancel HTTP + list-verify, waitlist (doctor/patient), suggest form, promote forbidden (patient) |
 | `test_availability.rs` | 3 | Doctor availability page, set-availability form, submit + verify persistence |
 | `test_records.rs` | 6 | Records list, create form (doctor), patient blocked from create, HTTP create-submit + detail verification, **PDF export download (content-type + `%PDF` magic), PDF ownership enforcement** |
 | `test_billing.rs` | 6 | Billing page (patient), create-invoice requires admin, admin creates invoice (single/multi-item), bad items rejected, payment recording |
 | `test_extended.rs` | 17 | Availability enforcement (blocked/recurring/open-default/past-date), doctor reassignment (success/failure-no-alternative/skips-busy), patient timeline (multi-entity merge), prescriptions, medical reports, audit logging, dashboard stats |
 | **Unit tests** (in `src/`) | **36** | Trait default-method tests (overlap/duration/priority/status), `DaySchedule` pure gap-finding, enum serialization round-trips, **PDF word-wrap + real `%PDF` byte rendering** |
-| **Total** | **135** | **100% pass rate** |
+| **Total** | **133** | **100% pass rate** |
 
 ### Architecture
 
