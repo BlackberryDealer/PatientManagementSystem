@@ -13,8 +13,8 @@
     <p class="subtitle is-6 has-text-grey">{{ record.created_at }}</p>
 
     <div class="tags mb-5">
-        <span class="tag is-success is-light"><i class="fas fa-user mr-1"></i>Patient #{{ record.patient_id }}</span>
-        <span class="tag is-info is-light"><i class="fas fa-user-md mr-1"></i>Dr. #{{ record.doctor_id }}</span>
+        <span class="tag is-success is-light"><i class="fas fa-user mr-1"></i>{{ patient_name }}</span>
+        <span class="tag is-info is-light"><i class="fas fa-user-md mr-1"></i>{{ doctor_name }}</span>
         {% if record.appointment_id %}
         <a class="tag is-link is-light" href="/appointments/{{ record.appointment_id }}">
             <i class="fas fa-calendar-check mr-1"></i>Appointment #{{ record.appointment_id }}

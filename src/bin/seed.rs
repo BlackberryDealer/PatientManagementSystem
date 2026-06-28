@@ -14,6 +14,26 @@ async fn main() {
     let pool = db::create_pool(&database_url).await;
     db::run_migrations(&pool).await;
 
+    // Clean existing data so repeated runs never duplicate rows.
+    // Order matters: delete children before parents to satisfy FK constraints.
+    print!("  Cleaning existing data... ");
+    sqlx::query("DELETE FROM payments").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM invoice_items").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM invoices").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM appointment_slots").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM prescriptions").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM medical_records").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM waitlist").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM appointments").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM doctor_availability").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM audit_log").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM patients").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM doctors").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM users").execute(&pool).await.unwrap();
+    // Reset auto-increment counters so IDs are predictable on every run
+    sqlx::query("DELETE FROM sqlite_sequence").execute(&pool).await.unwrap();
+    println!("done");
+
     seed_users(&pool).await;
     seed_availability(&pool).await;
     seed_appointments(&pool).await;

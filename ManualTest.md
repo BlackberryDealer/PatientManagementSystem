@@ -90,6 +90,7 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] "Not specified" fallback text if diagnosis/treatment is empty
 - [ ] **Back to Records** button
 - [ ] **Printable Report** button → click → report page loads
+- [ ] **PDF Download**: go to `/records/1/report.pdf` → browser downloads a PDF file (check it opens and shows patient/diagnosis/treatment)
 
 ### 8. Patient Timeline (`/records/timeline`)
 - [ ] Shows chronological feed of appointments, records, prescriptions, invoices

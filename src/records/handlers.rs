@@ -217,9 +217,30 @@ pub async fn record_detail(
         services::get_record_checked(pool.get_ref(), record_id, user.user_id, user.role)
             .await?;
 
+    // Resolve patient and doctor names for display (IDs alone are unfriendly)
+    let patient_name: String = sqlx::query_as::<_, (String,)>(
+        "SELECT u.full_name FROM patients p JOIN users u ON p.user_id = u.id WHERE p.id = ?"
+    )
+    .bind(record.patient_id)
+    .fetch_optional(pool.get_ref())
+    .await?
+    .map(|(n,)| n)
+    .unwrap_or_else(|| format!("Patient #{}", record.patient_id));
+
+    let doctor_name: String = sqlx::query_as::<_, (String,)>(
+        "SELECT u.full_name FROM doctors d JOIN users u ON d.user_id = u.id WHERE d.id = ?"
+    )
+    .bind(record.doctor_id)
+    .fetch_optional(pool.get_ref())
+    .await?
+    .map(|(n,)| n)
+    .unwrap_or_else(|| format!("Doctor #{}", record.doctor_id));
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("record", &record);
+    ctx.insert("patient_name", &patient_name);
+    ctx.insert("doctor_name", &doctor_name);
     ctx.insert("title", &format!("Medical Record #{}", record.id));
     let rendered = tera.render("records/detail.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
