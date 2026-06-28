@@ -14,6 +14,26 @@ async fn main() {
     let pool = db::create_pool(&database_url).await;
     db::run_migrations(&pool).await;
 
+    // Clean existing data so repeated runs never duplicate rows.
+    // Order matters: delete children before parents to satisfy FK constraints.
+    print!("  Cleaning existing data... ");
+    sqlx::query("DELETE FROM payments").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM invoice_items").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM invoices").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM appointment_slots").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM prescriptions").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM medical_records").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM waitlist").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM appointments").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM doctor_availability").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM audit_log").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM patients").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM doctors").execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM users").execute(&pool).await.unwrap();
+    // Reset auto-increment counters so IDs are predictable on every run
+    sqlx::query("DELETE FROM sqlite_sequence").execute(&pool).await.unwrap();
+    println!("done");
+
     seed_users(&pool).await;
     seed_availability(&pool).await;
     seed_appointments(&pool).await;
@@ -89,7 +109,7 @@ async fn seed_availability(pool: &SqlitePool) {
     // Blocked dates (holidays)
     sqlx::query(
         "INSERT OR IGNORE INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked)
-         VALUES (1, 0, '00:00', '23:59', 0, '2026-06-15', 1)",
+         VALUES (1, 0, '00:00', '23:59', 0, '2026-07-20', 1)",
     ).execute(pool).await.unwrap();
 
     println!("done (11 slots)");
@@ -100,16 +120,16 @@ async fn seed_appointments(pool: &SqlitePool) {
 
     let apps = [
         // patient_id, doctor_id, date, start, end, status, priority, room_id, notes
-        (1, 1, "2026-06-01", "09:00", "09:30", "completed",   3, Some(1), "Annual check-up — all clear"),
-        (1, 1, "2026-06-01", "09:30", "10:00", "scheduled",   3, Some(1), "Follow-up blood test"),
-        (2, 1, "2026-06-01", "10:00", "10:30", "scheduled",   3, Some(2), "Headache and dizziness"),
-        (3, 2, "2026-06-01", "08:30", "09:00", "completed",   4, Some(3), "Post-surgery check"),
-        (1, 1, "2026-06-02", "11:00", "11:30", "scheduled",   2, Some(1), "Chest pain — URGENT"),
-        (2, 2, "2026-06-02", "09:00", "09:30", "scheduled",   3, Some(4), "Routine cardiology consult"),
-        (3, 1, "2026-06-02", "14:00", "14:30", "cancelled",   3, None,      "Patient cancelled — rescheduled"),
-        (1, 1, "2026-06-03", "09:00", "09:30", "scheduled",   3, Some(1), "Prescription renewal"),
-        (2, 2, "2026-06-03", "10:00", "10:30", "scheduled",   4, Some(4), "ECG follow-up"),
-        (3, 1, "2026-06-03", "15:00", "15:30", "scheduled",   3, Some(2), "Vaccination"),
+        (1, 1, "2026-07-06", "09:00", "09:30", "completed",   3, Some(1), "Annual check-up — all clear"),
+        (1, 1, "2026-07-06", "09:30", "10:00", "scheduled",   3, Some(1), "Follow-up blood test"),
+        (2, 1, "2026-07-06", "10:00", "10:30", "scheduled",   3, Some(2), "Headache and dizziness"),
+        (3, 2, "2026-07-06", "08:30", "09:00", "completed",   4, Some(3), "Post-surgery check"),
+        (1, 1, "2026-07-07", "11:00", "11:30", "scheduled",   2, Some(1), "Chest pain — URGENT"),
+        (2, 2, "2026-07-07", "09:00", "09:30", "scheduled",   3, Some(4), "Routine cardiology consult"),
+        (3, 1, "2026-07-07", "14:00", "14:30", "cancelled",   3, None,      "Patient cancelled — rescheduled"),
+        (1, 1, "2026-07-08", "09:00", "09:30", "scheduled",   3, Some(1), "Prescription renewal"),
+        (2, 2, "2026-07-08", "10:00", "10:30", "scheduled",   4, Some(4), "ECG follow-up"),
+        (3, 1, "2026-07-08", "15:00", "15:30", "scheduled",   3, Some(2), "Vaccination"),
     ];
 
     for (pat, doc, date, start, end, status, pri, room, notes) in &apps {
@@ -173,19 +193,19 @@ async fn seed_prescriptions(pool: &SqlitePool) {
 async fn seed_billing(pool: &SqlitePool) {
     print!("  Creating invoices & payments... ");
 
-    // Invoice 1: paid
-    sqlx::query("INSERT OR IGNORE INTO invoices (id, patient_id, invoice_date, due_date, total_amount, status) VALUES (1, 1, '2026-05-01', '2026-05-15', 150.00, 'paid')").execute(pool).await.unwrap();
+    // Invoice 1: paid (John Doe — settled)
+    sqlx::query("INSERT OR IGNORE INTO invoices (id, patient_id, invoice_date, due_date, total_amount, status) VALUES (1, 1, '2026-07-01', '2026-07-15', 150.00, 'paid')").execute(pool).await.unwrap();
     sqlx::query("INSERT OR IGNORE INTO invoice_items (invoice_id, description, quantity, unit_price, total_price) VALUES (1, 'Consultation', 1, 100.00, 100.00)").execute(pool).await.unwrap();
     sqlx::query("INSERT OR IGNORE INTO invoice_items (invoice_id, description, quantity, unit_price, total_price) VALUES (1, 'Blood Test', 1, 50.00, 50.00)").execute(pool).await.unwrap();
     sqlx::query("INSERT OR IGNORE INTO payments (invoice_id, amount, payment_method, transaction_ref) VALUES (1, 150.00, 'Credit Card', 'TXN-001')").execute(pool).await.unwrap();
 
-    // Invoice 2: pending
-    sqlx::query("INSERT OR IGNORE INTO invoices (id, patient_id, invoice_date, due_date, total_amount, status) VALUES (2, 2, '2026-05-20', '2026-06-20', 200.00, 'pending')").execute(pool).await.unwrap();
+    // Invoice 2: pending (Jane Doe — awaiting payment)
+    sqlx::query("INSERT OR IGNORE INTO invoices (id, patient_id, invoice_date, due_date, total_amount, status) VALUES (2, 2, '2026-07-10', '2026-08-10', 200.00, 'pending')").execute(pool).await.unwrap();
     sqlx::query("INSERT OR IGNORE INTO invoice_items (invoice_id, description, quantity, unit_price, total_price) VALUES (2, 'Cardiology Consult', 1, 150.00, 150.00)").execute(pool).await.unwrap();
     sqlx::query("INSERT OR IGNORE INTO invoice_items (invoice_id, description, quantity, unit_price, total_price) VALUES (2, 'ECG', 1, 50.00, 50.00)").execute(pool).await.unwrap();
 
-    // Invoice 3: pending (urgent)
-    sqlx::query("INSERT OR IGNORE INTO invoices (id, patient_id, invoice_date, due_date, total_amount, status) VALUES (3, 3, '2026-06-01', '2026-06-30', 75.00, 'pending')").execute(pool).await.unwrap();
+    // Invoice 3: pending (Bob Wilson — awaiting payment)
+    sqlx::query("INSERT OR IGNORE INTO invoices (id, patient_id, invoice_date, due_date, total_amount, status) VALUES (3, 3, '2026-07-15', '2026-08-15', 75.00, 'pending')").execute(pool).await.unwrap();
     sqlx::query("INSERT OR IGNORE INTO invoice_items (invoice_id, description, quantity, unit_price, total_price) VALUES (3, 'Follow-up Visit', 1, 75.00, 75.00)").execute(pool).await.unwrap();
 
     println!("done (3 invoices)");
@@ -195,9 +215,9 @@ async fn seed_waitlist(pool: &SqlitePool) {
     print!("  Creating waitlist entries... ");
 
     let entries = [
-        (3, 1, "2026-06-03", "09:00", "09:30", 1, "Emergency — chest pain follow-up"),
-        (2, 2, "2026-06-03", "14:00", "14:30", 2, "Urgent ECG review"),
-        (1, 1, "2026-06-04", "10:00", "10:30", 3, "Routine blood work"),
+        (3, 1, "2026-07-08", "09:00", "09:30", 1, "Emergency — chest pain follow-up"),
+        (2, 2, "2026-07-08", "14:00", "14:30", 2, "Urgent ECG review"),
+        (1, 1, "2026-07-09", "10:00", "10:30", 3, "Routine blood work"),
     ];
 
     for (pat, doc, date, start, end, pri, notes) in &entries {
