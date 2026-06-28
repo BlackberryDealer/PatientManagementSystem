@@ -10,8 +10,8 @@ pub struct User {
     pub username: String,
     pub email: String,
     #[serde(skip_serializing)]
-    pub password_hash: String,
-    pub role: String,
+    password_hash: String,  // private — accessed only through verify_password()
+    role: String,           // private — accessed only through role() / role_str()
     pub full_name: String,
     pub created_at: chrono::NaiveDateTime,
 }
@@ -23,6 +23,19 @@ impl User {
     /// role (see `Role::from_session`).
     pub fn role(&self) -> crate::auth::Role {
         crate::auth::Role::from_session(&self.role)
+    }
+
+    /// The raw role string — only for code that must write a `&str` directly
+    /// (session storage, audit log). Prefer `role()` for all comparisons.
+    pub fn role_str(&self) -> &str {
+        &self.role
+    }
+
+    /// Verify a plaintext password against the stored bcrypt hash.
+    /// Encapsulates the credential comparison so no caller ever needs to
+    /// read `password_hash` directly; the field stays private.
+    pub fn verify_password(&self, candidate: &str) -> Result<bool, bcrypt::BcryptError> {
+        bcrypt::verify(candidate, &self.password_hash)
     }
 }
 
@@ -172,6 +185,13 @@ impl EditProfileForm {
                 "A valid email address is required".into(),
             ));
         }
+        if let Some(bg) = &self.blood_group {
+            if !bg.is_empty() && !Patient::is_valid_blood_group(bg) {
+                return Err(AppError::BadRequest(
+                    "Blood group must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-".into(),
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -189,6 +209,23 @@ pub struct Patient {
     pub address: Option<String>,
     pub blood_group: Option<String>,
     pub emergency_contact: Option<String>,
+}
+
+impl Patient {
+    /// The eight ABO+Rh blood groups, in display order. Single source of
+    /// truth shared by `is_valid_blood_group` (validation) and the
+    /// edit-profile dropdown (presentation), mirroring how
+    /// `appointments::services::start_time_slots` feeds the booking form —
+    /// the canonical list is never duplicated in a template.
+    pub const BLOOD_GROUPS: [&'static str; 8] =
+        ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
+
+    /// Whether `value` is a recognised blood group. Trimmed and upper-cased
+    /// before matching so legacy/free-form values like `"o+"` or `" O+ "`
+    /// still validate against the canonical set.
+    pub fn is_valid_blood_group(value: &str) -> bool {
+        Self::BLOOD_GROUPS.contains(&value.trim().to_uppercase().as_str())
+    }
 }
 
 // ============================================================

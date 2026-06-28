@@ -3,7 +3,7 @@ use crate::db;
 use crate::errors::AppError;
 use crate::records::models::{
     CreateRecordForm, MedicalRecord, Prescription, PrescriptionForm, RecordReportData,
-    TimelineEvent,
+    TimelineEvent, TimelineEventKind,
 };
 use crate::traits::{Reportable, StatusManaged};
 use sqlx::SqlitePool;
@@ -214,15 +214,14 @@ pub async fn build_patient_timeline(
             .get(&appt.doctor_id())
             .cloned()
             .unwrap_or_else(|| format!("Doctor #{}", appt.doctor_id()));
-        events.push(TimelineEvent {
-            event_type: "appointment".into(),
-            icon: "fa-calendar-check".into(),
-            color: appt.status_color().to_string(),
-            when: format!("{} {}", appt.appointment_date, appt.start_time),
-            title: format!("Appointment with {}", doctor),
-            summary: appt.generate_summary(), // Reportable
-            link: Some(format!("/appointments/{}", appt.id)),
-        });
+        events.push(TimelineEvent::new(
+            TimelineEventKind::Appointment,
+            format!("{} {}", appt.appointment_date, appt.start_time),
+            format!("Appointment with {}", doctor),
+            appt.generate_summary(), // Reportable
+            Some(appt.status_color().to_string()), // dynamic: reflects live status
+            Some(format!("/appointments/{}", appt.id)),
+        ));
     }
 
     // 2. Medical records
@@ -234,15 +233,14 @@ pub async fn build_patient_timeline(
     .await?;
 
     for record in records {
-        events.push(TimelineEvent {
-            event_type: "record".into(),
-            icon: "fa-notes-medical".into(),
-            color: "success".into(),
-            when: record.created_at.format("%Y-%m-%d %H:%M").to_string(),
-            title: "Medical record created".into(),
-            summary: record.generate_summary(), // Reportable
-            link: Some(format!("/records/{}", record.id)),
-        });
+        events.push(TimelineEvent::new(
+            TimelineEventKind::MedicalRecord,
+            record.created_at.format("%Y-%m-%d %H:%M").to_string(),
+            "Medical record created".into(),
+            record.generate_summary(), // Reportable
+            None,
+            Some(format!("/records/{}", record.id)),
+        ));
     }
 
     // 3. Prescriptions
@@ -254,15 +252,14 @@ pub async fn build_patient_timeline(
     .await?;
 
     for rx in prescriptions {
-        events.push(TimelineEvent {
-            event_type: "prescription".into(),
-            icon: "fa-prescription".into(),
-            color: "link".into(),
-            when: rx.prescribed_at.format("%Y-%m-%d %H:%M").to_string(),
-            title: format!("Prescribed {}", rx.medication_name),
-            summary: rx.generate_summary(), // Reportable
-            link: None,
-        });
+        events.push(TimelineEvent::new(
+            TimelineEventKind::Prescription,
+            rx.prescribed_at.format("%Y-%m-%d %H:%M").to_string(),
+            format!("Prescribed {}", rx.medication_name),
+            rx.generate_summary(), // Reportable
+            None,
+            None,
+        ));
     }
 
     // 4. Invoices
@@ -274,15 +271,14 @@ pub async fn build_patient_timeline(
     .await?;
 
     for invoice in invoices {
-        events.push(TimelineEvent {
-            event_type: "invoice".into(),
-            icon: "fa-file-invoice-dollar".into(),
-            color: invoice.status_color().to_string(),
-            when: invoice.created_at.format("%Y-%m-%d %H:%M").to_string(),
-            title: format!("Invoice #{} issued", invoice.id),
-            summary: invoice.generate_summary(), // Reportable
-            link: Some(format!("/billing/{}", invoice.id)),
-        });
+        events.push(TimelineEvent::new(
+            TimelineEventKind::Invoice,
+            invoice.created_at.format("%Y-%m-%d %H:%M").to_string(),
+            format!("Invoice #{} issued", invoice.id),
+            invoice.generate_summary(), // Reportable
+            Some(invoice.status_color().to_string()), // dynamic: reflects live status
+            Some(format!("/billing/{}", invoice.id)),
+        ));
     }
 
     // Newest first. ISO "YYYY-MM-DD HH:MM" strings sort chronologically.

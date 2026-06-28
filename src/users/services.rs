@@ -144,7 +144,7 @@ pub async fn authenticate_user(
     .await?;
 
     match user {
-        Some(u) if bcrypt::verify(&form.password, &u.password_hash)? => Ok(u),
+        Some(u) if u.verify_password(&form.password)? => Ok(u),
         Some(_) => Err(AppError::Unauthorized(
             "Invalid username/email or password".into(),
         )),
@@ -179,6 +179,24 @@ pub async fn get_all_users(pool: &SqlitePool) -> Result<Vec<User>, AppError> {
             .fetch_all(pool)
             .await?,
     )
+}
+
+/// Resolve a user profile for display, enforcing patient anti-enumeration.
+///
+/// Patients may only view their own profile. Rather than returning a 403
+/// (which would reveal that the target ID exists), `None` is returned so
+/// the handler can silently redirect the patient to their own profile page.
+/// Doctors and admins receive the full profile without restriction.
+pub async fn get_user_profile_checked(
+    pool: &SqlitePool,
+    viewer_id: i64,
+    viewer_role: Role,
+    profile_id: i64,
+) -> Result<Option<User>, AppError> {
+    if viewer_role == Role::Patient && viewer_id != profile_id {
+        return Ok(None); // caller redirects to viewer's own profile
+    }
+    Ok(Some(get_user_by_id(pool, profile_id).await?))
 }
 
 pub async fn get_patient_by_user_id(

@@ -141,7 +141,7 @@ pub struct Appointment {
     pub notes: Option<String>,
     pub created_at: chrono::NaiveDateTime,
     pub room_id: Option<i64>,
-    pub priority: i32,         // 1=Emergency, 2=Urgent, 3=Normal, 4=Follow-up
+    priority: i32,             // 1=Emergency, 2=Urgent, 3=Normal, 4=Follow-up
 }
 
 impl Appointment {
@@ -183,6 +183,11 @@ impl Appointment {
         self.doctor_id = new_doctor_id;
         Ok(())
     }
+
+    /// Read-only accessor for the triage priority as a typed enum.
+    /// The field is private so the only way to change it is through a
+    /// constructor — no caller can write an out-of-range integer by hand.
+    pub fn priority(&self) -> Priority { Priority::from_i32(self.priority) }
 }
 
 /// Form data submitted when a patient books an appointment.
@@ -318,7 +323,7 @@ pub struct WaitlistEntry {
     pub appointment_date: chrono::NaiveDate,
     pub requested_start: String,
     pub requested_end: String,
-    pub priority: i32,
+    priority: i32,             // 1=Emergency, 2=Urgent, 3=Normal, 4=Follow-up
     pub notes: Option<String>,
     status: WaitlistStatus,    // waiting | offered | accepted | expired
     pub created_at: chrono::NaiveDateTime,
@@ -338,6 +343,10 @@ impl WaitlistEntry {
         self.status = WaitlistStatus::Accepted;
         Ok(())
     }
+
+    /// Read-only accessor for the triage priority as a typed enum (mirrors
+    /// `Appointment::priority` so both lifecycle types treat priority the same way).
+    pub fn priority(&self) -> Priority { Priority::from_i32(self.priority) }
 }
 
 /// Form to add a patient to the waitlist.

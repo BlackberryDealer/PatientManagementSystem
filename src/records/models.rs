@@ -118,6 +118,51 @@ impl PrescriptionForm {
 // Patient History Timeline (advanced feature, project spec)
 // ============================================================
 
+/// Semantic kind of a timeline event. Each variant knows its own
+/// Font Awesome icon and default Bulma colour, so the service layer
+/// never hardcodes presentation strings — it picks the variant and the
+/// kind supplies the display details.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineEventKind {
+    Appointment,
+    MedicalRecord,
+    Prescription,
+    Invoice,
+}
+
+impl TimelineEventKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Appointment   => "appointment",
+            Self::MedicalRecord => "record",
+            Self::Prescription  => "prescription",
+            Self::Invoice       => "invoice",
+        }
+    }
+
+    /// Font Awesome icon class. A single place to change the icon pack.
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::Appointment   => "fa-calendar-check",
+            Self::MedicalRecord => "fa-notes-medical",
+            Self::Prescription  => "fa-prescription",
+            Self::Invoice       => "fa-file-invoice-dollar",
+        }
+    }
+
+    /// Default Bulma colour name (no `is-` prefix) used when no dynamic
+    /// status colour overrides it.
+    pub fn default_color(&self) -> &'static str {
+        match self {
+            Self::Appointment   => "info",
+            Self::MedicalRecord => "success",
+            Self::Prescription  => "link",
+            Self::Invoice       => "warning",
+        }
+    }
+}
+
 /// One event on a patient's chronological history timeline. Appointments,
 /// medical records, prescriptions, and invoices are all normalised into
 /// this shape (the same polymorphic idea as the Reportable trait: each
@@ -131,6 +176,32 @@ pub struct TimelineEvent {
     pub title: String,
     pub summary: String,
     pub link: Option<String>,    // detail page, when one exists
+}
+
+impl TimelineEvent {
+    /// Build a timeline event from a typed `TimelineEventKind`.
+    /// Icon and colour are derived from the kind's own mappings so the
+    /// service layer never hardcodes presentation strings at the call site.
+    /// A dynamic `status_color` (e.g. from an appointment's live status)
+    /// overrides the kind's default colour when provided.
+    pub fn new(
+        kind: TimelineEventKind,
+        when: String,
+        title: String,
+        summary: String,
+        status_color: Option<String>,
+        link: Option<String>,
+    ) -> Self {
+        TimelineEvent {
+            icon: kind.icon().to_string(),
+            color: status_color.unwrap_or_else(|| kind.default_color().to_string()),
+            event_type: kind.as_str().to_string(),
+            when,
+            title,
+            summary,
+            link,
+        }
+    }
 }
 
 /// Data bundle for the printable medical report (advanced feature,

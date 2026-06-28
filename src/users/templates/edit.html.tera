@@ -56,7 +56,15 @@
                 <div class="field">
                     <label class="label">Blood Group</label>
                     <div class="control">
-                        <input class="input" type="text" name="blood_group" value="{{ patient.blood_group | default(value='') }}">
+                        <div class="select is-fullwidth">
+                            {% set current_bg = patient.blood_group | default(value='') | upper %}
+                            <select name="blood_group">
+                                <option value="">Not specified</option>
+                                {% for bg in blood_groups %}
+                                <option value="{{ bg }}"{% if current_bg == bg %} selected{% endif %}>{{ bg }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -89,7 +89,7 @@ pub async fn book_with_priority(
     audit::record(
         pool.get_ref(), &user, "appointment.priority_booked", "appointment",
         Some(appointment.id),
-        &format!("Priority {} booking on {}", appointment.priority, appointment.appointment_date),
+        &format!("{} priority booking on {}", appointment.priority().label(), appointment.appointment_date),
     ).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))

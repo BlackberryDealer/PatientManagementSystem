@@ -686,7 +686,7 @@ pub async fn promote_from_waitlist(
         pool, entry.patient_id, entry.doctor_id,
         &date_str,
         &entry.requested_start, &entry.requested_end,
-        entry.priority, entry.room_id, &entry.notes,
+        entry.priority_level(), entry.room_id, &entry.notes,
     ).await?;
 
     // Encapsulated state transition, then persist the entry's new status

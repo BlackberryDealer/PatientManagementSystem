@@ -2,9 +2,9 @@ use actix_session::Session;
 use actix_web::{web, HttpResponse};
 use tera::Context;
 
-use crate::auth::{require_admin, require_self_or_admin, AuthUser, OptionalAuthUser, Role};
+use crate::auth::{require_admin, require_self_or_admin, AuthUser, OptionalAuthUser};
 use crate::errors::AppError;
-use crate::users::models::{CreateStaffForm, EditProfileForm, LoginForm, RegisterForm};
+use crate::users::models::{CreateStaffForm, EditProfileForm, LoginForm, Patient, RegisterForm};
 use crate::users::services;
 
 // ============================================================
@@ -31,14 +31,14 @@ pub async fn register(
 ) -> Result<HttpResponse, AppError> {
     let user = services::register_user(pool.get_ref(), &form).await?;
     crate::audit::services::record_raw(
-        pool.get_ref(), Some(user.id), &user.username, &user.role,
+        pool.get_ref(), Some(user.id), &user.username, user.role_str(),
         "user.registered", "user", Some(user.id), "",
     ).await;
 
     // Auto-login after registration
     session.insert("user_id", user.id)?;
     session.insert("username", &user.username)?;
-    session.insert("role", &user.role)?;
+    session.insert("role", user.role().as_str())?;
 
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", "/appointments"))
@@ -72,10 +72,10 @@ pub async fn login(
         Ok(user) => {
             session.insert("user_id", user.id)?;
             session.insert("username", &user.username)?;
-            session.insert("role", &user.role)?;
+            session.insert("role", user.role().as_str())?;
 
             crate::audit::services::record_raw(
-                pool.get_ref(), Some(user.id), &user.username, &user.role,
+                pool.get_ref(), Some(user.id), &user.username, user.role_str(),
                 "user.login", "user", Some(user.id), "",
             ).await;
 
@@ -133,7 +133,7 @@ pub async fn create_staff(
     let created = services::create_staff_user(pool.get_ref(), &form).await?;
     crate::audit::services::record(
         pool.get_ref(), &user, "staff.created", "user", Some(created.id),
-        &format!("Created {} account: {}", created.role, created.username),
+        &format!("Created {} account: {}", created.role_str(), created.username),
     ).await;
 
     Ok(HttpResponse::SeeOther()
@@ -171,22 +171,18 @@ pub async fn user_profile(
 ) -> Result<HttpResponse, AppError> {
     let profile_id = path.into_inner();
 
-    // Authorization: a patient may only view their OWN profile, which protects
-    // other patients' personal and medical details (date of birth, address,
-    // blood group, emergency contact). Doctors and admins (clinical staff) may
-    // view any profile.
-    //
-    // Safe fail (anti-enumeration): rather than returning an error that would
-    // confirm the target exists, we silently send the patient back to their own
-    // profile. This check runs BEFORE the database lookup, so a forbidden id and
-    // a non-existent id are indistinguishable — a brute-forcer learns nothing.
-    if current_user.role == Role::Patient && current_user.user_id != profile_id {
-        return Ok(HttpResponse::SeeOther()
+    // Ownership + anti-enumeration rule lives in the service: patients are
+    // silently redirected to their own profile so a forbidden ID and a
+    // non-existent ID look identical to a caller.
+    let profile_user = match services::get_user_profile_checked(
+        pool.get_ref(), current_user.user_id, current_user.role, profile_id,
+    ).await? {
+        Some(u) => u,
+        None => return Ok(HttpResponse::SeeOther()
             .append_header(("Location", format!("/users/{}", current_user.user_id)))
-            .finish());
-    }
+            .finish()),
+    };
 
-    let profile_user = services::get_user_by_id(pool.get_ref(), profile_id).await?;
     let patient = services::get_patient_by_user_id(pool.get_ref(), profile_id).await?;
     let doctor = services::get_doctor_by_user_id(pool.get_ref(), profile_id).await?;
 
@@ -222,6 +218,9 @@ pub async fn edit_profile_form(
     ctx.insert("profile_user", &profile_user);
     ctx.insert("patient", &patient);
     ctx.insert("doctor", &doctor);
+    // Canonical blood-group options for the dropdown — same list the
+    // domain validates against, so the two never drift apart.
+    ctx.insert("blood_groups", &Patient::BLOOD_GROUPS);
     ctx.insert("title", "Edit Profile");
     let rendered = tera.render("users/edit.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
