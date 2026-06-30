@@ -115,6 +115,8 @@ pub enum Priority {
 }
 
 impl Priority {
+    /// Convert from the integer stored in the database.
+    /// Values outside 1–4 fall back to Normal (fail-safe).
     pub fn from_i32(v: i32) -> Self {
         match v {
             1 => Priority::Emergency,
@@ -124,6 +126,7 @@ impl Priority {
         }
     }
 
+    /// Human-readable label for display in badges and dropdowns.
     pub fn label(&self) -> &'static str {
         match self {
             Priority::Emergency => "Emergency",
@@ -133,6 +136,8 @@ impl Priority {
         }
     }
 
+    /// Bulma CSS class for the priority badge colour.
+    /// Emergency=red, Urgent=orange, Normal=blue, Follow-up=green.
     pub fn css_class(&self) -> &'static str {
         match self {
             Priority::Emergency => "is-danger",

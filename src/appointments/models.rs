@@ -43,6 +43,7 @@ pub enum WaitlistStatus {
 }
 
 impl WaitlistStatus {
+    /// Canonical lowercase string matching DB CHECK values and template comparisons.
     pub fn as_str(&self) -> &'static str {
         match self {
             WaitlistStatus::Waiting => "waiting",
@@ -53,10 +54,9 @@ impl WaitlistStatus {
     }
 }
 
-// ============================================================
-// Room — consultation room or equipment resource
-// ============================================================
-
+/// A consultation room or equipment resource (e.g. X-ray suite, lab).
+/// Six rooms are seeded in migration 002: three consultation rooms,
+/// a procedure room, an X-ray suite, and a lab.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Room {
     pub id: i64,
@@ -83,10 +83,10 @@ pub struct DoctorRoomAssignment {
     pub assignment_date: chrono::NaiveDate,
 }
 
-// ============================================================
-// Appointment — core scheduling entity
-// ============================================================
-
+/// The core scheduling entity: a patient–doctor meeting at a specific
+/// date and time window in an auto-assigned room. Status and priority
+/// are private with guarded accessors so state transitions (cancel,
+/// reassign, reschedule, assign_room) live on the struct itself.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Appointment {
     pub id: i64,
@@ -351,10 +351,9 @@ pub struct AppointmentView {
     pub doctor_id: i64,
 }
 
-// ============================================================
-// Waitlist — priority queue entry
-// ============================================================
-
+/// A patient waiting in the priority queue for a slot to open up.
+/// Ordered by priority (lower = more urgent) then by created_at.
+/// `patient_name` and `doctor_name` are resolved via JOIN in list queries.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct WaitlistEntry {
     pub id: i64,
@@ -599,14 +598,17 @@ impl CalendarMonth {
         self.days.chunks(7).collect()
     }
 
+    /// Previous month as (year, month).
     pub fn prev(&self) -> (i32, u32) {
         if self.month == 1 { (self.year - 1, 12) } else { (self.year, self.month - 1) }
     }
 
+    /// Next month as (year, month).
     pub fn next(&self) -> (i32, u32) {
         if self.month == 12 { (self.year + 1, 1) } else { (self.year, self.month + 1) }
     }
 
+    /// English month name ("January", "February", …).
     pub fn month_name(&self) -> &'static str {
         Self::MONTH_NAMES[(self.month - 1) as usize]
     }

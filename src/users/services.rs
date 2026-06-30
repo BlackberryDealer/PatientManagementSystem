@@ -165,6 +165,7 @@ pub async fn authenticate_user(
 // Queries
 // ============================================================
 
+/// Fetch a single user by primary key.
 pub async fn get_user_by_id(pool: &SqlitePool, user_id: i64) -> Result<User, AppError> {
     sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
         .bind(user_id)
@@ -173,6 +174,7 @@ pub async fn get_user_by_id(pool: &SqlitePool, user_id: i64) -> Result<User, App
         .ok_or_else(|| AppError::NotFound("User not found".into()))
 }
 
+/// List all users ordered by id.
 pub async fn get_all_users(pool: &SqlitePool) -> Result<Vec<User>, AppError> {
     Ok(
         sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY id")
@@ -199,6 +201,7 @@ pub async fn get_user_profile_checked(
     Ok(Some(get_user_by_id(pool, profile_id).await?))
 }
 
+/// Fetch the patient profile row for a given users.id.
 pub async fn get_patient_by_user_id(
     pool: &SqlitePool,
     user_id: i64,
@@ -211,6 +214,7 @@ pub async fn get_patient_by_user_id(
     )
 }
 
+/// Fetch the doctor profile row for a given users.id.
 pub async fn get_doctor_by_user_id(
     pool: &SqlitePool,
     user_id: i64,

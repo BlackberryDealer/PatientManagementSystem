@@ -30,6 +30,8 @@ const APPOINTMENT_VIEW_SELECT: &str = "\
 // Read queries
 // ============================================================
 
+/// Fetch all appointments for a patient by their users table user_id.
+/// Returns `AppointmentView` rows with patient/doctor names and room name.
 pub async fn get_appointments_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
@@ -43,6 +45,7 @@ pub async fn get_appointments_for_patient(
     .await?)
 }
 
+/// Fetch all appointments for a doctor by their users table user_id.
 pub async fn get_appointments_for_doctor(
     pool: &SqlitePool,
     doctor_user_id: i64,
@@ -56,6 +59,7 @@ pub async fn get_appointments_for_doctor(
     .await?)
 }
 
+/// Fetch every appointment in the system (admin view).
 pub async fn get_all_appointments(pool: &SqlitePool) -> Result<Vec<AppointmentView>, AppError> {
     Ok(sqlx::query_as::<_, AppointmentView>(&format!(
         "{APPOINTMENT_VIEW_SELECT} ORDER BY a.appointment_date DESC, a.start_time"
@@ -64,6 +68,8 @@ pub async fn get_all_appointments(pool: &SqlitePool) -> Result<Vec<AppointmentVi
     .await?)
 }
 
+/// Fetch a single appointment by its primary key.
+/// Returns `NotFound` if no row matches.
 pub async fn get_appointment_by_id(
     pool: &SqlitePool,
     appointment_id: i64,
@@ -103,6 +109,7 @@ pub async fn get_appointment_by_id_checked(
     Ok(appointment)
 }
 
+/// Daily appointment counts for a patient (used by the calendar).
 pub async fn get_appointment_counts_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
@@ -121,6 +128,7 @@ pub async fn get_appointment_counts_for_patient(
     Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
 }
 
+/// Daily appointment counts for a doctor (used by the calendar).
 pub async fn get_appointment_counts_for_doctor(
     pool: &SqlitePool,
     doctor_user_id: i64,
@@ -139,6 +147,7 @@ pub async fn get_appointment_counts_for_doctor(
     Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
 }
 
+/// Daily appointment counts system-wide (admin calendar).
 pub async fn get_all_appointment_counts(
     pool: &SqlitePool,
     from: &str,

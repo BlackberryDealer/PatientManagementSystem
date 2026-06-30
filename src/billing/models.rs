@@ -19,6 +19,7 @@ pub enum InvoiceStatus {
 }
 
 impl InvoiceStatus {
+    /// Canonical lowercase string matching DB CHECK values and template comparisons.
     pub fn as_str(&self) -> &'static str {
         match self {
             InvoiceStatus::Pending => "pending",
@@ -28,6 +29,8 @@ impl InvoiceStatus {
     }
 }
 
+/// A billing invoice issued to a patient. The `status` field is private
+/// with a guarded accessor; settlement is detected by `is_settled_by()`.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Invoice {
     pub id: i64,
@@ -50,7 +53,8 @@ pub struct CreateInvoiceForm {
     pub items: String,
 }
 
-/// One parsed invoice line item: description, quantity, unit price.
+/// One parsed invoice line item from the pipe-delimited form input.
+/// E.g. "Consultation|2|150.00" → description="Consultation", qty=2, unit=150.00.
 pub struct LineItem {
     pub description: String,
     pub quantity: i32,
@@ -58,6 +62,7 @@ pub struct LineItem {
 }
 
 impl LineItem {
+    /// Calculate the line total: quantity × unit_price.
     pub fn total_price(&self) -> f64 {
         (self.quantity as f64) * self.unit_price
     }
@@ -109,6 +114,7 @@ impl CreateInvoiceForm {
 // InvoiceItem — line items
 // ============================================================
 
+/// A persisted line-item row belonging to an invoice.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct InvoiceItem {
     pub id: i64,
@@ -123,6 +129,9 @@ pub struct InvoiceItem {
 // Payment
 // ============================================================
 
+/// A payment recorded against an invoice. Multiple payments may be
+/// made against a single invoice; settlement is detected when
+/// SUM(payments) ≥ invoice.total_amount.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Payment {
     pub id: i64,

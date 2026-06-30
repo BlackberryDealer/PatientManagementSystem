@@ -72,6 +72,7 @@ pub(super) async fn resolve_room(
     Ok(room_id)
 }
 
+/// List of (doctor_id, full_name) pairs for dropdowns and display.
 pub async fn get_all_doctors(pool: &SqlitePool) -> Result<Vec<(i64, String)>, AppError> {
     Ok(sqlx::query_as::<_, (i64, String)>(
         "SELECT d.id, u.full_name FROM doctors d JOIN users u ON d.user_id = u.id ORDER BY u.full_name",
@@ -80,6 +81,7 @@ pub async fn get_all_doctors(pool: &SqlitePool) -> Result<Vec<(i64, String)>, Ap
     .await?)
 }
 
+/// List of active rooms for display and auto-assignment.
 pub async fn get_all_rooms(pool: &SqlitePool) -> Result<Vec<Room>, AppError> {
     Ok(sqlx::query_as::<_, Room>(
         "SELECT * FROM rooms WHERE is_active = 1 ORDER BY name",
