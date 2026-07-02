@@ -114,7 +114,7 @@ async fn seed_availability(pool: &SqlitePool) {
          VALUES (1, 0, '00:00', '23:59', 0, '2026-07-20', 1)",
     ).execute(pool).await.unwrap();
 
-    println!("done (11 slots)");
+    println!("done (10 slots)");
 }
 
 async fn seed_room_assignments(pool: &SqlitePool) {

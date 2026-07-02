@@ -31,12 +31,12 @@ Each team member implements one or more advanced features aligned with the offic
 |---|---|---|---|
 | **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage via `BinaryHeap` | Lennon | ✅ Implemented |
 | **Time slot validation** | Conflict detection & earliest-slot suggestion algorithm | Lennon | ✅ Implemented |
-| **Scheduling algorithms** | Lazy doctor-room auto-allocation (`resolve_room()`) with 3-level fallback and race-safe `INSERT OR IGNORE`; availability enforcement engine — 3-rule priority system (blocked → windowed → open default) in the critical path of all 4 booking algorithms | Dylan | ✅ Implemented |
-| **Audit logging** | Immutable action trail (`src/audit/`) recording actor, action, entity, and entity ID across appointments, records, and PDF export; admin-only view | Dylan | ✅ Implemented |
+| **Scheduling algorithms** | Lazy doctor-room auto-allocation (`resolve_room()`) with 3-level fallback and race-safe `INSERT OR IGNORE`; availability enforcement engine — 3-rule priority system (blocked → windowed → open default) in the critical path of all 4 booking algorithms; greedy load-balanced doctor reassignment (`find_alternative_doctor()`) | Dylan | ✅ Implemented |
 | **Patient history timelines** | Chronological record view with appointment/record/prescription/invoice merging | Raees | ✅ Implemented |
 | **Medical report PDF generation** | Server-side PDF export of a medical report via the pure-Rust `printpdf` crate (paginated, word-wrapped, no external binaries) | Raees | ✅ Implemented |
 | **Role-based staff access** | Type-level role enforcement via Rust trait system (`AuthUser`, `require_role`) | Afif | ✅ Implemented |
 | Financial reporting | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates | Hanzalah | ✅ Implemented |
+| **Audit logging** | Immutable action trail (`src/audit/`) recording actor, action, entity, and entity ID across appointments, records, and PDF export; admin-only view | Hanzalah | ✅ Implemented |
 
 > **Note:** Formative Assessment does **not** apply to this project (spec v1.2.2).
 
@@ -73,6 +73,7 @@ PatientManagementSystem/
 │   └── 005_doctor_room_assignments.sql
 ├── templates/
 │   ├── base.html.tera
+│   ├── error.html.tera
 │   └── shared/
 │       ├── navbar.html.tera
 │       └── footer.html.tera
@@ -92,10 +93,11 @@ PatientManagementSystem/
     ├── errors.rs            # Unified AppError type
     ├── auth.rs              # Session-based auth extractors & role guards
     ├── traits.rs            # OOP traits (TimeSlotted, StatusManaged, etc.)
+    ├── time.rs              # Clinic hours & time-slot helpers
     ├── bin/
     │   └── seed.rs          # Database seeder (`cargo run --bin seed`)
     ├── users/               # User registration, login, profiles
-    ├── appointments/        # Scheduling engine (3 algorithms) + waitlist + calendar
+    ├── appointments/        # Scheduling engine (4 algorithms) + waitlist + calendar
     ├── availability/        # Doctor recurring & blocked availability
     ├── records/             # Medical records, prescriptions, timeline & PDF report export
     ├── billing/             # Invoices, line items, payments
@@ -103,10 +105,9 @@ PatientManagementSystem/
     └── dashboard/           # Admin analytics & statistics
 ```
 
-Each module contains:
-- `mod.rs` — route configuration (`pub fn configure()`)
+Each domain is a sibling `src/<module>.rs` file (route configuration via `pub fn configure()`) plus a matching `src/<module>/` folder containing:
 - `models.rs` — struct definitions with serde + sqlx derives
-- `services.rs` — business logic and database queries
+- `services.rs` — business logic and database queries (the `appointments` module splits this into a `services/` folder: `algorithms`, `booking`, `queries`, `rooms`, `waitlist`, `helpers`)
 - `handlers.rs` — HTTP request handlers
 - `templates/` — Tera HTML templates for the module
 
@@ -142,7 +143,7 @@ Populate the database with realistic test data in one command:
 cargo run --bin seed
 ```
 
-Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availability slots, 4 medical records, 4 prescriptions, 3 invoices with payments, and 3 waitlist entries. All accounts use password `password123`.
+Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 10 availability slots, 6 doctor-room assignments, 4 medical records, 4 prescriptions, 3 invoices (1 settled, 2 pending), and 3 waitlist entries. All accounts use password `password123`.
 
 ### First Steps
 1. Run `cargo run --bin seed` to populate test data
@@ -170,9 +171,9 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availabili
 |---|---|---|---|
 | `users` + `auth` | Patient Registration, Doctor Management | **Role-based staff access** — type-level role enforcement | Afif |
 | `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist with `BinaryHeap` priority triage; **Time slot validation** — overlap detection & earliest-slot algorithm | Lennon |
-| `availability` + `audit` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement used by all 4 booking paths; **Audit logging** — immutable cross-cutting action trail | Dylan |
+| `availability` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement used by all 4 booking paths + greedy load-balanced doctor reassignment | Dylan |
 | `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view with multi-entity merging | Raees |
-| `billing` | Billing | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates | Hanzalah |
+| `billing` + `audit` | Billing | Analytics dashboard (revenue, busiest-doctors, cancellation/collection rates); **Audit logging** — immutable cross-cutting action trail | Hanzalah |
 
 ---
 
@@ -187,12 +188,13 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availabili
 
 ## 📊 Database Schema
 
-The schema is fully normalized with 13 tables across 4 migrations:
+The schema is fully normalized with 15 tables across 5 migrations:
 
 - `users` — authentication & role (patient/doctor/admin)
 - `patients`, `doctors` — role-specific profile tables
 - `doctor_availability` — recurring weekly slots + blocked dates
 - `appointments` — scheduled meetings with priority (1-4) and auto-assigned rooms
+- `appointment_slots` — occupancy ledger (one row per 30-min slot); the `UNIQUE(doctor_id, appointment_date, slot_time)` index makes double-booking impossible at the database layer
 - `rooms` — consultation rooms, procedure rooms, and equipment resources
 - `doctor_room_assignments` — daily doctor-to-room allocation (one room per doctor per day)
 - `waitlist` — priority queue for patients awaiting slots
@@ -226,9 +228,9 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 | Trait | Implemented By | What It Provides |
 |---|---|---|
 | `TimeSlotted` | `Appointment`, `WaitlistEntry`, `DoctorAvailability` | Overlap detection, duration calculation — shared scheduling logic across all time-based entities |
-| `StatusManaged` | `Appointment`, `Invoice` | Status checking, Bulma CSS badge classes |
+| `StatusManaged` | `Appointment`, `Invoice`, `WaitlistEntry` | Status checking, Bulma CSS badge classes |
 | `Prioritized` | `Appointment`, `WaitlistEntry` | Priority labels (Emergency/Urgent/Normal/Follow-up), comparison between entities |
-| `Reportable` | `Appointment`, `Invoice`, `MedicalRecord` | Human-readable summary generation for reports and auditing |
+| `Reportable` | `Appointment`, `Invoice`, `MedicalRecord`, `Prescription` | Human-readable summary generation for reports and auditing |
 
 ### Medical Report PDF Generation
 
@@ -240,11 +242,11 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 - **Persistent Sessions**: Session encryption key is auto-generated once and saved to `.env` as `SESSION_SECRET`. Survives server restarts — no forced re-login. See `get_or_create_secret_key()` in `main.rs`.
 - **Role-Based Access**: `AuthUser` extractor with `require_role()`, `require_admin()`, `require_doctor()` guards. Type-level role enforcement prevents accidental privilege escalation.
 - **Frontend Polish**: Font Awesome 6 icons, Bulma components, mobile-responsive navbar with hamburger toggle, fade-in animations, hero-style empty states, breadcrumbs on detail pages.
-- **Database**: SQLite for zero-config setup. 13 tables across 4 migrations. Switch to PostgreSQL via `DATABASE_URL` and `sqlx` features in `Cargo.toml`.
+- **Database**: SQLite for zero-config setup. 15 tables across 5 migrations. Switch to PostgreSQL via `DATABASE_URL` and `sqlx` features in `Cargo.toml`.
 
 ---
 
-## � Marking Criteria (Spec v1.2.2)
+## 🎯 Marking Criteria (Spec v1.2.2)
 
 ### Group Implementation (60%)
 
@@ -252,9 +254,9 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 |---|---|---|
 | System Architecture & OOP Design | 15% | Modular crate with 5 domains; 4 custom traits (`TimeSlotted`, `StatusManaged`, `Prioritized`, `Reportable`) demonstrating polymorphism; `FromRequest`/`ResponseError`/`FromRow` trait impls; structs with `impl` blocks; separation of concerns (models/services/handlers) |
 | Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 4 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap, greedy doctor reassignment); transactional priority override; appointment rescheduling (transactional slot-rebuild); automatic doctor-room allocation; waitlist with promotion; session-based auth; role guards |
-| Database Design & Integration | 10% | 13 normalized tables across 4 migrations; foreign keys with CASCADE/SET NULL; composite + partial-unique indexes on the slot-occupancy ledger; SQLx migrations |
+| Database Design & Integration | 10% | 15 normalized tables across 5 migrations; foreign keys with CASCADE/SET NULL; composite + partial-unique indexes on the slot-occupancy ledger; SQLx migrations |
 | Frontend Design & SSR | 10% | Tera template inheritance (30 templates); Font Awesome 6 icons; Bulma responsive CSS with mobile navbar; itemized invoice builder; hero-style empty states; breadcrumbs; fade-in animations |
-| Documentation, Presentation & Demo | 10% | Professional README; WALKTHROUGH.md guide; inline code documentation; clear setup instructions |
+| Documentation, Presentation & Demo | 10% | Professional README; project report; inline code documentation; clear setup instructions |
 
 ### Individual Extended Features (40%)
 
