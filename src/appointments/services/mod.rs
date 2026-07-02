@@ -10,6 +10,7 @@ pub use booking::{book_appointment, book_with_priority};
 pub use queries::{
     assign_room,
     cancel_appointment, cancel_appointment_checked,
+    complete_appointment,
     get_all_appointment_counts,
     get_all_appointments,
     get_appointment_by_id, get_appointment_by_id_checked,

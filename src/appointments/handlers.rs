@@ -9,10 +9,8 @@ use crate::audit::services as audit;
 use crate::auth::{require_doctor, AuthUser, Role};
 use crate::errors::AppError;
 
-// ============================================================
-// GET /appointments — list appointments filtered by role
-// ============================================================
-
+/// GET /appointments — list appointments filtered by role.
+/// Patients see their own appointments; doctors see theirs; admins see all.
 pub async fn list_appointments(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -32,10 +30,8 @@ pub async fn list_appointments(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-// ============================================================
-// GET /appointments/book — show booking form
-// ============================================================
-
+/// GET /appointments/book — show the booking form with doctor list,
+/// 30-min time-slot dropdowns, and priority selector.
 pub async fn book_form(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -53,10 +49,9 @@ pub async fn book_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-// ============================================================
-// POST /appointments/book — standard booking
-// ============================================================
-
+/// POST /appointments/book — process a standard booking.
+/// Validates the form, checks for conflicts, resolves the doctor's daily
+/// room automatically, and creates the appointment atomically.
 pub async fn book_appointment(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,
@@ -74,10 +69,9 @@ pub async fn book_appointment(
         .finish())
 }
 
-// ============================================================
-// POST /appointments/book/priority — priority-based booking
-// ============================================================
-
+/// POST /appointments/book/priority — priority-based booking.
+/// Emergency/Urgent appointments may bump lower-priority ones to the
+/// waitlist inside a single database transaction.
 pub async fn book_with_priority(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,
@@ -94,10 +88,8 @@ pub async fn book_with_priority(
         .finish())
 }
 
-// ============================================================
-// GET /appointments/suggest — show suggestion form
-// ============================================================
-
+/// GET /appointments/suggest — show the slot suggestion form.
+/// The user picks a doctor, date, and desired duration.
 pub async fn suggest_slot_form(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -114,10 +106,9 @@ pub async fn suggest_slot_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-// ============================================================
-// POST /appointments/suggest — run earliest-slot algorithm
-// ============================================================
-
+/// POST /appointments/suggest — run the earliest-slot algorithm.
+/// Scans the doctor's schedule for the given date and returns the first
+/// available gap that fits the requested duration (Algorithm 2).
 pub async fn suggest_slot(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -139,10 +130,9 @@ pub async fn suggest_slot(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-// ============================================================
-// GET /appointments/waitlist — view waitlist
-// ============================================================
-
+/// GET /appointments/waitlist — view waitlist filtered by role.
+/// Patients see their own entries; doctors see their patients;
+/// admins see all. Entries ordered by urgency (priority ASC).
 pub async fn list_waitlist(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -173,10 +163,8 @@ pub async fn list_waitlist(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-// ============================================================
-// POST /appointments/waitlist/join — join the waitlist
-// ============================================================
-
+/// POST /appointments/waitlist/join — add the current patient to the
+/// waitlist for a specific doctor, date, and time window.
 pub async fn join_waitlist(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,
@@ -188,10 +176,9 @@ pub async fn join_waitlist(
         .finish())
 }
 
-// ============================================================
-// POST /appointments/waitlist/{id}/promote — promote from waitlist
-// ============================================================
-
+/// POST /appointments/waitlist/{id}/promote — promote a waitlist entry
+/// to a real appointment. Doctor/admin only. If the slot is now free,
+/// the entry is booked atomically.
 pub async fn promote_waitlist(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,
@@ -217,10 +204,9 @@ pub async fn promote_waitlist(
     }
 }
 
-// ============================================================
-// GET /appointments/calendar — calendar view
-// ============================================================
-
+/// GET /appointments/calendar — render the monthly calendar.
+/// Each day cell shows the count of (non-cancelled) appointments
+/// visible to the authenticated user's role.
 pub async fn calendar_view(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -263,10 +249,10 @@ pub async fn calendar_view(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-// ============================================================
-// GET /appointments/{id} — view single appointment detail
-// ============================================================
-
+/// GET /appointments/{id} — view a single appointment's detail page.
+/// Patients may only view their own appointments; doctors/admins may
+/// view any. A "Create Medical Record" link is shown to staff for
+/// scheduled appointments.
 pub async fn appointment_detail(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -279,20 +265,54 @@ pub async fn appointment_detail(
         pool.get_ref(), appointment_id, user.user_id, user.role,
     ).await?;
 
+    // Staff see a room-override dropdown on scheduled appointments.
+    let rooms = match user.role {
+        Role::Doctor | Role::Admin => services::get_all_rooms(pool.get_ref()).await?,
+        Role::Patient => Vec::new(),
+    };
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("appointment", &appointment);
+    ctx.insert("rooms", &rooms);
     ctx.insert("title", &format!("Appointment #{}", appointment.id));
     let rendered = tera.render("appointments/detail.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
 }
 
 // ============================================================
-// POST /appointments/{id}/assign-room — doctor allocates a room
+// POST /appointments/{id}/complete — staff closes out a visit
+// ============================================================
+
+/// Mark a scheduled appointment as completed (the visit took place).
+/// Staff only — completion is a clinical action, like creating the
+/// medical record it usually accompanies. Occupancy slots are kept:
+/// the time was genuinely used (see `services::complete_appointment`).
+pub async fn complete_appointment(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    require_doctor(&user)?; // doctor or admin
+    let appointment_id = path.into_inner();
+    let appointment = services::complete_appointment(pool.get_ref(), appointment_id).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.completed", "appointment", Some(appointment.id),
+        &format!("Visit on {} {}–{} completed",
+            appointment.appointment_date, appointment.start_time, appointment.end_time),
+    ).await;
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/appointments/{}", appointment.id)))
+        .finish())
+}
+
+// ============================================================
+// POST /appointments/{id}/assign-room — staff room override
 // ============================================================
 
 /// Assign (or change) the consultation room for an appointment. Staff only:
-/// patients book without a room and a doctor allocates one afterwards.
+/// rooms are auto-assigned at booking, so this is the manual override for
+/// moving one appointment elsewhere (e.g. into the procedure room).
 pub async fn assign_room(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,
@@ -311,10 +331,10 @@ pub async fn assign_room(
         .finish())
 }
 
-// ============================================================
-// POST /appointments/{id}/cancel — cancel an appointment
-// ============================================================
-
+/// POST /appointments/{id}/cancel — cancel a scheduled appointment.
+/// Ownership is checked: patients may only cancel their own.
+/// After cancellation, auto-promotion attempts to fill the freed
+/// slot from the waitlist (Algorithm 3).
 pub async fn cancel_appointment(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,

@@ -3,7 +3,7 @@
 ## Step 1 — Start the Server
 
 ```powershell
-cd "c:\Users\tdmca\OneDrive\Desktop\webProg\Project\PatientManagementSystem"
+cd PatientManagementSystem
 cargo run --bin seed    # populate database (skip if already done)
 cargo run               # start server at http://localhost:8080
 ```
@@ -258,7 +258,7 @@ All passwords: **`password123`** (login works with username OR email)
 | `/` | GET | → Appointments | → Appointments | → Appointments |
 | `/users/login` | GET/POST | ✅ | ✅ | ✅ |
 | `/users/register` | GET/POST | ✅ (patient only) | — | — |
-| `/users/logout` | GET | ✅ | ✅ | ✅ |
+| `/users/logout` | POST | ✅ | ✅ | ✅ |
 | users | GET | ❌ | ❌ | ✅ |
 | `/users/new` | GET/POST | ❌ | ❌ | ✅ |
 | `/users/{id}` | GET | Self only | ✅ | ✅ |

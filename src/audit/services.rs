@@ -23,6 +23,9 @@ pub async fn record(
 /// Record an audit entry with explicit actor fields — for flows where no
 /// `AuthUser` extractor exists yet (e.g. registration and login, where the
 /// session is created in the same request).
+// One positional argument per audit_log column, in schema order — bundling
+// them into a struct would just restate the table for a single caller pair.
+#[allow(clippy::too_many_arguments)]
 pub async fn record_raw(
     pool: &SqlitePool,
     user_id: Option<i64>,

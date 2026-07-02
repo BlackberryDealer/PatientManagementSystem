@@ -24,21 +24,19 @@ fn load_module_templates(tera: &mut tera::Tera) -> Result<(), tera::Error> {
     for module in &modules {
         let dir_path = format!("{}/src/{}/templates", manifest_dir, module);
         if let Ok(entries) = fs::read_dir(&dir_path) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "tera") {
-                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                            let content = fs::read_to_string(&path).map_err(|e| {
-                                tera::Error::chain(
-                                    format!("Failed to read template: {}", path.display()),
-                                    e,
-                                )
-                            })?;
-                            let template_name = format!("{}/{}", module, file_name);
-                            tera.add_raw_template(&template_name, &content)?;
-                            log::debug!("Loaded template: {}", template_name);
-                        }
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "tera") {
+                    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                        let content = fs::read_to_string(&path).map_err(|e| {
+                            tera::Error::chain(
+                                format!("Failed to read template: {}", path.display()),
+                                e,
+                            )
+                        })?;
+                        let template_name = format!("{}/{}", module, file_name);
+                        tera.add_raw_template(&template_name, &content)?;
+                        log::debug!("Loaded template: {}", template_name);
                     }
                 }
             }
@@ -99,11 +97,27 @@ fn get_or_create_secret_key() -> Key {
 
 /// Replace an error response body with a friendly, SSR-rendered HTML page.
 /// Renders `error.html.tera`; falls back to inline HTML if Tera is unavailable.
+///
+/// Responses that are already `text/html` pass through untouched: `AppError`
+/// renders its own styled page carrying the specific domain message (e.g. why
+/// a booking was rejected), and replacing it here would flatten that into a
+/// generic line. This middleware therefore only dresses up *plain* error
+/// bodies (unmatched routes, form-deserialization failures, panics).
 fn render_error_page<B>(
     res: ServiceResponse<B>,
     title: &str,
     message: &str,
 ) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
+    let already_html = res
+        .response()
+        .headers()
+        .get(actix_web::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| ct.starts_with("text/html"));
+    if already_html {
+        return Ok(ErrorHandlerResponse::Response(res.map_into_left_body()));
+    }
+
     let status = res.status();
 
     let html = res
@@ -152,6 +166,26 @@ fn handle_internal_error<B>(
         res,
         "Internal Server Error",
         "Something went wrong on our end. Please try again later.",
+    )
+}
+
+/// 400 handler — dresses up plain-text 400s that don't come from `AppError`
+/// (typically a form the framework could not deserialize). `AppError` 400s
+/// already carry a styled page with the specific message and pass through.
+fn handle_bad_request<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
+    render_error_page(
+        res,
+        "Bad Request",
+        "The submitted form was incomplete or invalid. Please go back and try again.",
+    )
+}
+
+/// 403 handler — same pass-through rule as `handle_bad_request`.
+fn handle_forbidden<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
+    render_error_page(
+        res,
+        "Forbidden",
+        "You do not have permission to access this resource.",
     )
 }
 
@@ -208,6 +242,8 @@ async fn main() -> std::io::Result<()> {
             // Registered first so the new body is produced before Compress runs.
             .wrap(
                 ErrorHandlers::new()
+                    .handler(StatusCode::BAD_REQUEST, handle_bad_request)
+                    .handler(StatusCode::FORBIDDEN, handle_forbidden)
                     .handler(StatusCode::NOT_FOUND, handle_not_found)
                     .handler(StatusCode::INTERNAL_SERVER_ERROR, handle_internal_error),
             )

@@ -73,9 +73,13 @@
                     <a class="button is-light is-small mr-1" href="/users/{{ user.user_id }}">
                         <i class="fas fa-id-card mr-1"></i>Profile
                     </a>
-                    <a class="button is-danger is-light is-small" href="/users/logout">
-                        <i class="fas fa-sign-out-alt mr-1"></i>Logout
-                    </a>
+                    {# Logout is a POST (state-changing action), so it is a
+                       form button rather than a link — see users::configure. #}
+                    <form method="post" action="/users/logout">
+                        <button class="button is-danger is-light is-small" type="submit">
+                            <i class="fas fa-sign-out-alt mr-1"></i>Logout
+                        </button>
+                    </form>
                 </div>
                 {% else %}
                 <div class="buttons">

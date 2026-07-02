@@ -85,14 +85,18 @@ impl FromRequest for AuthUser {
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
+        // Failures surface as `AppError` (not bare actix errors) so the user
+        // sees the same styled error page every other rejection produces.
         match auth_user_from_session(req) {
             Ok(Some(user)) => ready(Ok(user)),
-            Ok(None) => ready(Err(actix_web::error::ErrorUnauthorized(
-                "Please log in to access this page.",
-            ))),
-            Err(()) => ready(Err(actix_web::error::ErrorInternalServerError(
-                "Session read error",
-            ))),
+            Ok(None) => ready(Err(crate::errors::AppError::Unauthorized(
+                "Please log in to access this page.".into(),
+            )
+            .into())),
+            Err(()) => ready(Err(crate::errors::AppError::Internal(
+                "Session read error".into(),
+            )
+            .into())),
         }
     }
 }

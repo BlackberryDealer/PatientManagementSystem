@@ -12,7 +12,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/register", web::post().to(handlers::register))
             .route("/login", web::get().to(handlers::login_form))
             .route("/login", web::post().to(handlers::login))
-            .route("/logout", web::get().to(handlers::logout))
+            // POST only: logout mutates state, so it must not be reachable
+            // via a plain link/prefetch (see handlers::logout).
+            .route("/logout", web::post().to(handlers::logout))
             .route("", web::get().to(handlers::list_users))
             // `/new` must precede `/{id}` so it isn't captured as a dynamic id.
             .route("/new", web::get().to(handlers::create_staff_form))

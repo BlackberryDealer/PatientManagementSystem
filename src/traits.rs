@@ -51,11 +51,39 @@ pub trait TimeSlotted {
 
 /// Check whether `new_slot` conflicts with any entry in `existing`.
 /// Demonstrates polymorphism: works for Appointment, WaitlistEntry, or
-/// DoctorAvailability — any type that implements TimeSlotted.
-pub fn any_conflict<T: TimeSlotted>(new_slot: &T, existing: &[impl TimeSlotted]) -> bool {
+/// DoctorAvailability — any type that implements TimeSlotted. The
+/// availability engine uses it to test a requested booking window against
+/// a doctor's blocked entries (see `ensure_doctor_available`, Rule 1).
+pub fn any_conflict<'a, T, I>(new_slot: &impl TimeSlotted, existing: I) -> bool
+where
+    T: TimeSlotted + 'a,
+    I: IntoIterator<Item = &'a T>,
+{
     existing
-        .iter()
+        .into_iter()
         .any(|e| new_slot.overlaps_with(e.start_time(), e.end_time()))
+}
+
+/// The simplest `TimeSlotted` implementor: a bare start/end pair.
+///
+/// Adapts a requested booking window — which arrives as two loose `&str`s
+/// from a form — into the trait's world, so the same polymorphic checks
+/// (`any_conflict`, `overlaps_with`, `contains`) that run on stored entities
+/// also run on a request that has no entity yet.
+pub struct TimeWindow<'a> {
+    start: &'a str,
+    end: &'a str,
+}
+
+impl<'a> TimeWindow<'a> {
+    pub fn new(start: &'a str, end: &'a str) -> Self {
+        Self { start, end }
+    }
+}
+
+impl TimeSlotted for TimeWindow<'_> {
+    fn start_time(&self) -> &str { self.start }
+    fn end_time(&self) -> &str { self.end }
 }
 
 // ============================================================
@@ -115,6 +143,8 @@ pub enum Priority {
 }
 
 impl Priority {
+    /// Convert from the integer stored in the database.
+    /// Values outside 1–4 fall back to Normal (fail-safe).
     pub fn from_i32(v: i32) -> Self {
         match v {
             1 => Priority::Emergency,
@@ -124,6 +154,7 @@ impl Priority {
         }
     }
 
+    /// Human-readable label for display in badges and dropdowns.
     pub fn label(&self) -> &'static str {
         match self {
             Priority::Emergency => "Emergency",
@@ -133,6 +164,8 @@ impl Priority {
         }
     }
 
+    /// Bulma CSS class for the priority badge colour.
+    /// Emergency=red, Urgent=orange, Normal=blue, Follow-up=green.
     pub fn css_class(&self) -> &'static str {
         match self {
             Priority::Emergency => "is-danger",
@@ -179,7 +212,9 @@ pub trait Prioritized {
         Priority::from_i32(self.priority_level()).css_class()
     }
 
-    /// Returns `true` if this entity has higher urgency (lower number) than `other`.
+    /// Returns `true` if this entity has higher urgency (lower number) than
+    /// `other`. Drives the `BinaryHeap` ordering of the waitlist's
+    /// `PriorityItem`, so the "lower number wins" rule is encoded once.
     fn is_higher_priority_than(&self, other: &dyn Prioritized) -> bool {
         self.priority_level() < other.priority_level()
     }

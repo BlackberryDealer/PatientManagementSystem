@@ -1,7 +1,7 @@
 use crate::availability::models::{DoctorAvailability, SetAvailabilityForm};
 use crate::db;
 use crate::errors::AppError;
-use crate::traits::TimeSlotted;
+use crate::traits::{any_conflict, TimeSlotted, TimeWindow};
 use chrono::Datelike;
 use sqlx::SqlitePool;
 
@@ -48,13 +48,11 @@ pub async fn ensure_doctor_available(
     .fetch_all(pool)
     .await?;
 
-    // Rule 1: any overlapping blocked entry rejects the booking.
-    // Overlap detection comes from the shared TimeSlotted trait.
-    if rules
-        .iter()
-        .filter(|r| r.blocked())
-        .any(|r| r.overlaps_with(start_time, end_time))
-    {
+    // Rule 1: any overlapping blocked entry rejects the booking. The requested
+    // window is lifted into the TimeSlotted world (`TimeWindow`) so the shared
+    // polymorphic `any_conflict` check performs the overlap comparison.
+    let requested = TimeWindow::new(start_time, end_time);
+    if any_conflict(&requested, rules.iter().filter(|r| r.blocked())) {
         return Err(AppError::BadRequest(
             "The doctor is unavailable at that time (on leave or blocked).\
              \nPlease pick a different time or doctor, or use the suggestion feature."
@@ -117,6 +115,9 @@ pub async fn add_availability(
 ) -> Result<DoctorAvailability, AppError> {
     // Validation — nothing touches the database before this passes
     form.validate()?;
+    // Store the canonical zero-padded "HH:MM" form: the availability gate
+    // compares these strings lexically against requested booking windows.
+    let (start_mins, end_mins) = crate::time::parse_time_range(&form.start_time, &form.end_time)?;
 
     let doctor_id = db::get_doctor_id(pool, doctor_user_id).await?;
 
@@ -128,8 +129,8 @@ pub async fn add_availability(
     )
     .bind(doctor_id)
     .bind(form.day_of_week)
-    .bind(&form.start_time)
-    .bind(&form.end_time)
+    .bind(crate::time::minutes_to_time(start_mins))
+    .bind(crate::time::minutes_to_time(end_mins))
     .bind(form.recurring() as i32) // SQLite stores BOOLEAN as INTEGER 0/1
     .bind(form.specific_date_or_none())
     .bind(form.blocked() as i32)

@@ -132,6 +132,7 @@ pub enum TimelineEventKind {
 }
 
 impl TimelineEventKind {
+    /// Snake-case string used in CSS classes and data attributes.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Appointment   => "appointment",

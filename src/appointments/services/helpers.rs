@@ -69,18 +69,26 @@ pub(super) async fn insert_slots(
     Ok(())
 }
 
+/// The full contents of a new appointment row: one named bundle instead of
+/// nine loose positional arguments, shared by every path that books —
+/// standard, priority override, and waitlist promotion. Field names make the
+/// call sites self-documenting and impossible to transpose.
+pub(super) struct NewAppointment<'a> {
+    pub(super) patient_id: i64,
+    pub(super) doctor_id: i64,
+    pub(super) date: &'a str,
+    pub(super) start: &'a str,
+    pub(super) end: &'a str,
+    pub(super) priority: i32,
+    pub(super) room_id: i64,
+    pub(super) notes: &'a Option<String>,
+}
+
 /// Insert the appointment row plus its occupancy slots inside an existing
 /// transaction. Used by both the standard and priority booking paths.
 pub(super) async fn insert_appointment_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    patient_id: i64,
-    doctor_id: i64,
-    date: &str,
-    start: &str,
-    end: &str,
-    priority: i32,
-    room_id: i64,
-    notes: &Option<String>,
+    new: &NewAppointment<'_>,
     start_mins: i32,
     end_mins: i32,
 ) -> Result<Appointment, AppError> {
@@ -92,18 +100,18 @@ pub(super) async fn insert_appointment_in_tx(
                    start_time, end_time, status, notes, created_at,
                    room_id, priority",
     )
-    .bind(patient_id)
-    .bind(doctor_id)
-    .bind(date)
-    .bind(start)
-    .bind(end)
-    .bind(priority)
-    .bind(room_id)
-    .bind(notes)
+    .bind(new.patient_id)
+    .bind(new.doctor_id)
+    .bind(new.date)
+    .bind(new.start)
+    .bind(new.end)
+    .bind(new.priority)
+    .bind(new.room_id)
+    .bind(new.notes)
     .fetch_one(&mut **tx)
     .await?;
 
-    insert_slots(tx, appt.id, doctor_id, date, start_mins, end_mins, room_id).await?;
+    insert_slots(tx, appt.id, new.doctor_id, new.date, start_mins, end_mins, new.room_id).await?;
     Ok(appt)
 }
 
@@ -112,23 +120,12 @@ pub(super) async fn insert_appointment_in_tx(
 /// together; if any slot is already taken the whole booking rolls back.
 pub(super) async fn insert_appointment(
     pool: &SqlitePool,
-    patient_id: i64,
-    doctor_id: i64,
-    date: &str,
-    start: &str,
-    end: &str,
-    priority: i32,
-    room_id: i64,
-    notes: &Option<String>,
+    new: &NewAppointment<'_>,
 ) -> Result<Appointment, AppError> {
-    let (start_mins, end_mins) = parse_slot(start, end)?;
+    let (start_mins, end_mins) = parse_slot(new.start, new.end)?;
 
     let mut tx = pool.begin().await?;
-    let appt = insert_appointment_in_tx(
-        &mut tx, patient_id, doctor_id, date, start, end,
-        priority, room_id, notes, start_mins, end_mins,
-    )
-    .await?;
+    let appt = insert_appointment_in_tx(&mut tx, new, start_mins, end_mins).await?;
     tx.commit().await?;
     Ok(appt)
 }

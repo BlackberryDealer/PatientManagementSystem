@@ -22,6 +22,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/{id}/reschedule", web::get().to(handlers::reschedule_form))
             .route("/{id}/reschedule", web::post().to(handlers::reschedule_appointment))
             .route("/{id}/cancel", web::post().to(handlers::cancel_appointment))
+            .route("/{id}/complete", web::post().to(handlers::complete_appointment))
+            .route("/{id}/assign-room", web::post().to(handlers::assign_room))
             .route("/{id}/reassign", web::post().to(handlers::reassign_appointment)),
     );
 }

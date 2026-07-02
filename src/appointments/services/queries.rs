@@ -3,12 +3,13 @@ use crate::auth::Role;
 use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
-use crate::time::parse_slot;
+use crate::time::{minutes_to_time, parse_slot};
 use crate::traits::StatusManaged;
 use sqlx::SqlitePool;
 
 use super::algorithms::check_conflict;
 use super::helpers::insert_slots;
+use super::rooms::resolve_room;
 use super::waitlist::auto_promote_waitlist;
 
 /// Shared SELECT for the joined appointment view. Each query appends its own
@@ -30,6 +31,8 @@ const APPOINTMENT_VIEW_SELECT: &str = "\
 // Read queries
 // ============================================================
 
+/// Fetch all appointments for a patient by their users table user_id.
+/// Returns `AppointmentView` rows with patient/doctor names and room name.
 pub async fn get_appointments_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
@@ -43,6 +46,7 @@ pub async fn get_appointments_for_patient(
     .await?)
 }
 
+/// Fetch all appointments for a doctor by their users table user_id.
 pub async fn get_appointments_for_doctor(
     pool: &SqlitePool,
     doctor_user_id: i64,
@@ -56,6 +60,7 @@ pub async fn get_appointments_for_doctor(
     .await?)
 }
 
+/// Fetch every appointment in the system (admin view).
 pub async fn get_all_appointments(pool: &SqlitePool) -> Result<Vec<AppointmentView>, AppError> {
     Ok(sqlx::query_as::<_, AppointmentView>(&format!(
         "{APPOINTMENT_VIEW_SELECT} ORDER BY a.appointment_date DESC, a.start_time"
@@ -64,6 +69,8 @@ pub async fn get_all_appointments(pool: &SqlitePool) -> Result<Vec<AppointmentVi
     .await?)
 }
 
+/// Fetch a single appointment by its primary key.
+/// Returns `NotFound` if no row matches.
 pub async fn get_appointment_by_id(
     pool: &SqlitePool,
     appointment_id: i64,
@@ -103,6 +110,7 @@ pub async fn get_appointment_by_id_checked(
     Ok(appointment)
 }
 
+/// Daily appointment counts for a patient (used by the calendar).
 pub async fn get_appointment_counts_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
@@ -121,6 +129,7 @@ pub async fn get_appointment_counts_for_patient(
     Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
 }
 
+/// Daily appointment counts for a doctor (used by the calendar).
 pub async fn get_appointment_counts_for_doctor(
     pool: &SqlitePool,
     doctor_user_id: i64,
@@ -139,6 +148,7 @@ pub async fn get_appointment_counts_for_doctor(
     Ok(rows.into_iter().map(|(d, c)| (d, c as usize)).collect())
 }
 
+/// Daily appointment counts system-wide (admin calendar).
 pub async fn get_all_appointment_counts(
     pool: &SqlitePool,
     from: &str,
@@ -218,6 +228,36 @@ pub async fn cancel_appointment_checked(
     cancel_appointment(pool, appointment_id).await
 }
 
+/// Mark an appointment as completed (staff action after the visit).
+///
+/// The occupancy slots are deliberately kept: the time was used, and both
+/// `check_conflict` and the slot ledger treat completed visits as occupying
+/// their window — freeing the rows would let the two disagree.
+pub async fn complete_appointment(
+    pool: &SqlitePool,
+    appointment_id: i64,
+) -> Result<Appointment, AppError> {
+    let mut appt = sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE id = ?",
+    )
+    .bind(appointment_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+
+    appt.complete()?;
+
+    sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
+        .bind(appt.current_status())
+        .bind(appt.id)
+        .execute(pool)
+        .await?;
+
+    Ok(appt)
+}
+
 /// Reschedule a scheduled appointment to a new date/time, keeping its doctor and room.
 pub async fn reschedule_appointment(
     pool: &SqlitePool,
@@ -226,6 +266,13 @@ pub async fn reschedule_appointment(
 ) -> Result<Appointment, AppError> {
     let new_date = form.validate()?;
     let date_str = &form.appointment_date;
+
+    // Canonical zero-padded "HH:MM" strings. The form's dropdowns always send
+    // padded values, but a hand-crafted "9:00" parses fine while breaking the
+    // lexical time comparisons below — so every comparison and write uses the
+    // re-rendered canonical form instead of the raw input.
+    let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
+    let (start, end) = (minutes_to_time(start_mins), minutes_to_time(end_mins));
 
     let mut appt = sqlx::query_as::<_, Appointment>(
         "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
@@ -237,14 +284,17 @@ pub async fn reschedule_appointment(
     .await?
     .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
 
-    ensure_doctor_available(
-        pool, appt.doctor_id(), date_str, &form.start_time, &form.end_time,
-    ).await?;
+    ensure_doctor_available(pool, appt.doctor_id(), date_str, &start, &end).await?;
 
-    let room_id = appt.room_id.unwrap_or(1);
+    // The appointment keeps its room on reschedule; a legacy row without one
+    // gets the doctor's daily room for the new date (same as reassignment).
+    let room_id = match appt.room_id {
+        Some(rid) => rid,
+        None => resolve_room(pool, appt.doctor_id(), date_str).await?,
+    };
     let conflict = check_conflict(
         pool, appt.doctor_id(), date_str,
-        &form.start_time, &form.end_time, room_id, Some(appointment_id),
+        &start, &end, room_id, Some(appointment_id),
     ).await?;
     if conflict {
         return Err(AppError::BadRequest(
@@ -253,9 +303,7 @@ pub async fn reschedule_appointment(
         ));
     }
 
-    let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
-
-    appt.reschedule_to(new_date, &form.start_time, &form.end_time)?;
+    appt.reschedule_to(new_date, &start, &end)?;
 
     let mut tx = pool.begin().await?;
     sqlx::query(

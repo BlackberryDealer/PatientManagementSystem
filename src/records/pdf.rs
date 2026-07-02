@@ -179,7 +179,7 @@ impl ReportPdf {
     /// generator stays on the stable `use_text` path (no vector-shape calls).
     fn rule(&mut self) {
         let count = (CONTENT_W / avg_char_mm(9.0)).floor() as usize;
-        let bar: String = std::iter::repeat('_').take(count).collect();
+        let bar = "_".repeat(count);
         self.ensure_space(line_h(9.0));
         self.layer.use_text(bar, 9.0, Mm(MARGIN_L), Mm(self.y), &self.regular);
         self.y -= line_h(9.0) * 0.5;

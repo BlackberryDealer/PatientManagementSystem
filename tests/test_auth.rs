@@ -10,7 +10,7 @@ async fn test_register_patient() {
     with_test_app!(pool, app, {
         let req = test::TestRequest::post()
             .uri("/users/register")
-            .set_form(&serde_json::json!({
+            .set_form(serde_json::json!({
                 "username": "patient1", "email": "p1@test.com",
                 "password": "password123", "full_name": "Patient One", "role": "patient",
             })).to_request();
@@ -26,7 +26,7 @@ async fn test_register_as_doctor_rejected() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let req = test::TestRequest::post().uri("/users/register")
-            .set_form(&serde_json::json!({
+            .set_form(serde_json::json!({
                 "username": "doctor1", "email": "d1@test.com",
                 "password": "password123", "full_name": "Doctor One", "role": "doctor",
             })).to_request();
@@ -41,7 +41,7 @@ async fn test_register_as_admin_rejected() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let req = test::TestRequest::post().uri("/users/register")
-            .set_form(&serde_json::json!({
+            .set_form(serde_json::json!({
                 "username": "admin1", "email": "a1@test.com",
                 "password": "password123", "full_name": "Admin One", "role": "admin",
             })).to_request();
@@ -58,9 +58,9 @@ async fn test_register_duplicate_fails() {
             "username": "dupe", "email": "first@test.com",
             "password": "password123", "full_name": "First", "role": "patient",
         });
-        let _ = test::call_service(&app, test::TestRequest::post().uri("/users/register").set_form(&form).to_request()).await;
+        let _ = test::call_service(&app, test::TestRequest::post().uri("/users/register").set_form(form).to_request()).await;
         let resp = test::call_service(&app, test::TestRequest::post().uri("/users/register")
-            .set_form(&serde_json::json!({
+            .set_form(serde_json::json!({
                 "username": "dupe", "email": "second@test.com",
                 "password": "password123", "full_name": "Second", "role": "patient",
             })).to_request()).await;
@@ -75,7 +75,7 @@ async fn test_login_success() {
     with_test_app!(pool, app, {
         let _cookie = register_and_login!(app, "logintest", "patient");
         let req = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"login": "logintest", "password": "password123"})).to_request();
+            .set_form(serde_json::json!({"login": "logintest", "password": "password123"})).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_redirection());
     });
@@ -90,13 +90,13 @@ async fn test_login_with_email() {
         let _ = register_and_login!(app, "emailuser", "patient");
         // The login endpoint still works even when already logged in — test email login
         let login = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"login": "emailuser@test.com", "password": "password123"})).to_request();
+            .set_form(serde_json::json!({"login": "emailuser@test.com", "password": "password123"})).to_request();
         let resp = test::call_service(&app, login).await;
         assert!(resp.status().is_redirection(), "login with email should succeed");
 
         // Case-insensitive email login
         let login2 = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"login": "EMAILUSER@TEST.COM", "password": "password123"})).to_request();
+            .set_form(serde_json::json!({"login": "EMAILUSER@TEST.COM", "password": "password123"})).to_request();
         let resp2 = test::call_service(&app, login2).await;
         assert!(resp2.status().is_redirection(), "case-insensitive email login should succeed");
     });
@@ -108,7 +108,7 @@ async fn test_login_wrong_password() {
     with_test_app!(pool, app, {
         let _cookie = register_and_login!(app, "badpw", "patient");
         let req = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"login": "badpw", "password": "wrong"})).to_request();
+            .set_form(serde_json::json!({"login": "badpw", "password": "wrong"})).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_client_error());
     });
@@ -119,7 +119,7 @@ async fn test_login_nonexistent() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let req = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"login": "nobody", "password": "x"})).to_request();
+            .set_form(serde_json::json!({"login": "nobody", "password": "x"})).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_client_error());
     });
@@ -130,9 +130,36 @@ async fn test_logout() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let cookie = register_and_login!(app, "logouttest", "patient");
-        let req = auth_get("/users/logout", &cookie).to_request();
+
+        // Logout is a state-changing action, so it is POST-only.
+        let req = auth_post("/users/logout", &cookie, serde_json::json!({})).to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_redirection());
+
+        // The old GET route must be gone (no logout via link/prefetch).
+        let req = auth_get("/users/logout", &cookie).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 404, "GET logout must not exist");
+    });
+}
+
+#[actix_web::test]
+async fn test_forbidden_error_is_styled_html() {
+    // Role rejections must render the styled error page (full HTML document
+    // with the specific message), not a raw text body.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let cookie = register_and_login!(app, "styled403", "patient");
+        let resp = test::call_service(&app, auth_get("/users", &cookie).to_request()).await;
+        assert_eq!(resp.status().as_u16(), 403, "/users is admin-only");
+        let ct = resp.headers().get("content-type")
+            .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        assert!(ct.starts_with("text/html"), "403 must render as HTML, got {ct}");
+        let body = test::read_body(resp).await;
+        let body = String::from_utf8_lossy(&body);
+        assert!(body.contains("do not have permission"),
+            "styled page must keep the specific error message");
+        assert!(body.contains("</html>"), "error page must be a full HTML document");
     });
 }
 
@@ -240,7 +267,7 @@ async fn test_admin_can_create_staff() {
 
         // The newly created doctor can log in
         let login = test::TestRequest::post().uri("/users/login")
-            .set_form(&serde_json::json!({"login": "newdoc", "password": "password123"}))
+            .set_form(serde_json::json!({"login": "newdoc", "password": "password123"}))
             .to_request();
         let resp2 = test::call_service(&app, login).await;
         assert!(resp2.status().is_redirection(), "the new doctor can log in");

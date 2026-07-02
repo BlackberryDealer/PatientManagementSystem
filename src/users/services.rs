@@ -1,6 +1,8 @@
 use crate::auth::Role;
 use crate::errors::AppError;
-use crate::users::models::{CreateStaffForm, Doctor, LoginForm, Patient, RegisterForm, User};
+use crate::users::models::{
+    CreateStaffForm, Doctor, EditProfileForm, LoginForm, Patient, RegisterForm, User,
+};
 use sqlx::SqlitePool;
 
 /// bcrypt work factor for all password hashing and verification. Single source
@@ -165,6 +167,7 @@ pub async fn authenticate_user(
 // Queries
 // ============================================================
 
+/// Fetch a single user by primary key.
 pub async fn get_user_by_id(pool: &SqlitePool, user_id: i64) -> Result<User, AppError> {
     sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
         .bind(user_id)
@@ -173,6 +176,7 @@ pub async fn get_user_by_id(pool: &SqlitePool, user_id: i64) -> Result<User, App
         .ok_or_else(|| AppError::NotFound("User not found".into()))
 }
 
+/// List all users ordered by id.
 pub async fn get_all_users(pool: &SqlitePool) -> Result<Vec<User>, AppError> {
     Ok(
         sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY id")
@@ -199,6 +203,7 @@ pub async fn get_user_profile_checked(
     Ok(Some(get_user_by_id(pool, profile_id).await?))
 }
 
+/// Fetch the patient profile row for a given users.id.
 pub async fn get_patient_by_user_id(
     pool: &SqlitePool,
     user_id: i64,
@@ -211,6 +216,7 @@ pub async fn get_patient_by_user_id(
     )
 }
 
+/// Fetch the doctor profile row for a given users.id.
 pub async fn get_doctor_by_user_id(
     pool: &SqlitePool,
     user_id: i64,
@@ -226,8 +232,6 @@ pub async fn get_doctor_by_user_id(
 // ============================================================
 // Profile editing
 // ============================================================
-
-use crate::users::models::EditProfileForm;
 
 /// Update a user's profile: core details plus the role-specific
 /// (patient/doctor) extension row. Which extension a role implies is a
@@ -291,10 +295,11 @@ pub async fn update_patient(
     user_id: i64,
     form: &EditProfileForm,
 ) -> Result<Patient, AppError> {
-    let patient = sqlx::query_as::<_, (i64,)>("SELECT id FROM patients WHERE user_id = ?")
+    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM patients WHERE user_id = ?")
         .bind(user_id)
         .fetch_optional(pool)
-        .await?;
+        .await?
+        .is_some();
 
     let date_of_birth = non_empty(&form.date_of_birth);
     let phone = non_empty(&form.phone);
@@ -302,8 +307,7 @@ pub async fn update_patient(
     let blood_group = non_empty(&form.blood_group);
     let emergency_contact = non_empty(&form.emergency_contact);
 
-    if let Some((pid,)) = patient {
-        let _ = pid;
+    if exists {
         sqlx::query_as::<_, Patient>(
             "UPDATE patients SET date_of_birth = ?, phone = ?, address = ?, blood_group = ?, emergency_contact = ?
              WHERE user_id = ?
@@ -331,10 +335,11 @@ pub async fn update_doctor(
     user_id: i64,
     form: &EditProfileForm,
 ) -> Result<Doctor, AppError> {
-    let doctor = sqlx::query_as::<_, (i64,)>("SELECT id FROM doctors WHERE user_id = ?")
+    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM doctors WHERE user_id = ?")
         .bind(user_id)
         .fetch_optional(pool)
-        .await?;
+        .await?
+        .is_some();
 
     // Reuse the shared `non_empty` helper (trim + drop blanks) like
     // `update_patient` and `create_staff_user`, falling back to the defaults
@@ -345,8 +350,7 @@ pub async fn update_doctor(
         non_empty(&form.license_number).unwrap_or_else(|| Doctor::DEFAULT_LICENSE.to_string());
     let phone = non_empty(&form.phone);
 
-    if let Some((did,)) = doctor {
-        let _ = did;
+    if exists {
         sqlx::query_as::<_, Doctor>(
             "UPDATE doctors SET specialization = ?, license_number = ?, phone = ? WHERE user_id = ?
              RETURNING id, user_id, specialization, license_number, phone",

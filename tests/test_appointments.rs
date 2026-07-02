@@ -152,6 +152,83 @@ async fn test_book_appointment_invalid_time_http() {
 }
 
 #[actix_web::test]
+async fn test_book_appointment_outside_clinic_hours_http() {
+    // Server-side clinic-hours rule: the booking form only offers 08:00–17:00
+    // slots, but a hand-crafted POST must be rejected too — even when the
+    // doctor has no availability rows (an otherwise "open" schedule).
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "hoursdoc", "doctor");
+        let cookie = register_and_login!(app, "hourspat", "patient");
+
+        // Grid-aligned but before opening time
+        let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "07:00", "end_time": "07:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_client_error(), "booking before 08:00 must be rejected");
+
+        // Starts inside hours but spills past closing time
+        let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "16:30", "end_time": "17:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_client_error(), "booking past 17:00 must be rejected");
+
+        // Middle of the night
+        let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "02:00", "end_time": "02:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_client_error(), "booking at 02:00 must be rejected");
+
+        // Sanity check: the same request inside clinic hours succeeds
+        let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "in-hours booking still succeeds");
+    });
+}
+
+#[actix_web::test]
+async fn test_booking_error_is_styled_html_with_message() {
+    // A rejected booking must land on the styled error page (not raw text)
+    // and keep the specific domain message so the user knows what to fix.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "styledoc", "doctor");
+        let pat1 = register_and_login!(app, "stylepat1", "patient");
+        let pat2 = register_and_login!(app, "stylepat2", "patient");
+
+        let slot = serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "14:00", "end_time": "14:30", "priority": 3,
+        });
+        let resp = test::call_service(&app,
+            auth_post("/appointments/book", &pat1, slot.clone()).to_request()).await;
+        assert!(resp.status().is_redirection());
+
+        let resp = test::call_service(&app,
+            auth_post("/appointments/book", &pat2, slot).to_request()).await;
+        assert_eq!(resp.status().as_u16(), 400);
+        let ct = resp.headers().get("content-type")
+            .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        assert!(ct.starts_with("text/html"), "error must render as HTML, got {ct}");
+
+        let body = test::read_body(resp).await;
+        let body = String::from_utf8_lossy(&body);
+        assert!(body.contains("conflicts with an existing appointment"),
+            "styled page must keep the specific error message");
+        assert!(body.contains("</html>"), "error page must be a full HTML document");
+    });
+}
+
+#[actix_web::test]
 async fn test_priority_booking_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
@@ -295,5 +372,143 @@ async fn test_calendar_requires_login() {
         let req = test::TestRequest::get().uri("/appointments/calendar").to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_client_error(), "calendar requires authentication");
+    });
+}
+
+// ============================================================
+// HTTP: appointment completion (staff-only lifecycle action)
+// ============================================================
+
+#[actix_web::test]
+async fn test_complete_appointment_http() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "compdoc", "doctor");
+        let pcookie = register_and_login!(app, "comppat", "patient");
+
+        let req = auth_post("/appointments/book", &pcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection());
+
+        // The doctor closes out the visit.
+        let req = test::TestRequest::post()
+            .uri("/appointments/1/complete")
+            .insert_header(("Cookie", dcookie))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "completion should redirect to the detail page");
+
+        let status: (String,) = sqlx::query_as("SELECT status FROM appointments WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(status.0, "completed");
+    });
+}
+
+#[actix_web::test]
+async fn test_complete_appointment_forbidden_for_patient() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "compdoc2", "doctor");
+        let pcookie = register_and_login!(app, "comppat2", "patient");
+
+        let req = auth_post("/appointments/book", &pcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "11:00", "end_time": "11:30", "priority": 3,
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        // Completion is a clinical action — the patient may not perform it.
+        let req = test::TestRequest::post()
+            .uri("/appointments/1/complete")
+            .insert_header(("Cookie", pcookie))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 403);
+    });
+}
+
+// ============================================================
+// HTTP: staff room override (POST /appointments/{id}/assign-room)
+// ============================================================
+
+#[actix_web::test]
+async fn test_assign_room_http() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "roomdoc", "doctor");
+        let pcookie = register_and_login!(app, "roompat", "patient");
+
+        let req = auth_post("/appointments/book", &pcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30", "priority": 3,
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        // Move the visit to the procedure room (seeded room id 4).
+        let req = auth_post("/appointments/1/assign-room", &dcookie,
+            serde_json::json!({ "room_id": 4 })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "room override should redirect to detail");
+
+        // Appointment row AND its occupancy slots must both move.
+        let room: (i64,) = sqlx::query_as("SELECT room_id FROM appointments WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(room.0, 4);
+        let slot_room: (i64,) = sqlx::query_as("SELECT room_id FROM appointment_slots WHERE appointment_id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(slot_room.0, 4);
+    });
+}
+
+#[actix_web::test]
+async fn test_assign_room_forbidden_for_patient() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "roomdoc2", "doctor");
+        let pcookie = register_and_login!(app, "roompat2", "patient");
+
+        let req = auth_post("/appointments/book", &pcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30", "priority": 3,
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        let req = auth_post("/appointments/1/assign-room", &pcookie,
+            serde_json::json!({ "room_id": 4 })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 403);
+    });
+}
+
+#[actix_web::test]
+async fn test_assign_room_conflict_rejected() {
+    // Moving an appointment into a room that is occupied at the same slot
+    // must be rejected by the room UNIQUE index (clean 400, not a 500).
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "clashdoc1", "doctor");
+        let _d2 = seed_and_login!(app, pool, "clashdoc2", "doctor");
+        let pcookie = register_and_login!(app, "clashpat", "patient");
+
+        // Same slot with both doctors — auto-allocation gives them
+        // different rooms (appointments 1 and 2).
+        for doctor_id in [1, 2] {
+            let req = auth_post("/appointments/book", &pcookie, serde_json::json!({
+                "doctor_id": doctor_id, "appointment_date": "2027-06-15",
+                "start_time": "10:00", "end_time": "10:30", "priority": 3,
+            })).to_request();
+            assert!(test::call_service(&app, req).await.status().is_redirection());
+        }
+        let room1: (i64,) = sqlx::query_as("SELECT room_id FROM appointments WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+
+        // Try to move appointment 2 into appointment 1's room at the same slot.
+        let req = auth_post("/appointments/2/assign-room", &dcookie,
+            serde_json::json!({ "room_id": room1.0 })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400, "same-slot room clash must be a clean 400");
     });
 }

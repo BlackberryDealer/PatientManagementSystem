@@ -76,7 +76,12 @@ pub fn parse_booking_date(date: &str) -> Result<chrono::NaiveDate, AppError> {
 /// whole 30-minute slots:
 /// 1. valid `HH:MM` format,
 /// 2. start strictly before end,
-/// 3. both times aligned to the 30-minute grid (`:00` or `:30`).
+/// 3. both times aligned to the 30-minute grid (`:00` or `:30`),
+/// 4. the whole window inside clinic operating hours (08:00–17:00).
+///
+/// Rule 4 mirrors the booking form's slot grid on the server side, so a
+/// hand-crafted POST cannot book outside clinic hours even for a doctor
+/// with no declared availability windows (whose schedule is otherwise open).
 pub fn parse_slot(start: &str, end: &str) -> Result<(i32, i32), AppError> {
     let (s, e) = parse_time_range(start, end)?;
     if s % SLOT_MINUTES != 0 || e % SLOT_MINUTES != 0 {
@@ -85,5 +90,65 @@ pub fn parse_slot(start: &str, end: &str) -> Result<(i32, i32), AppError> {
                 .into(),
         ));
     }
+    if s < CLINIC_OPEN_MINUTES || e > CLINIC_CLOSE_MINUTES {
+        return Err(AppError::BadRequest(format!(
+            "Appointments must fall within clinic hours ({}-{}).",
+            minutes_to_time(CLINIC_OPEN_MINUTES),
+            minutes_to_time(CLINIC_CLOSE_MINUTES),
+        )));
+    }
     Ok((s, e))
+}
+
+// ============================================================
+// Unit tests for the shared time helpers
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_slot_accepts_full_clinic_day() {
+        assert_eq!(parse_slot("08:00", "17:00").unwrap(), (480, 1020));
+    }
+
+    #[test]
+    fn parse_slot_accepts_normal_slot() {
+        assert_eq!(parse_slot("09:00", "09:30").unwrap(), (540, 570));
+    }
+
+    #[test]
+    fn parse_slot_rejects_before_opening() {
+        // Grid-aligned but before 08:00 — must be rejected server-side.
+        assert!(parse_slot("07:00", "07:30").is_err());
+    }
+
+    #[test]
+    fn parse_slot_rejects_spilling_past_close() {
+        // Starts inside hours but ends after 17:00.
+        assert!(parse_slot("16:30", "17:30").is_err());
+    }
+
+    #[test]
+    fn parse_slot_rejects_middle_of_night() {
+        assert!(parse_slot("02:00", "02:30").is_err());
+    }
+
+    #[test]
+    fn parse_slot_rejects_off_grid() {
+        assert!(parse_slot("09:15", "09:45").is_err());
+    }
+
+    #[test]
+    fn parse_slot_rejects_reversed_range() {
+        assert!(parse_slot("10:00", "09:00").is_err());
+    }
+
+    #[test]
+    fn parse_time_range_allows_non_clinic_hours() {
+        // Availability windows (e.g. an on-call block) are NOT bound to
+        // clinic hours — only bookable slots are.
+        assert_eq!(parse_time_range("00:00", "23:59").unwrap(), (0, 1439));
+    }
 }

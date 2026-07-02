@@ -2,12 +2,12 @@ use crate::appointments::models::{Appointment, BookAppointmentForm};
 use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
-use crate::time::parse_slot;
+use crate::time::{minutes_to_time, parse_slot};
 use crate::traits::{Priority, StatusManaged};
 use sqlx::SqlitePool;
 
 use super::algorithms::check_conflict;
-use super::helpers::{bump_to_waitlist, insert_appointment, insert_appointment_in_tx};
+use super::helpers::{bump_to_waitlist, insert_appointment, insert_appointment_in_tx, NewAppointment};
 use super::rooms::resolve_room;
 
 // ============================================================
@@ -22,9 +22,14 @@ pub async fn book_appointment(
     form: &BookAppointmentForm,
 ) -> Result<Appointment, AppError> {
     form.validate()?;
-    ensure_doctor_available(
-        pool, form.doctor_id, &form.appointment_date, &form.start_time, &form.end_time,
-    ).await?;
+    // Canonical zero-padded "HH:MM": the UI's dropdowns always send padded
+    // values, but a hand-crafted "9:00" parses fine while breaking the lexical
+    // time comparisons in the conflict/availability checks — so everything
+    // downstream uses the re-rendered canonical form, never the raw input.
+    let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
+    let (start, end) = (minutes_to_time(start_mins), minutes_to_time(end_mins));
+
+    ensure_doctor_available(pool, form.doctor_id, &form.appointment_date, &start, &end).await?;
 
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
     let priority = form.requested_priority() as i32;
@@ -32,7 +37,7 @@ pub async fn book_appointment(
 
     let has_conflict = check_conflict(
         pool, form.doctor_id, &form.appointment_date,
-        &form.start_time, &form.end_time, room_id, None,
+        &start, &end, room_id, None,
     ).await?;
 
     if has_conflict {
@@ -43,11 +48,16 @@ pub async fn book_appointment(
         ));
     }
 
-    insert_appointment(
-        pool, patient_id, form.doctor_id, &form.appointment_date,
-        &form.start_time, &form.end_time, priority,
-        room_id, &form.notes,
-    ).await
+    insert_appointment(pool, &NewAppointment {
+        patient_id,
+        doctor_id: form.doctor_id,
+        date: &form.appointment_date,
+        start: &start,
+        end: &end,
+        priority,
+        room_id,
+        notes: &form.notes,
+    }).await
 }
 
 // ============================================================
@@ -65,10 +75,10 @@ pub async fn book_with_priority(
     form: &BookAppointmentForm,
 ) -> Result<Appointment, AppError> {
     form.validate()?;
+    // Canonical zero-padded "HH:MM" — same normalisation as book_appointment.
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
-    ensure_doctor_available(
-        pool, form.doctor_id, &form.appointment_date, &form.start_time, &form.end_time,
-    ).await?;
+    let (start, end) = (minutes_to_time(start_mins), minutes_to_time(end_mins));
+    ensure_doctor_available(pool, form.doctor_id, &form.appointment_date, &start, &end).await?;
 
     let new_priority = form.requested_priority();
 
@@ -85,15 +95,20 @@ pub async fn book_with_priority(
 
     let has_conflict = check_conflict(
         pool, form.doctor_id, &form.appointment_date,
-        &form.start_time, &form.end_time, room_id, None,
+        &start, &end, room_id, None,
     ).await?;
 
     if !has_conflict {
-        return insert_appointment(
-            pool, patient_id, form.doctor_id, &form.appointment_date,
-            &form.start_time, &form.end_time, new_priority as i32,
-            room_id, &form.notes,
-        ).await;
+        return insert_appointment(pool, &NewAppointment {
+            patient_id,
+            doctor_id: form.doctor_id,
+            date: &form.appointment_date,
+            start: &start,
+            end: &end,
+            priority: new_priority as i32,
+            room_id,
+            notes: &form.notes,
+        }).await;
     }
 
     let conflicts = sqlx::query_as::<_, (i64, i32, String, String, String)>(
@@ -103,8 +118,8 @@ pub async fn book_with_priority(
     )
     .bind(form.doctor_id)
     .bind(&form.appointment_date)
-    .bind(&form.end_time)
-    .bind(&form.start_time)
+    .bind(&end)
+    .bind(&start)
     .fetch_all(pool)
     .await?;
 
@@ -156,14 +171,16 @@ pub async fn book_with_priority(
 
     let appointment = insert_appointment_in_tx(
         &mut tx,
-        patient_id,
-        form.doctor_id,
-        &form.appointment_date,
-        &form.start_time,
-        &form.end_time,
-        new_priority as i32,
-        room_id,
-        &form.notes,
+        &NewAppointment {
+            patient_id,
+            doctor_id: form.doctor_id,
+            date: &form.appointment_date,
+            start: &start,
+            end: &end,
+            priority: new_priority as i32,
+            room_id,
+            notes: &form.notes,
+        },
         start_mins,
         end_mins,
     )

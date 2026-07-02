@@ -43,6 +43,7 @@ pub enum WaitlistStatus {
 }
 
 impl WaitlistStatus {
+    /// Canonical lowercase string matching DB CHECK values and template comparisons.
     pub fn as_str(&self) -> &'static str {
         match self {
             WaitlistStatus::Waiting => "waiting",
@@ -53,10 +54,9 @@ impl WaitlistStatus {
     }
 }
 
-// ============================================================
-// Room — consultation room or equipment resource
-// ============================================================
-
+/// A consultation room or equipment resource (e.g. X-ray suite, lab).
+/// Six rooms are seeded in migration 002: three consultation rooms,
+/// a procedure room, an X-ray suite, and a lab.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Room {
     pub id: i64,
@@ -83,10 +83,10 @@ pub struct DoctorRoomAssignment {
     pub assignment_date: chrono::NaiveDate,
 }
 
-// ============================================================
-// Appointment — core scheduling entity
-// ============================================================
-
+/// The core scheduling entity: a patient–doctor meeting at a specific
+/// date and time window in an auto-assigned room. Status and priority
+/// are private with guarded accessors so state transitions (cancel,
+/// reassign, reschedule, assign_room) live on the struct itself.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Appointment {
     pub id: i64,
@@ -122,6 +122,23 @@ impl Appointment {
             ));
         }
         self.status = AppointmentStatus::Cancelled;
+        Ok(())
+    }
+
+    /// Mark this appointment as completed (the visit took place).
+    ///
+    /// Domain rule (same family as `cancel`): only an active/scheduled
+    /// appointment can be completed — cancelled appointments never happened
+    /// and completed ones already are. Unlike cancellation, completion keeps
+    /// the appointment's occupancy slots: the time was genuinely used, and
+    /// `check_conflict` counts completed visits as occupying their window.
+    pub fn complete(&mut self) -> Result<(), crate::errors::AppError> {
+        if !self.is_active() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a scheduled appointment can be marked completed".into(),
+            ));
+        }
+        self.status = AppointmentStatus::Completed;
         Ok(())
     }
 
@@ -170,10 +187,11 @@ impl Appointment {
     /// Assign (or change) the consultation room for this appointment.
     ///
     /// Domain rule (same family as `cancel`/`reassign_to`): only an
-    /// active/scheduled appointment may have its room set. Patients book
-    /// without a room (it stays `None` → "Pending Room Location" in the UI) and
-    /// a doctor assigns one afterwards; this method is that assignment step. The
-    /// caller persists the new room on the appointment and its occupancy slots.
+    /// active/scheduled appointment may have its room set. Rooms are
+    /// auto-assigned at booking from the doctor's daily allocation; this
+    /// method is the staff override for moving a single appointment to a
+    /// different room (e.g. into the procedure room). The caller persists
+    /// the new room on the appointment and its occupancy slots.
     pub fn assign_room(&mut self, room_id: i64) -> Result<(), crate::errors::AppError> {
         if !self.is_active() {
             return Err(crate::errors::AppError::BadRequest(
@@ -351,10 +369,9 @@ pub struct AppointmentView {
     pub doctor_id: i64,
 }
 
-// ============================================================
-// Waitlist — priority queue entry
-// ============================================================
-
+/// A patient waiting in the priority queue for a slot to open up.
+/// Ordered by priority (lower = more urgent) then by created_at.
+/// `patient_name` and `doctor_name` are resolved via JOIN in list queries.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct WaitlistEntry {
     pub id: i64,
@@ -449,16 +466,9 @@ impl StatusManaged for Appointment {
 }
 
 impl Prioritized for Appointment {
+    // The trait's default `priority_label` / `priority_badge_class` already
+    // delegate to the Priority enum, so only the raw level is supplied here.
     fn priority_level(&self) -> i32 { self.priority }
-
-    // Override defaults to delegate to the Priority enum, keeping the enum in use
-    fn priority_label(&self) -> &str {
-        Priority::from_i32(self.priority).label()
-    }
-
-    fn priority_badge_class(&self) -> &str {
-        Priority::from_i32(self.priority).css_class()
-    }
 }
 
 impl Reportable for Appointment {
@@ -599,29 +609,25 @@ impl CalendarMonth {
         self.days.chunks(7).collect()
     }
 
+    /// Previous month as (year, month).
     pub fn prev(&self) -> (i32, u32) {
         if self.month == 1 { (self.year - 1, 12) } else { (self.year, self.month - 1) }
     }
 
+    /// Next month as (year, month).
     pub fn next(&self) -> (i32, u32) {
         if self.month == 12 { (self.year + 1, 1) } else { (self.year, self.month + 1) }
     }
 
+    /// English month name ("January", "February", …).
     pub fn month_name(&self) -> &'static str {
         Self::MONTH_NAMES[(self.month - 1) as usize]
     }
 }
 
 impl Prioritized for WaitlistEntry {
+    // Same as Appointment: the trait defaults handle label/badge mapping.
     fn priority_level(&self) -> i32 { self.priority }
-
-    fn priority_label(&self) -> &str {
-        Priority::from_i32(self.priority).label()
-    }
-
-    fn priority_badge_class(&self) -> &str {
-        Priority::from_i32(self.priority).css_class()
-    }
 }
 
 // ============================================================

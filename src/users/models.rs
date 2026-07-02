@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 // User — core authentication entity
 // ============================================================
 
+/// Core authentication entity. Every user (patient, doctor, or admin)
+/// has a row here. Passwords are bcrypt-hashed (cost 10).
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
     pub id: i64,
@@ -85,6 +87,8 @@ impl RegisterForm {
     }
 }
 
+/// Form submitted at login. Accepts either a username or an email
+/// address, plus a password. Case-insensitive lookup.
 #[derive(Debug, Deserialize)]
 pub struct LoginForm {
     pub login: String,    // username or email
