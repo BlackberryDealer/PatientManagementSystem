@@ -1,6 +1,7 @@
 use crate::appointments::models::{Appointment, DaySchedule, SuggestSlotForm};
 use crate::availability::services::ensure_doctor_available;
 use crate::errors::AppError;
+use crate::traits::Prioritized;
 use crate::time::{minutes_to_time, parse_slot, time_to_minutes, CLINIC_CLOSE_MINUTES, CLINIC_OPEN_MINUTES};
 use sqlx::SqlitePool;
 use std::collections::BinaryHeap;
@@ -114,13 +115,27 @@ pub(super) struct PriorityItem {
     pub(super) created_at: chrono::NaiveDateTime,
 }
 
+/// PriorityItem joins the same `Prioritized` family as Appointment and
+/// WaitlistEntry, so the heap ordering below reuses the shared urgency
+/// comparison instead of re-encoding "lower number wins" a second time.
+impl Prioritized for PriorityItem {
+    fn priority_level(&self) -> i32 { self.priority }
+}
+
 // BinaryHeap is a max-heap; `pop` yields the GREATEST element. We want the
 // most urgent (lowest priority number), then the oldest, to pop first — so the
 // winner must compare as the greatest. BOTH keys are reversed to achieve that.
 impl Ord for PriorityItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.priority.cmp(&self.priority)
-            .then_with(|| other.created_at.cmp(&self.created_at))
+        use std::cmp::Ordering;
+        if self.is_higher_priority_than(other) {
+            Ordering::Greater
+        } else if other.is_higher_priority_than(self) {
+            Ordering::Less
+        } else {
+            // Equal urgency: FIFO — the older entry must pop first.
+            other.created_at.cmp(&self.created_at)
+        }
     }
 }
 impl PartialOrd for PriorityItem {

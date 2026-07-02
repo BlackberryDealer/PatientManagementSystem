@@ -1,7 +1,7 @@
 use crate::availability::models::{DoctorAvailability, SetAvailabilityForm};
 use crate::db;
 use crate::errors::AppError;
-use crate::traits::TimeSlotted;
+use crate::traits::{any_conflict, TimeSlotted, TimeWindow};
 use chrono::Datelike;
 use sqlx::SqlitePool;
 
@@ -48,13 +48,11 @@ pub async fn ensure_doctor_available(
     .fetch_all(pool)
     .await?;
 
-    // Rule 1: any overlapping blocked entry rejects the booking.
-    // Overlap detection comes from the shared TimeSlotted trait.
-    if rules
-        .iter()
-        .filter(|r| r.blocked())
-        .any(|r| r.overlaps_with(start_time, end_time))
-    {
+    // Rule 1: any overlapping blocked entry rejects the booking. The requested
+    // window is lifted into the TimeSlotted world (`TimeWindow`) so the shared
+    // polymorphic `any_conflict` check performs the overlap comparison.
+    let requested = TimeWindow::new(start_time, end_time);
+    if any_conflict(&requested, rules.iter().filter(|r| r.blocked())) {
         return Err(AppError::BadRequest(
             "The doctor is unavailable at that time (on leave or blocked).\
              \nPlease pick a different time or doctor, or use the suggestion feature."

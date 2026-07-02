@@ -152,6 +152,83 @@ async fn test_book_appointment_invalid_time_http() {
 }
 
 #[actix_web::test]
+async fn test_book_appointment_outside_clinic_hours_http() {
+    // Server-side clinic-hours rule: the booking form only offers 08:00–17:00
+    // slots, but a hand-crafted POST must be rejected too — even when the
+    // doctor has no availability rows (an otherwise "open" schedule).
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "hoursdoc", "doctor");
+        let cookie = register_and_login!(app, "hourspat", "patient");
+
+        // Grid-aligned but before opening time
+        let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "07:00", "end_time": "07:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_client_error(), "booking before 08:00 must be rejected");
+
+        // Starts inside hours but spills past closing time
+        let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "16:30", "end_time": "17:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_client_error(), "booking past 17:00 must be rejected");
+
+        // Middle of the night
+        let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "02:00", "end_time": "02:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_client_error(), "booking at 02:00 must be rejected");
+
+        // Sanity check: the same request inside clinic hours succeeds
+        let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "in-hours booking still succeeds");
+    });
+}
+
+#[actix_web::test]
+async fn test_booking_error_is_styled_html_with_message() {
+    // A rejected booking must land on the styled error page (not raw text)
+    // and keep the specific domain message so the user knows what to fix.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "styledoc", "doctor");
+        let pat1 = register_and_login!(app, "stylepat1", "patient");
+        let pat2 = register_and_login!(app, "stylepat2", "patient");
+
+        let slot = serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "14:00", "end_time": "14:30", "priority": 3,
+        });
+        let resp = test::call_service(&app,
+            auth_post("/appointments/book", &pat1, slot.clone()).to_request()).await;
+        assert!(resp.status().is_redirection());
+
+        let resp = test::call_service(&app,
+            auth_post("/appointments/book", &pat2, slot).to_request()).await;
+        assert_eq!(resp.status().as_u16(), 400);
+        let ct = resp.headers().get("content-type")
+            .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        assert!(ct.starts_with("text/html"), "error must render as HTML, got {ct}");
+
+        let body = test::read_body(resp).await;
+        let body = String::from_utf8_lossy(&body);
+        assert!(body.contains("conflicts with an existing appointment"),
+            "styled page must keep the specific error message");
+        assert!(body.contains("</html>"), "error page must be a full HTML document");
+    });
+}
+
+#[actix_web::test]
 async fn test_priority_booking_http() {
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {

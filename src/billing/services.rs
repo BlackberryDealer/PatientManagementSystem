@@ -179,17 +179,23 @@ pub async fn record_payment(
     // 1. Validation — nothing touches the database before this passes
     form.validate()?;
 
-    // 2. Business object: load the invoice and apply its payment rule
-    let mut invoice = get_invoice_by_id(pool, invoice_id).await?;
+    // 2 + 3. Business rule and persistence share one transaction: the invoice
+    //    is loaded and its can-accept-payment rule checked *inside* the same
+    //    transaction that inserts the payment, so a concurrent payment cannot
+    //    slip between the status check and the write (no check-then-act race).
+    //    An early return before commit rolls the transaction back.
+    let mut tx = pool.begin().await?;
+
+    let mut invoice = sqlx::query_as::<_, Invoice>("SELECT * FROM invoices WHERE id = ?")
+        .bind(invoice_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Invoice not found".into()))?;
     if !invoice.can_accept_payment() {
         return Err(AppError::BadRequest(
             "This invoice is not open for payment (already paid or cancelled).".into(),
         ));
     }
-
-    // 3. Persistence — payment row, settlement check, and status change
-    //    commit atomically
-    let mut tx = pool.begin().await?;
 
     let payment = sqlx::query_as::<_, Payment>(
         "INSERT INTO payments (invoice_id, amount, payment_method, transaction_ref)

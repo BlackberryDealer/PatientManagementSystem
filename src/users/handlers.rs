@@ -35,7 +35,10 @@ pub async fn register(
         "user.registered", "user", Some(user.id), "",
     ).await;
 
-    // Auto-login after registration
+    // Auto-login after registration. `renew()` first: the freshly
+    // authenticated session must never continue an anonymous one
+    // (session-fixation defence, same as the login handler).
+    session.renew();
     session.insert("user_id", user.id)?;
     session.insert("username", &user.username)?;
     session.insert("role", user.role().as_str())?;
@@ -70,6 +73,10 @@ pub async fn login(
 ) -> Result<HttpResponse, AppError> {
     match services::authenticate_user(pool.get_ref(), &form).await {
         Ok(user) => {
+            // Rotate the session on privilege change so a session id issued
+            // before authentication can never carry the authenticated state
+            // (session-fixation defence).
+            session.renew();
             session.insert("user_id", user.id)?;
             session.insert("username", &user.username)?;
             session.insert("role", user.role().as_str())?;
@@ -96,7 +103,10 @@ pub async fn login(
     }
 }
 
-/// GET /users/logout — clear session and redirect to login
+/// POST /users/logout — clear session and redirect to login.
+/// POST (not GET) because logout changes server-visible state: a GET logout
+/// can be triggered by any cross-site image/link (CSRF-style forced logout)
+/// and may be prefetched by browsers.
 pub async fn logout(session: Session) -> Result<HttpResponse, AppError> {
     session.purge();
     Ok(HttpResponse::SeeOther()

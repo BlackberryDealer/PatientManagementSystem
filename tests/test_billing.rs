@@ -91,3 +91,31 @@ async fn test_payment() {
         assert!(resp.status().is_redirection());
     });
 }
+
+#[actix_web::test]
+async fn test_settled_invoice_rejects_further_payment() {
+    // The can-accept-payment rule runs inside the payment transaction, so a
+    // settled invoice must reject any further payment attempt with a 400.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pcookie = register_and_login!(app, "billpatient7", "patient");
+        let cookie = seed_and_login!(app, pool, "billadmin5", "admin");
+        let _ = test::call_service(&app, auth_post("/billing/create", &cookie, serde_json::json!({
+            "patient_id": 1,
+            "due_date": "2026-07-01",
+            "items": "Consultation|1|50.00",
+        })).to_request()).await;
+
+        // First payment settles the invoice in full → status flips to 'paid'.
+        let resp = test::call_service(&app, auth_post("/billing/1/pay", &cookie, serde_json::json!({
+            "amount": 50.0, "payment_method": "Cash", "transaction_ref": "T1",
+        })).to_request()).await;
+        assert!(resp.status().is_redirection(), "settling payment should succeed");
+
+        // A second payment against the now-paid invoice must be rejected.
+        let resp = test::call_service(&app, auth_post("/billing/1/pay", &cookie, serde_json::json!({
+            "amount": 10.0, "payment_method": "Cash", "transaction_ref": "T2",
+        })).to_request()).await;
+        assert_eq!(resp.status().as_u16(), 400, "paid invoice must not accept more payments");
+    });
+}

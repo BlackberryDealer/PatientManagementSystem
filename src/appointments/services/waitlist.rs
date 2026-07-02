@@ -6,7 +6,7 @@ use crate::traits::{Prioritized, StatusManaged, TimeSlotted};
 use sqlx::SqlitePool;
 
 use super::algorithms::{build_priority_queue, check_conflict};
-use super::helpers::insert_appointment;
+use super::helpers::{insert_appointment, NewAppointment};
 use super::rooms::resolve_room;
 
 /// Add a patient to the waitlist.
@@ -139,13 +139,16 @@ pub async fn auto_promote_waitlist(
             ).await?;
 
             if available && !conflict {
-                let appt = insert_appointment(
-                    pool, entry.patient_id, entry.doctor_id,
-                    appointment_date,
-                    entry.start_time(), entry.end_time(),
-                    entry.priority_level(),
-                    room_id, &entry.notes,
-                ).await?;
+                let appt = insert_appointment(pool, &NewAppointment {
+                    patient_id: entry.patient_id,
+                    doctor_id: entry.doctor_id,
+                    date: appointment_date,
+                    start: entry.start_time(),
+                    end: entry.end_time(),
+                    priority: entry.priority_level(),
+                    room_id,
+                    notes: &entry.notes,
+                }).await?;
 
                 entry.accept()?;
                 sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")
@@ -197,12 +200,16 @@ pub async fn promote_from_waitlist(
         return Ok(None);
     }
 
-    let appt = insert_appointment(
-        pool, entry.patient_id, entry.doctor_id,
-        &date_str,
-        &entry.requested_start, &entry.requested_end,
-        entry.priority_level(), room_id, &entry.notes,
-    ).await?;
+    let appt = insert_appointment(pool, &NewAppointment {
+        patient_id: entry.patient_id,
+        doctor_id: entry.doctor_id,
+        date: &date_str,
+        start: &entry.requested_start,
+        end: &entry.requested_end,
+        priority: entry.priority_level(),
+        room_id,
+        notes: &entry.notes,
+    }).await?;
 
     entry.accept()?;
     sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")

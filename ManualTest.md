@@ -258,7 +258,7 @@ All passwords: **`password123`** (login works with username OR email)
 | `/` | GET | → Appointments | → Appointments | → Appointments |
 | `/users/login` | GET/POST | ✅ | ✅ | ✅ |
 | `/users/register` | GET/POST | ✅ (patient only) | — | — |
-| `/users/logout` | GET | ✅ | ✅ | ✅ |
+| `/users/logout` | POST | ✅ | ✅ | ✅ |
 | users | GET | ❌ | ❌ | ✅ |
 | `/users/new` | GET/POST | ❌ | ❌ | ✅ |
 | `/users/{id}` | GET | Self only | ✅ | ✅ |

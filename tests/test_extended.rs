@@ -31,6 +31,8 @@ async fn seed_doctor(pool: &SqlitePool, uid: i64, name: &str) {
         .bind(uid).bind("GP").bind("LIC").execute(pool).await.unwrap();
 }
 
+// Test fixture: one positional argument per doctor_availability column.
+#[allow(clippy::too_many_arguments)]
 async fn seed_availability(
     pool: &SqlitePool, doctor_id: i64, day_of_week: i32,
     start: &str, end: &str, recurring: bool, specific_date: Option<&str>, blocked: bool,

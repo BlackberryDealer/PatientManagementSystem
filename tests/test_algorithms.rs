@@ -474,7 +474,7 @@ async fn test_db_unique_index_is_the_backstop() {
     assert!(raw.is_err(), "DB UNIQUE index must reject a duplicate slot");
     let err = raw.unwrap_err();
     assert!(
-        err.as_database_error().map_or(false, |e| e.is_unique_violation()),
+        err.as_database_error().is_some_and(|e| e.is_unique_violation()),
         "error should be a UNIQUE violation, got: {err}"
     );
 }

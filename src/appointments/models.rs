@@ -448,16 +448,9 @@ impl StatusManaged for Appointment {
 }
 
 impl Prioritized for Appointment {
+    // The trait's default `priority_label` / `priority_badge_class` already
+    // delegate to the Priority enum, so only the raw level is supplied here.
     fn priority_level(&self) -> i32 { self.priority }
-
-    // Override defaults to delegate to the Priority enum, keeping the enum in use
-    fn priority_label(&self) -> &str {
-        Priority::from_i32(self.priority).label()
-    }
-
-    fn priority_badge_class(&self) -> &str {
-        Priority::from_i32(self.priority).css_class()
-    }
 }
 
 impl Reportable for Appointment {
@@ -615,15 +608,8 @@ impl CalendarMonth {
 }
 
 impl Prioritized for WaitlistEntry {
+    // Same as Appointment: the trait defaults handle label/badge mapping.
     fn priority_level(&self) -> i32 { self.priority }
-
-    fn priority_label(&self) -> &str {
-        Priority::from_i32(self.priority).label()
-    }
-
-    fn priority_badge_class(&self) -> &str {
-        Priority::from_i32(self.priority).css_class()
-    }
 }
 
 // ============================================================

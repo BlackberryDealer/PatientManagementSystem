@@ -76,14 +76,14 @@ PatientManagementSystem/
 │   └── shared/
 │       ├── navbar.html.tera
 │       └── footer.html.tera
-├── tests/                   # Integration test suite (133 tests)
+├── tests/                   # Integration test suite (148 tests incl. unit tests)
 │   ├── common/mod.rs        # Test infrastructure & macros
-│   ├── test_auth.rs         # Authentication & authorization (19 tests)
+│   ├── test_auth.rs         # Authentication & authorization (20 tests)
 │   ├── test_algorithms.rs   # Scheduling algorithms + reschedule (30 tests)
-│   ├── test_appointments.rs # Appointment booking (16 tests)
+│   ├── test_appointments.rs # Appointment booking (18 tests)
 │   ├── test_availability.rs # Doctor availability (3 tests)
 │   ├── test_records.rs      # Medical records + PDF export (6 tests)
-│   ├── test_billing.rs      # Invoices & payments (6 tests)
+│   ├── test_billing.rs      # Invoices & payments (7 tests)
 │   └── test_extended.rs     # Availability, reassignment, timeline, audit, dashboard (17 tests)
 └── src/
     ├── main.rs              # Entry point, server config, route mounting
@@ -180,14 +180,18 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availabili
 
 - Passwords are hashed with **bcrypt** (cost factor 10)
 - Sessions are stored in **signed cookies** (`actix-session`)
+- Sessions are **rotated on login/registration** (`session.renew()`) as a session-fixation defence
+- **Logout is POST-only** — state-changing actions are never reachable via a plain link or browser prefetch
+- Timing-safe login: a bcrypt hash is burned even for unknown accounts, so response times cannot reveal whether a username exists
 - Role-based guards: `require_role()`, `require_admin()`, `require_doctor()`
 - `AuthUser` extractor — requires login; `OptionalAuthUser` — allows anonymous access
+- All rejections (400/401/403/404) render a **styled error page** that preserves the specific reason and offers Go Back / Home — no raw text responses
 
 ---
 
 ## 📊 Database Schema
 
-The schema is fully normalized with 13 tables across 4 migrations:
+The schema is fully normalized with 15 tables across 5 migrations:
 
 - `users` — authentication & role (patient/doctor/admin)
 - `patients`, `doctors` — role-specific profile tables
@@ -225,9 +229,9 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 
 | Trait | Implemented By | What It Provides |
 |---|---|---|
-| `TimeSlotted` | `Appointment`, `WaitlistEntry`, `DoctorAvailability` | Overlap detection, duration calculation — shared scheduling logic across all time-based entities |
+| `TimeSlotted` | `Appointment`, `WaitlistEntry`, `DoctorAvailability`, `TimeWindow` | Overlap detection, duration calculation — shared scheduling logic across all time-based entities. `TimeWindow` adapts a raw requested slot so `any_conflict` can compare it against a doctor's blocked entries |
 | `StatusManaged` | `Appointment`, `Invoice` | Status checking, Bulma CSS badge classes |
-| `Prioritized` | `Appointment`, `WaitlistEntry` | Priority labels (Emergency/Urgent/Normal/Follow-up), comparison between entities |
+| `Prioritized` | `Appointment`, `WaitlistEntry`, `PriorityItem` | Priority labels (Emergency/Urgent/Normal/Follow-up), urgency comparison — `is_higher_priority_than` drives the waitlist `BinaryHeap` ordering |
 | `Reportable` | `Appointment`, `Invoice`, `MedicalRecord` | Human-readable summary generation for reports and auditing |
 
 ### Medical Report PDF Generation
@@ -240,7 +244,9 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 - **Persistent Sessions**: Session encryption key is auto-generated once and saved to `.env` as `SESSION_SECRET`. Survives server restarts — no forced re-login. See `get_or_create_secret_key()` in `main.rs`.
 - **Role-Based Access**: `AuthUser` extractor with `require_role()`, `require_admin()`, `require_doctor()` guards. Type-level role enforcement prevents accidental privilege escalation.
 - **Frontend Polish**: Font Awesome 6 icons, Bulma components, mobile-responsive navbar with hamburger toggle, fade-in animations, hero-style empty states, breadcrumbs on detail pages.
-- **Database**: SQLite for zero-config setup. 13 tables across 4 migrations. Switch to PostgreSQL via `DATABASE_URL` and `sqlx` features in `Cargo.toml`.
+- **Database**: SQLite for zero-config setup. 15 tables across 5 migrations. Switch to PostgreSQL via `DATABASE_URL` and `sqlx` features in `Cargo.toml`.
+- **Styled Error Pages**: every error status (400/401/403/404/500) renders a consistent Bulma error screen. Domain rejections (e.g. a booking conflict) keep their specific message and offer a "Go Back" button; server errors hide internals behind a generic line. `AppError` renders its own page in `error_response()`; the `ErrorHandlers` middleware dresses up only *plain* error bodies (unmatched routes, malformed forms) and passes already-styled HTML through.
+- **Server-Side Clinic Hours**: `parse_slot()` rejects any slot outside 08:00–17:00, so the booking form's slot grid is enforced on the server too — a hand-crafted POST cannot book a doctor at 02:00, even one with an otherwise open schedule.
 
 ---
 
@@ -252,7 +258,7 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 |---|---|---|
 | System Architecture & OOP Design | 15% | Modular crate with 5 domains; 4 custom traits (`TimeSlotted`, `StatusManaged`, `Prioritized`, `Reportable`) demonstrating polymorphism; `FromRequest`/`ResponseError`/`FromRow` trait impls; structs with `impl` blocks; separation of concerns (models/services/handlers) |
 | Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 4 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap, greedy doctor reassignment); transactional priority override; appointment rescheduling (transactional slot-rebuild); automatic doctor-room allocation; waitlist with promotion; session-based auth; role guards |
-| Database Design & Integration | 10% | 13 normalized tables across 4 migrations; foreign keys with CASCADE/SET NULL; composite + partial-unique indexes on the slot-occupancy ledger; SQLx migrations |
+| Database Design & Integration | 10% | 15 normalized tables across 5 migrations; foreign keys with CASCADE/SET NULL; composite + partial-unique indexes on the slot-occupancy ledger; SQLx migrations |
 | Frontend Design & SSR | 10% | Tera template inheritance (30 templates); Font Awesome 6 icons; Bulma responsive CSS with mobile navbar; itemized invoice builder; hero-style empty states; breadcrumbs; fade-in animations |
 | Documentation, Presentation & Demo | 10% | Professional README; WALKTHROUGH.md guide; inline code documentation; clear setup instructions |
 
@@ -289,19 +295,19 @@ Aligned with the spec v1.2.2 submission structure:
 cargo test
 ```
 
-### Test Coverage (133 tests, 8 suites)
+### Test Coverage (148 tests, 8 suites)
 
 | Test Suite | Tests | Covers |
 |---|---|---|
-| `test_auth.rs` | 19 | Registration (patient/doctor/admin), duplicate rejection, login success/failure/nonexistent, login-with-email, logout, role guards, admin-only routes, profile PII anti-enumeration |
+| `test_auth.rs` | 20 | Registration (patient/doctor/admin), duplicate rejection, login success/failure/nonexistent, login-with-email, POST-only logout, role guards, admin-only routes, profile PII anti-enumeration, **styled 403 error page** |
 | `test_algorithms.rs` | 30 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after/full/gap/multi-gap), priority (bump/equal-rejected/normal-gate/ordering-proof), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers), **reschedule (move+frees-old-slot / conflict-rejected / self-overlap-allowed / ownership)** |
-| `test_appointments.rs` | 16 | Booking form, HTTP booking (success/conflict/invalid-time), priority booking HTTP, cancel HTTP + list-verify, waitlist (doctor/patient), suggest form, promote forbidden (patient) |
+| `test_appointments.rs` | 18 | Booking form, HTTP booking (success/conflict/invalid-time), **clinic-hours rejection (before-open/past-close/night)**, **styled 400 error page keeps the domain message**, priority booking HTTP, cancel HTTP + list-verify, waitlist (doctor/patient), suggest form, promote forbidden (patient) |
 | `test_availability.rs` | 3 | Doctor availability page, set-availability form, submit + verify persistence |
 | `test_records.rs` | 6 | Records list, create form (doctor), patient blocked from create, HTTP create-submit + detail verification, **PDF export download (content-type + `%PDF` magic), PDF ownership enforcement** |
-| `test_billing.rs` | 6 | Billing page (patient), create-invoice requires admin, admin creates invoice (single/multi-item), bad items rejected, payment recording |
+| `test_billing.rs` | 7 | Billing page (patient), create-invoice requires admin, admin creates invoice (single/multi-item), bad items rejected, payment recording, **settled invoice rejects further payment** |
 | `test_extended.rs` | 17 | Availability enforcement (blocked/recurring/open-default/past-date), doctor reassignment (success/failure-no-alternative/skips-busy), patient timeline (multi-entity merge), prescriptions, medical reports, audit logging, dashboard stats |
-| **Unit tests** (in `src/`) | **36** | Trait default-method tests (overlap/duration/priority/status), `DaySchedule` pure gap-finding, enum serialization round-trips, **PDF word-wrap + real `%PDF` byte rendering** |
-| **Total** | **133** | **100% pass rate** |
+| **Unit tests** (in `src/`) | **47** | Trait default-method tests (overlap/duration/priority/status), `DaySchedule` pure gap-finding, **`parse_slot` clinic-hours + grid rules**, **error-page HTML-escaping**, enum serialization round-trips, **PDF word-wrap + real `%PDF` byte rendering** |
+| **Total** | **148** | **100% pass rate** |
 
 ### Architecture
 

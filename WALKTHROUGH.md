@@ -256,7 +256,7 @@ PatientManagementSystem/
 │   ├── 004_fix_payment_dates.sql
 │   └── 005_doctor_room_assignments.sql ← Doctor-room auto-allocation table
 │
-├── tests/                      ← 🧪 Integration test suite (133 tests)
+├── tests/                      ← 🧪 Integration test suite (148 tests)
 │   ├── common/
 │   │   └── mod.rs              ←    Test macros, in-memory DB, auth helpers
 │   ├── test_auth.rs            ←    Registration, login, role guards (19)
@@ -1493,7 +1493,7 @@ tests/
 Plus **36 unit tests** inside `src/` (trait default methods, the `DaySchedule` gap-finder,
 enum serialisation, and the PDF word-wrap + rendering).
 
-**Total: 133 tests across 8 integration suites + inline unit tests — 100% pass rate.**
+**Total: 148 tests across 8 integration suites + inline unit tests — 100% pass rate.**
 
 ### 16.4 The `with_test_app!` Macro
 
