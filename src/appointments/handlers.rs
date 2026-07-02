@@ -265,20 +265,54 @@ pub async fn appointment_detail(
         pool.get_ref(), appointment_id, user.user_id, user.role,
     ).await?;
 
+    // Staff see a room-override dropdown on scheduled appointments.
+    let rooms = match user.role {
+        Role::Doctor | Role::Admin => services::get_all_rooms(pool.get_ref()).await?,
+        Role::Patient => Vec::new(),
+    };
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("appointment", &appointment);
+    ctx.insert("rooms", &rooms);
     ctx.insert("title", &format!("Appointment #{}", appointment.id));
     let rendered = tera.render("appointments/detail.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
 }
 
 // ============================================================
-// POST /appointments/{id}/assign-room — doctor allocates a room
+// POST /appointments/{id}/complete — staff closes out a visit
+// ============================================================
+
+/// Mark a scheduled appointment as completed (the visit took place).
+/// Staff only — completion is a clinical action, like creating the
+/// medical record it usually accompanies. Occupancy slots are kept:
+/// the time was genuinely used (see `services::complete_appointment`).
+pub async fn complete_appointment(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    require_doctor(&user)?; // doctor or admin
+    let appointment_id = path.into_inner();
+    let appointment = services::complete_appointment(pool.get_ref(), appointment_id).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.completed", "appointment", Some(appointment.id),
+        &format!("Visit on {} {}–{} completed",
+            appointment.appointment_date, appointment.start_time, appointment.end_time),
+    ).await;
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/appointments/{}", appointment.id)))
+        .finish())
+}
+
+// ============================================================
+// POST /appointments/{id}/assign-room — staff room override
 // ============================================================
 
 /// Assign (or change) the consultation room for an appointment. Staff only:
-/// patients book without a room and a doctor allocates one afterwards.
+/// rooms are auto-assigned at booking, so this is the manual override for
+/// moving one appointment elsewhere (e.g. into the procedure room).
 pub async fn assign_room(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,

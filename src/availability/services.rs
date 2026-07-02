@@ -115,6 +115,9 @@ pub async fn add_availability(
 ) -> Result<DoctorAvailability, AppError> {
     // Validation — nothing touches the database before this passes
     form.validate()?;
+    // Store the canonical zero-padded "HH:MM" form: the availability gate
+    // compares these strings lexically against requested booking windows.
+    let (start_mins, end_mins) = crate::time::parse_time_range(&form.start_time, &form.end_time)?;
 
     let doctor_id = db::get_doctor_id(pool, doctor_user_id).await?;
 
@@ -126,8 +129,8 @@ pub async fn add_availability(
     )
     .bind(doctor_id)
     .bind(form.day_of_week)
-    .bind(&form.start_time)
-    .bind(&form.end_time)
+    .bind(crate::time::minutes_to_time(start_mins))
+    .bind(crate::time::minutes_to_time(end_mins))
     .bind(form.recurring() as i32) // SQLite stores BOOLEAN as INTEGER 0/1
     .bind(form.specific_date_or_none())
     .bind(form.blocked() as i32)

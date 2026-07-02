@@ -125,6 +125,23 @@ impl Appointment {
         Ok(())
     }
 
+    /// Mark this appointment as completed (the visit took place).
+    ///
+    /// Domain rule (same family as `cancel`): only an active/scheduled
+    /// appointment can be completed — cancelled appointments never happened
+    /// and completed ones already are. Unlike cancellation, completion keeps
+    /// the appointment's occupancy slots: the time was genuinely used, and
+    /// `check_conflict` counts completed visits as occupying their window.
+    pub fn complete(&mut self) -> Result<(), crate::errors::AppError> {
+        if !self.is_active() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a scheduled appointment can be marked completed".into(),
+            ));
+        }
+        self.status = AppointmentStatus::Completed;
+        Ok(())
+    }
+
     /// Reassign this appointment to a different doctor.
     ///
     /// Domain rule (same as `cancel`): only an active/scheduled appointment may
@@ -170,10 +187,11 @@ impl Appointment {
     /// Assign (or change) the consultation room for this appointment.
     ///
     /// Domain rule (same family as `cancel`/`reassign_to`): only an
-    /// active/scheduled appointment may have its room set. Patients book
-    /// without a room (it stays `None` → "Pending Room Location" in the UI) and
-    /// a doctor assigns one afterwards; this method is that assignment step. The
-    /// caller persists the new room on the appointment and its occupancy slots.
+    /// active/scheduled appointment may have its room set. Rooms are
+    /// auto-assigned at booking from the doctor's daily allocation; this
+    /// method is the staff override for moving a single appointment to a
+    /// different room (e.g. into the procedure room). The caller persists
+    /// the new room on the appointment and its occupancy slots.
     pub fn assign_room(&mut self, room_id: i64) -> Result<(), crate::errors::AppError> {
         if !self.is_active() {
             return Err(crate::errors::AppError::BadRequest(

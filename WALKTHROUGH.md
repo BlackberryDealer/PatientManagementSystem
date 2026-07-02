@@ -254,17 +254,18 @@ PatientManagementSystem/
 │   ├── 002_rooms_priority.sql  ←    Seeds default consultation rooms
 │   ├── 003_audit_log.sql       ←    Immutable action trail table
 │   ├── 004_fix_payment_dates.sql
-│   └── 005_doctor_room_assignments.sql ← Doctor-room auto-allocation table
+│   ├── 005_doctor_room_assignments.sql ← Doctor-room auto-allocation table
+│   └── 006_room_assignment_unique.sql  ← One doctor per room per day (UNIQUE)
 │
-├── tests/                      ← 🧪 Integration test suite (148 tests)
+├── tests/                      ← 🧪 Integration test suite (159 tests)
 │   ├── common/
 │   │   └── mod.rs              ←    Test macros, in-memory DB, auth helpers
-│   ├── test_auth.rs            ←    Registration, login, role guards (19)
-│   ├── test_algorithms.rs      ←    Scheduling algorithm tests (26)
-│   ├── test_appointments.rs    ←    HTTP booking & waitlist tests (16)
+│   ├── test_auth.rs            ←    Registration, login, role guards (20)
+│   ├── test_algorithms.rs      ←    Scheduling algorithm tests (36)
+│   ├── test_appointments.rs    ←    HTTP booking & waitlist tests (23)
 │   ├── test_availability.rs    ←    Availability CRUD tests (3)
 │   ├── test_records.rs         ←    Medical records + PDF export tests (6)
-│   ├── test_billing.rs         ←    Invoice & payment tests (6)
+│   ├── test_billing.rs         ←    Invoice & payment tests (7)
 │   └── test_extended.rs        ←    Reassignment, timeline, audit, dashboard (17)
 │
 ├── templates/                  ← 🎨 Root HTML templates (loaded first by Tera)
@@ -917,14 +918,16 @@ pub async fn find_earliest_slot(
     // 1. Fetch all scheduled appointments for the doctor on that date
     // 2. Sort by start_time (handled by ORDER BY in SQL)
     // 3. Walk through the gaps, cursor starts at 08:00
-    // 4. For each appointment: if cursor + duration ≤ appointment_start, return cursor
-    // 5. Move cursor past the appointment
+    // 4. For each gap wide enough, check the doctor's availability rules
+    //    (leave/blocked breaks/declared windows — the same 3-rule gate
+    //    that booking enforces); skip past gaps the doctor can't take
+    // 5. Move cursor past occupied/unavailable stretches
     // 6. Check end-of-day gap (up to 17:00)
     // 7. Return None if fully booked
 }
 ```
 
-**Why this algorithm?** Rather than rejecting a conflicting request with "try again," it proactively helps the user find an open slot. The working hours are hardcoded as 08:00–17:00 (480–1020 minutes since midnight). The `time_to_minutes()` and `minutes_to_time()` helpers convert between "HH:MM" strings and integer minutes for clean comparison.
+**Why this algorithm?** Rather than rejecting a conflicting request with "try again," it proactively helps the user find an open slot. The working hours are hardcoded as 08:00–17:00 (480–1020 minutes since midnight). The `time_to_minutes()` and `minutes_to_time()` helpers convert between "HH:MM" strings and integer minutes for clean comparison. Because every candidate gap is also passed through `ensure_doctor_available`, a suggested slot is always one the booking path would actually accept — the suggestion and booking features can never disagree.
 
 > **O(n) complexity**: The algorithm does a single pass over the day's appointments. No nested loops, no backtracking. For a typical doctor's schedule (10-30 appointments/day), this is instantaneous.
 
@@ -977,9 +980,10 @@ The `rooms` table (migration 002) provides six consultation and specialist rooms
 
 **How auto-allocation works:**
 1. At booking time, `resolve_room()` checks if the doctor already has a room assigned for that date.
-2. If yes → reuses it. If no → claims the first available active room and persists the assignment.
-3. Every appointment always has a room — room conflicts are always checked via `AND room_id = ?` in `check_conflict`.
-4. Patients never see a room dropdown; the booking form shows "Auto-Assigned Room" instead.
+2. If yes → reuses it. If no → claims the first free active room with a plain `INSERT` guarded by **two UNIQUE indexes**: one room per doctor per day (migration 005) and one doctor per room per day (migration 006). Losing a race surfaces as a unique violation and the loop simply retries with the next free room — two concurrent requests can never claim the same room.
+3. If every room is already assigned that day, doctors share deterministically (the share is not persisted; same-slot clashes inside a shared room are still blocked by the `appointment_slots` room index).
+4. Every appointment always has a room — room conflicts are always checked via `AND room_id = ?` in `check_conflict`.
+5. Patients never see a room dropdown; the booking form shows "Auto-Assigned Room" instead. Staff can override a single appointment's room afterwards via `POST /appointments/{id}/assign-room` (e.g. moving a visit into the Procedure Room), with the same unique-index protection.
 
 This design ensures each doctor works from a consistent room each day while eliminating manual room selection from the patient booking flow.
 
@@ -1490,10 +1494,10 @@ tests/
 └── test_extended.rs        # 17 tests — reassignment, timeline, audit, dashboard
 ```
 
-Plus **36 unit tests** inside `src/` (trait default methods, the `DaySchedule` gap-finder,
-enum serialisation, and the PDF word-wrap + rendering).
+Plus **47 unit tests** inside `src/` (trait default methods, the `DaySchedule` gap-finder,
+clinic-hour + grid rules, error-page escaping, enum serialisation, and the PDF word-wrap + rendering).
 
-**Total: 148 tests across 8 integration suites + inline unit tests — 100% pass rate.**
+**Total: 159 tests across 8 integration suites + inline unit tests — 100% pass rate.**
 
 ### 16.4 The `with_test_app!` Macro
 
@@ -1528,12 +1532,13 @@ Registers a user via POST `/users/register`, asserts a redirect (auto-login), ex
 
 | Suite | Tests | What's Covered |
 |---|---|---|
-| `test_auth.rs` | 11 | Registration (3 roles), duplicate rejection, login success/failure, logout, role guards, admin access |
-| `test_algorithms.rs` | 19 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after-existing/full/gap/multi-gap), priority (bump/equal-rejected/normal-gate), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers) |
-| `test_appointments.rs` | 9 | Booking form, HTTP booking (success/conflict/invalid-time), priority booking HTTP, cancel HTTP, list after booking, waitlist (doctor/patient), suggest form |
+| `test_auth.rs` | 20 | Registration (patient-only), duplicate rejection, login success/failure, logout, role guards, admin access, profile anti-enumeration |
+| `test_algorithms.rs` | 36 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after-existing/full/gap/multi-gap/**availability-aware**), priority (bump/equal-rejected/normal-gate), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers), reschedule, **completion lifecycle**, **time normalisation**, **distinct rooms per doctor** |
+| `test_appointments.rs` | 23 | Booking form, HTTP booking (success/conflict/invalid-time/clinic-hours), priority booking HTTP, cancel HTTP, **complete HTTP (+ patient forbidden)**, **room override HTTP (+ forbidden / same-slot clash)**, list after booking, waitlist (doctor/patient), suggest form |
 | `test_availability.rs` | 3 | Doctor availability list, set form, submit + verify persistence |
-| `test_records.rs` | 4 | Records list, create form (doctor), patient blocked, record creation HTTP submit |
+| `test_records.rs` | 6 | Records list, create form (doctor), patient blocked, record creation HTTP submit, PDF export + ownership |
 | `test_billing.rs` | 7 | Invoice list, admin-only create, invoice creation (single/multi-item/bad-items), payment recording |
+| `test_extended.rs` | 17 | Availability enforcement, doctor reassignment, patient timeline, prescriptions, medical reports, audit logging, dashboard stats |
 
 ### 16.7 In-Memory Database
 

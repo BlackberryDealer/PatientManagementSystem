@@ -16,6 +16,9 @@ pub async fn add_to_waitlist(
     form: &WaitlistForm,
 ) -> Result<WaitlistEntry, AppError> {
     form.validate()?;
+    // Store the canonical zero-padded "HH:MM" form, not the raw input —
+    // promotion later compares and re-books these strings verbatim.
+    let (start_mins, end_mins) = crate::time::parse_slot(&form.requested_start, &form.requested_end)?;
 
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
     let room_id = resolve_room(pool, form.doctor_id, &form.appointment_date).await?;
@@ -31,8 +34,8 @@ pub async fn add_to_waitlist(
     .bind(form.doctor_id)
     .bind(room_id)
     .bind(&form.appointment_date)
-    .bind(&form.requested_start)
-    .bind(&form.requested_end)
+    .bind(crate::time::minutes_to_time(start_mins))
+    .bind(crate::time::minutes_to_time(end_mins))
     .bind(form.priority)
     .bind(&form.notes)
     .fetch_one(pool)

@@ -599,3 +599,154 @@ async fn test_reschedule_rejects_other_patients_appointment() {
 
 // ============================================================
 // (Room assignment via assign_room removed — auto-allocation supersedes it)
+
+// ============================================================
+// Appointment completion (scheduled -> completed lifecycle)
+// ============================================================
+
+// Completing a visit flips the status and KEEPS the occupancy slots:
+// the time was genuinely used, and check_conflict counts completed
+// visits as occupying their window. Completing twice is rejected.
+#[actix_web::test]
+async fn test_complete_appointment_flow() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "cp1").await;
+    seed_doctor(&pool, 2, "cd1").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let done = services::complete_appointment(&pool, appt.id).await.unwrap();
+    assert_eq!(done.current_status(), "completed");
+
+    // Slots stay: the window still reads as occupied.
+    let slots: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM appointment_slots WHERE appointment_id = ?")
+        .bind(appt.id).fetch_one(&pool).await.unwrap();
+    assert_eq!(slots.0, 1, "completed appointments keep their occupancy slots");
+    assert!(services::check_conflict(&pool, 1, "2027-06-01", "10:00", "10:30", 1, None).await.unwrap());
+
+    // Completed appointments are immutable history — no double completion.
+    assert!(services::complete_appointment(&pool, appt.id).await.is_err());
+}
+
+#[actix_web::test]
+async fn test_complete_cancelled_appointment_rejected() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "cp2").await;
+    seed_doctor(&pool, 2, "cd2").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+    services::cancel_appointment(&pool, appt.id).await.unwrap();
+    assert!(services::complete_appointment(&pool, appt.id).await.is_err(),
+        "a cancelled appointment never happened and cannot be completed");
+}
+
+// ============================================================
+// Canonical time storage (zero-padded HH:MM)
+// ============================================================
+
+// A hand-crafted POST can send "9:00" instead of "09:00"; both parse to the
+// same minutes, but only the padded form compares correctly as a string.
+// The booking path must store (and check conflicts with) the canonical form.
+#[actix_web::test]
+async fn test_unpadded_times_are_normalised() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "np1").await;
+    seed_doctor(&pool, 2, "nd1").await;
+    let appt = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "9:00".into(), end_time: "9:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+    assert_eq!(appt.start_time, "09:00");
+    assert_eq!(appt.end_time, "09:30");
+    // The stored row must collide with a padded booking for the same slot.
+    assert!(services::check_conflict(&pool, 1, "2027-06-01", "09:00", "09:30", 1, None).await.unwrap());
+}
+
+// ============================================================
+// Earliest-slot suggestions respect doctor availability
+// ============================================================
+
+// A suggested slot must be one the booking path would accept: the search
+// consults the same 3-rule availability gate, so a blocked window (e.g.
+// morning leave) pushes the suggestion past it.
+#[actix_web::test]
+async fn test_earliest_slot_skips_blocked_window() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "bp1").await;
+    seed_doctor(&pool, 2, "bd1").await;
+    let date = "2027-06-01";
+    let dow = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+    let dow = chrono::Datelike::weekday(&dow).num_days_from_sunday() as i32;
+    // One-off blocked entry: doctor is away 08:00–09:00 on that date.
+    sqlx::query(
+        "INSERT INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked)
+         VALUES (1, ?, '08:00', '09:00', 0, ?, 1)",
+    ).bind(dow).bind(date).execute(&pool).await.unwrap();
+
+    let slot = services::find_earliest_slot(&pool, &SuggestSlotForm {
+        doctor_id: 1, appointment_date: date.into(), duration_minutes: 30,
+    }).await.unwrap();
+    assert_eq!(slot, Some("09:00".into()), "suggestion must skip the blocked morning");
+}
+
+#[actix_web::test]
+async fn test_earliest_slot_respects_declared_working_window() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "wp1").await;
+    seed_doctor(&pool, 2, "wd1").await;
+    let date = "2027-06-01";
+    let dow = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+    let dow = chrono::Datelike::weekday(&dow).num_days_from_sunday() as i32;
+    // Recurring weekly window: this doctor only works 13:00–17:00 that weekday.
+    sqlx::query(
+        "INSERT INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked)
+         VALUES (1, ?, '13:00', '17:00', 1, NULL, 0)",
+    ).bind(dow).execute(&pool).await.unwrap();
+
+    let slot = services::find_earliest_slot(&pool, &SuggestSlotForm {
+        doctor_id: 1, appointment_date: date.into(), duration_minutes: 30,
+    }).await.unwrap();
+    assert_eq!(slot, Some("13:00".into()), "suggestion must fall inside the declared window");
+}
+
+// ============================================================
+// Room allocation: one room per doctor per day, both directions
+// ============================================================
+
+// Two doctors booking on the same date must be allocated DIFFERENT rooms —
+// the UNIQUE(room_id, assignment_date) index (migration 006) plus the
+// claim-retry loop in resolve_room guarantee it.
+#[actix_web::test]
+async fn test_two_doctors_get_distinct_rooms() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "rr1").await;
+    seed_doctor(&pool, 2, "rrd1").await;
+    seed_doctor(&pool, 3, "rrd2").await;
+    let date = "2027-06-01";
+    let a1 = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: date.into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+    let a2 = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 2, appointment_date: date.into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    assert_ne!(a1.room_id, a2.room_id, "each doctor gets their own room for the day");
+
+    let assignments: Vec<(i64,)> = sqlx::query_as(
+        "SELECT room_id FROM doctor_room_assignments WHERE assignment_date = ?",
+    ).bind(date).fetch_all(&pool).await.unwrap();
+    assert_eq!(assignments.len(), 2);
+    assert_ne!(assignments[0].0, assignments[1].0);
+
+    // The room UNIQUE index is live: double-assigning a room for a date fails.
+    let dup = sqlx::query(
+        "INSERT INTO doctor_room_assignments (doctor_id, room_id, assignment_date) VALUES (99, ?, ?)",
+    ).bind(assignments[0].0).bind(date).execute(&pool).await;
+    assert!(dup.is_err(), "UNIQUE(room_id, assignment_date) must reject a second claimant");
+}

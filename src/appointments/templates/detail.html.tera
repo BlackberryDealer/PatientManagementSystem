@@ -48,7 +48,29 @@
                     </div>
                     <div class="mb-4">
                         <p class="is-size-7 has-text-grey mb-1">ROOM</p>
-                        <p class="is-size-5 has-text-weight-semibold"><i class="fas fa-door-open mr-2 has-text-link"></i>Auto-Assigned</p>
+                        <p class="is-size-5 has-text-weight-semibold">
+                            <i class="fas fa-door-open mr-2 has-text-link"></i>{% if appointment.room_name %}{{ appointment.room_name }}{% else %}Auto-Assigned{% endif %}
+                        </p>
+                        {% if appointment.status == "scheduled" and (user.role == "doctor" or user.role == "admin") and rooms %}
+                        <form method="POST" action="/appointments/{{ appointment.id }}/assign-room" class="mt-2">
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <div class="select is-small">
+                                        <select name="room_id">
+                                            {% for r in rooms %}
+                                            <option value="{{ r.id }}">{{ r.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="control">
+                                    <button class="button is-small is-link is-light" type="submit">
+                                        <i class="fas fa-right-left mr-1"></i>Change Room
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                        {% endif %}
                     </div>
                     {% if appointment.notes %}
                     <div>
@@ -109,6 +131,11 @@
             </button>
         </form>
         {% if user.role == "doctor" or user.role == "admin" %}
+        <form method="POST" action="/appointments/{{ appointment.id }}/complete" style="display:inline;">
+            <button class="button is-success" type="submit" onclick="return confirm('Mark appointment #{{ appointment.id }} as completed?')">
+                <i class="fas fa-check mr-1"></i>Mark Completed
+            </button>
+        </form>
         <form method="POST" action="/appointments/{{ appointment.id }}/reassign" style="display:inline;">
             <button class="button is-warning is-light" type="submit" onclick="return confirm('Reassign appointment #{{ appointment.id }} to the best available doctor?')">
                 <i class="fas fa-exchange-alt mr-1"></i>Reassign Doctor
