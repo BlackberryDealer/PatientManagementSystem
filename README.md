@@ -23,23 +23,6 @@ The Patient Management System (PMS) is a modular web application designed to sim
 ### Core Focus
 **Appointment Scheduling & Conflict Resolution** — The system prevents double-booking by checking time-slot overlaps before confirming any appointment. This implements **scheduling algorithms** and **time slot validation** as specified in the project brief.
 
-### Advanced Features (Individual)
-
-Each team member implements one or more advanced features aligned with the official spec:
-
-| Spec Feature | Implementation | Owner | Status |
-|---|---|---|---|
-| **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage via `BinaryHeap` | Lennon | ✅ Implemented |
-| **Time slot validation** | Conflict detection & earliest-slot suggestion algorithm | Lennon | ✅ Implemented |
-| **Scheduling algorithms** | Lazy doctor-room auto-allocation (`resolve_room()`) with 3-level fallback and race-safe `INSERT OR IGNORE`; availability enforcement engine — 3-rule priority system (blocked → windowed → open default) in the critical path of all 4 booking algorithms | Dylan | ✅ Implemented |
-| **Audit logging** | Immutable action trail (`src/audit/`) recording actor, action, entity, and entity ID across appointments, records, and PDF export; admin-only view | Dylan | ✅ Implemented |
-| **Patient history timelines** | Chronological record view with appointment/record/prescription/invoice merging | Raees | ✅ Implemented |
-| **Medical report PDF generation** | Server-side PDF export of a medical report via the pure-Rust `printpdf` crate (paginated, word-wrapped, no external binaries) | Raees | ✅ Implemented |
-| **Role-based staff access** | Type-level role enforcement via Rust trait system (`AuthUser`, `require_role`) | Afif | ✅ Implemented |
-| Financial reporting | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates | Hanzalah | ✅ Implemented |
-
-> **Note:** Formative Assessment does **not** apply to this project (spec v1.2.2).
-
 ---
 
 ## 🛠 Tech Stack
@@ -170,9 +153,62 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 11 availabili
 |---|---|---|---|
 | `users` + `auth` | Patient Registration, Doctor Management | **Role-based staff access** — type-level role enforcement | Afif |
 | `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist with `BinaryHeap` priority triage; **Time slot validation** — overlap detection & earliest-slot algorithm | Lennon |
-| `availability` + `audit` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement used by all 4 booking paths; **Audit logging** — immutable cross-cutting action trail | Dylan |
+| `availability` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement used by all 4 booking paths | Dylan |
 | `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view with multi-entity merging | Raees |
-| `billing` | Billing | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates | Hanzalah |
+| `billing` + `audit` | Billing | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates; **Audit logging** — immutable cross-cutting action trail | Hanzalah |
+
+---
+
+## 👤 Individual Contributions & Extended Features
+
+### Afif — `users` + `auth`
+
+**Group Development Component:** Built the users and auth modules, establishing the unified identity and authorization backbone that every other module depends on for secure session handling and profile management.
+
+**Individual Extended Features & Technical Contributions:**
+- **Type-Enforced Role-Based Access Control** — Implemented access rules into the type system using an Actix request extractor. This makes it impossible to compile a code route that accidentally omits security verification.
+- **Fail-Safe Role Parsing** — Modeled roles as a typed enum with fail-safe parsing, ensuring a tampered session value falls back to the least-privileged role rather than accidentally leaking access privileges.
+- **Advanced Ownership Guards** — Developed secure request guards that verify user permissions, blocking patients from viewing other accounts by manually typing different IDs in the browser address bar.
+- **Anti-Enumeration Hardening** — Closed a timing side-channel in login by always running a full password hash comparison even when the username does not exist, preventing response variations from revealing valid database accounts.
+
+### Lennon — `appointments`
+
+**Group Development Component:** Developed the appointments module, building the core calendar engine and booking database routes for the clinic application.
+
+**Individual Extended Features & Technical Contributions:**
+- **Multi-Algorithmic Scheduling & Queue Logic** — Implemented three cooperating algorithms to make the scheduling engine safe and fair under load. Applied the interval-overlap test for standard conflict detection.
+- **Pure Earliest-Slot Search** — Built a search feature that analyzes a doctor's booked day and returns the earliest open gap matching the required appointment length.
+- **Priority Sorting Queue** — Built a custom triage queue using a binary heap, adjusting the key sorting so that urgent cases and older entries rise to the top of the queue correctly.
+- **Automated Lifecycle Promotion** — Integrated an automatic waitlist promotion that automatically fills a freed slot with the most urgent waiting patient the moment a booking is cancelled.
+
+### Dylan — `availability`
+
+**Group Development Component:** Built the availability module and doctor management tables, establishing the core structural boundaries for the clinic schedule.
+
+**Individual Extended Features & Technical Contributions:**
+- **Three-Rule Availability Gate** — Built a validation gate applying three structured rules. Blocked entries (like leave or lunch breaks) reject bookings immediately. Valid slots must fit completely inside a doctor's custom hours, otherwise they fall back to default clinic hours. This checks recurring and one-off rules in a single step.
+- **Dynamic Load-Balanced Reassignment** — Developed a greedy doctor reassignment algorithm that ranks every alternative doctor inside a single SQL query. The query optimizes for continuity of care by ranking matching specializations first, followed by the fewest appointments that day for structural load balancing, walking the ranked list to pick the first doctor available and free of conflicts.
+- **Race-Safe Room Allocation** — Designed an allocation system where a doctor's first daily booking locks in an available room. This is enforced via an insert-or-ignore path protected by a database-level partial unique index, mathematically guaranteeing that two concurrent requests can never claim the same room at once.
+
+### Raees — `records`
+
+**Group Development Component:** Built the medical records and prescription tracking modules, establishing the database models and clinical storage paths.
+
+**Individual Extended Features & Technical Contributions:**
+- **Unified Patient History Timeline** — Created a consolidated timeline that normalizes appointments, records, prescriptions, and bills into a single history sorted by date. Utilized a typed kind enum to supply each event's icon and color so presentation details are never hardcoded at the call site.
+- **Pure-Rust PDF Engine** — Wrote a standalone PDF report generator using the printpdf crate and the built-in Helvetica font, allowing the printable report to run with a single command on any machine with nothing extra to install.
+- **Manual Layout Math & Pagination** — Solved the limitation of the underlying crate (which only draws text at fixed coordinates) by building a custom layout engine. Tracked a manual cursor that walks down the page and opens a fresh page when it runs out of room so that long records paginate cleanly.
+- **Glyph-Aware Greedy Word-Wrap** — Designed a custom greedy word-wrap algorithm that estimates glyph width, respects existing line breaks, and hard-breaks over-long words on character boundaries to prevent accented multi-byte names from splitting in the middle of a letter.
+
+### Hanzalah — `billing` + `audit`
+
+**Group Development Component:** Built the billing module, covering the core implementation of invoices, line items, and payments.
+
+**Individual Extended Features & Technical Contributions:**
+- **Clinic Analytics Dashboard** — Combined 12 real-time aggregation queries into a single data pass, providing summaries of patient counts, appointment states, and financial indicators.
+- **Derived Ratio Modeling** — Designed the underlying model to derive cancellation rates, collection rates, and outstanding balances so administrators read actionable ratios rather than bare counts.
+- **System Audit Logging** — Created an append-only log that notes the user, action type, and affected data row for all security events, designed to log data without interrupting active transactions.
+- **Billing State Machine** — Enforced a strict state machine guarding how an invoice moves through pending, paid, and cancelled statuses. Implemented partial-payment support that tracks a running total against the balance and automatically triggers a settled state change once cleared.
 
 ---
 
@@ -197,6 +233,7 @@ The schema is fully normalized with 15 tables across 5 migrations:
 - `patients`, `doctors` — role-specific profile tables
 - `doctor_availability` — recurring weekly slots + blocked dates
 - `appointments` — scheduled meetings with priority (1-4) and auto-assigned rooms
+- `appointment_slots` — occupancy ledger (one row per 30-min slot); a composite UNIQUE index makes double-booking impossible at the database layer
 - `rooms` — consultation rooms, procedure rooms, and equipment resources
 - `doctor_room_assignments` — daily doctor-to-room allocation (one room per doctor per day)
 - `waitlist` — priority queue for patients awaiting slots
@@ -230,9 +267,9 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 | Trait | Implemented By | What It Provides |
 |---|---|---|
 | `TimeSlotted` | `Appointment`, `WaitlistEntry`, `DoctorAvailability`, `TimeWindow` | Overlap detection, duration calculation — shared scheduling logic across all time-based entities. `TimeWindow` adapts a raw requested slot so `any_conflict` can compare it against a doctor's blocked entries |
-| `StatusManaged` | `Appointment`, `Invoice` | Status checking, Bulma CSS badge classes |
+| `StatusManaged` | `Appointment`, `Invoice`, `WaitlistEntry` | Status checking, Bulma CSS badge classes |
 | `Prioritized` | `Appointment`, `WaitlistEntry`, `PriorityItem` | Priority labels (Emergency/Urgent/Normal/Follow-up), urgency comparison — `is_higher_priority_than` drives the waitlist `BinaryHeap` ordering |
-| `Reportable` | `Appointment`, `Invoice`, `MedicalRecord` | Human-readable summary generation for reports and auditing |
+| `Reportable` | `Appointment`, `Invoice`, `MedicalRecord`, `Prescription` | Human-readable summary generation for reports and auditing |
 
 ### Medical Report PDF Generation
 
