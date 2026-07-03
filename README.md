@@ -23,7 +23,6 @@ The Patient Management System (PMS) is a modular web application designed to sim
 ### Core Focus
 **Appointment Scheduling & Conflict Resolution** — The system prevents double-booking by checking time-slot overlaps before confirming any appointment. This implements **scheduling algorithms** and **time slot validation** as specified in the project brief.
 
-<<<<<<< HEAD
 ### Advanced Features (Individual)
 
 Each team member implements one or more advanced features aligned with the official spec:
@@ -32,7 +31,7 @@ Each team member implements one or more advanced features aligned with the offic
 |---|---|---|---|
 | **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage via `BinaryHeap` | Lennon | ✅ Implemented |
 | **Time slot validation** | Conflict detection & earliest-slot suggestion algorithm | Lennon | ✅ Implemented |
-| **Scheduling algorithms** | Lazy doctor-room auto-allocation (`resolve_room()`) with 3-level fallback and race-safe `INSERT OR IGNORE`; availability enforcement engine — 3-rule priority system (blocked → windowed → open default) in the critical path of all 4 booking algorithms; greedy load-balanced doctor reassignment (`find_alternative_doctor()`) | Dylan | ✅ Implemented |
+| **Scheduling algorithms** | Lazy doctor-room auto-allocation (`resolve_room()`) with 3-tier fallback and a race-safe claim-retry loop (plain `INSERT` guarded by dual UNIQUE indexes, retrying on a unique violation); availability enforcement engine — 3-rule priority system (blocked → windowed → open default) in the critical path of all 4 booking algorithms; greedy load-balanced doctor reassignment (`find_alternative_doctor()`) | Dylan | ✅ Implemented |
 | **Patient history timelines** | Chronological record view with appointment/record/prescription/invoice merging | Raees | ✅ Implemented |
 | **Medical report PDF generation** | Server-side PDF export of a medical report via the pure-Rust `printpdf` crate (paginated, word-wrapped, no external binaries) | Raees | ✅ Implemented |
 | **Role-based staff access** | Type-level role enforcement via Rust trait system (`AuthUser`, `require_role`) | Afif | ✅ Implemented |
@@ -41,8 +40,6 @@ Each team member implements one or more advanced features aligned with the offic
 
 > **Note:** Formative Assessment does **not** apply to this project (spec v1.2.2).
 
-=======
->>>>>>> 9df737409d3cc8e2ad4b1524508dd4ce0ae9f779
 ---
 
 ## 🛠 Tech Stack
@@ -175,12 +172,7 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 10 availabili
 |---|---|---|---|
 | `users` + `auth` | Patient Registration, Doctor Management | **Role-based staff access** — type-level role enforcement | Afif |
 | `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist with `BinaryHeap` priority triage; **Time slot validation** — overlap detection & earliest-slot algorithm | Lennon |
-<<<<<<< HEAD
 | `availability` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement used by all 4 booking paths + greedy load-balanced doctor reassignment | Dylan |
-| `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view with multi-entity merging | Raees |
-| `billing` + `audit` | Billing | Analytics dashboard (revenue, busiest-doctors, cancellation/collection rates); **Audit logging** — immutable cross-cutting action trail | Hanzalah |
-=======
-| `availability` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement used by all 4 booking paths | Dylan |
 | `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view with multi-entity merging | Raees |
 | `billing` + `audit` | Billing | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates; **Audit logging** — immutable cross-cutting action trail | Hanzalah |
 
@@ -236,7 +228,6 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 10 availabili
 - **Derived Ratio Modeling** — Designed the underlying model to derive cancellation rates, collection rates, and outstanding balances so administrators read actionable ratios rather than bare counts.
 - **System Audit Logging** — Created an append-only log that notes the user, action type, and affected data row for all security events, designed to log data without interrupting active transactions.
 - **Billing State Machine** — Enforced a strict state machine guarding how an invoice moves through pending, paid, and cancelled statuses. Implemented partial-payment support that tracks a running total against the balance and automatically triggers a settled state change once cleared.
->>>>>>> 9df737409d3cc8e2ad4b1524508dd4ce0ae9f779
 
 ---
 
@@ -255,21 +246,13 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 10 availabili
 
 ## 📊 Database Schema
 
-<<<<<<< HEAD
-The schema is fully normalized with 15 tables across 5 migrations:
-=======
 The schema is fully normalized with 15 tables across 6 migrations:
->>>>>>> 9df737409d3cc8e2ad4b1524508dd4ce0ae9f779
 
 - `users` — authentication & role (patient/doctor/admin)
 - `patients`, `doctors` — role-specific profile tables
 - `doctor_availability` — recurring weekly slots + blocked dates
 - `appointments` — scheduled meetings with priority (1-4) and auto-assigned rooms
-<<<<<<< HEAD
 - `appointment_slots` — occupancy ledger (one row per 30-min slot); the `UNIQUE(doctor_id, appointment_date, slot_time)` index makes double-booking impossible at the database layer
-=======
-- `appointment_slots` — occupancy ledger (one row per 30-min slot); a composite UNIQUE index makes double-booking impossible at the database layer
->>>>>>> 9df737409d3cc8e2ad4b1524508dd4ce0ae9f779
 - `rooms` — consultation rooms, procedure rooms, and equipment resources
 - `doctor_room_assignments` — daily doctor-to-room allocation, unique in both directions (one room per doctor per day AND one doctor per room per day)
 - `waitlist` — priority queue for patients awaiting slots
@@ -306,15 +289,9 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 
 | Trait | Implemented By | What It Provides |
 |---|---|---|
-<<<<<<< HEAD
-| `TimeSlotted` | `Appointment`, `WaitlistEntry`, `DoctorAvailability` | Overlap detection, duration calculation — shared scheduling logic across all time-based entities |
-| `StatusManaged` | `Appointment`, `Invoice`, `WaitlistEntry` | Status checking, Bulma CSS badge classes |
-| `Prioritized` | `Appointment`, `WaitlistEntry` | Priority labels (Emergency/Urgent/Normal/Follow-up), comparison between entities |
-=======
 | `TimeSlotted` | `Appointment`, `WaitlistEntry`, `DoctorAvailability`, `TimeWindow` | Overlap detection, duration calculation — shared scheduling logic across all time-based entities. `TimeWindow` adapts a raw requested slot so `any_conflict` can compare it against a doctor's blocked entries |
 | `StatusManaged` | `Appointment`, `Invoice`, `WaitlistEntry` | Status checking, Bulma CSS badge classes |
 | `Prioritized` | `Appointment`, `WaitlistEntry`, `PriorityItem` | Priority labels (Emergency/Urgent/Normal/Follow-up), urgency comparison — `is_higher_priority_than` drives the waitlist `BinaryHeap` ordering |
->>>>>>> 9df737409d3cc8e2ad4b1524508dd4ce0ae9f779
 | `Reportable` | `Appointment`, `Invoice`, `MedicalRecord`, `Prescription` | Human-readable summary generation for reports and auditing |
 
 ### Medical Report PDF Generation
@@ -327,9 +304,6 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 - **Persistent Sessions**: Session encryption key is auto-generated once and saved to `.env` as `SESSION_SECRET`. Survives server restarts — no forced re-login. See `get_or_create_secret_key()` in `main.rs`.
 - **Role-Based Access**: `AuthUser` extractor with `require_role()`, `require_admin()`, `require_doctor()` guards. Type-level role enforcement prevents accidental privilege escalation.
 - **Frontend Polish**: Font Awesome 6 icons, Bulma components, mobile-responsive navbar with hamburger toggle, fade-in animations, hero-style empty states, breadcrumbs on detail pages.
-<<<<<<< HEAD
-- **Database**: SQLite for zero-config setup. 15 tables across 5 migrations. Switch to PostgreSQL via `DATABASE_URL` and `sqlx` features in `Cargo.toml`.
-=======
 - **Database**: SQLite for zero-config setup. 15 tables across 6 migrations. Switch to PostgreSQL via `DATABASE_URL` and `sqlx` features in `Cargo.toml`.
 - **Styled Error Pages**: every error status (400/401/403/404/500) renders a consistent Bulma error screen. Domain rejections (e.g. a booking conflict) keep their specific message and offer a "Go Back" button; server errors hide internals behind a generic line. `AppError` renders its own page in `error_response()`; the `ErrorHandlers` middleware dresses up only *plain* error bodies (unmatched routes, malformed forms) and passes already-styled HTML through.
 - **Server-Side Clinic Hours**: `parse_slot()` rejects any slot outside 08:00–17:00, so the booking form's slot grid is enforced on the server too — a hand-crafted POST cannot book a doctor at 02:00, even one with an otherwise open schedule.
@@ -345,49 +319,6 @@ Deliberate scope decisions, with the reasoning we present in the demo:
 - **`cookie_secure(false)`** is set for local HTTP development; flip to `true` behind HTTPS.
 - **No login rate-limiting**: bcrypt (cost 10) plus the timing-equalized login path are the current brute-force mitigations.
 - **Waitlist statuses** `offered`/`expired` are reserved in the schema for a future offer/expiry flow; the implemented lifecycle is `waiting → accepted`.
->>>>>>> 9df737409d3cc8e2ad4b1524508dd4ce0ae9f779
-
----
-
-## 🎯 Marking Criteria (Spec v1.2.2)
-
-### Group Implementation (60%)
-
-| Criterion | Weight | Our Approach |
-|---|---|---|
-| System Architecture & OOP Design | 15% | Modular crate with 5 domains; 4 custom traits (`TimeSlotted`, `StatusManaged`, `Prioritized`, `Reportable`) demonstrating polymorphism; `FromRequest`/`ResponseError`/`FromRow` trait impls; structs with `impl` blocks; separation of concerns (models/services/handlers) |
-<<<<<<< HEAD
-| Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; 4 scheduling algorithms (overlap detection, earliest-slot, priority-based with BinaryHeap, greedy doctor reassignment); transactional priority override; appointment rescheduling (transactional slot-rebuild); automatic doctor-room allocation; waitlist with promotion; session-based auth; role guards |
-=======
-| Backend Functionality & Business Logic | 15% | Complete CRUD across all modules; full appointment lifecycle (scheduled → completed/cancelled with guarded state transitions); 4 scheduling algorithms (overlap detection, availability-aware earliest-slot, priority-based with BinaryHeap, greedy doctor reassignment); transactional priority override; appointment rescheduling (transactional slot-rebuild); race-safe doctor-room auto-allocation + staff room override; waitlist with promotion; session-based auth; role guards |
->>>>>>> 9df737409d3cc8e2ad4b1524508dd4ce0ae9f779
-| Database Design & Integration | 10% | 15 normalized tables across 5 migrations; foreign keys with CASCADE/SET NULL; composite + partial-unique indexes on the slot-occupancy ledger; SQLx migrations |
-| Frontend Design & SSR | 10% | Tera template inheritance (30 templates); Font Awesome 6 icons; Bulma responsive CSS with mobile navbar; itemized invoice builder; hero-style empty states; breadcrumbs; fade-in animations |
-| Documentation, Presentation & Demo | 10% | Professional README; project report; inline code documentation; clear setup instructions |
-
-### Individual Extended Features (40%)
-
-| Criterion | Weight | Evidence |
-|---|---|---|
-| Extended Feature Development | 15% | Each member's advanced feature (see table above) — independently implemented with measurable complexity: priority-queue waitlist, doctor-room auto-allocation, patient timelines, **server-side PDF report generation**, analytics dashboard, audit logging |
-| Technical Complexity & Problem Solving | 15% | 4 scheduling algorithms with an O(log n) BinaryHeap priority queue; transactional database mutations; race-proof slot-occupancy ledger (UNIQUE-index double-booking guard); trait-based FromRequest extractors; pure-Rust PDF generation with manual page layout, word-wrap, and pagination; async/await throughout |
-| Individual Understanding & Contribution | 10% | Clear explanation during demo; documented in report; visible commit history per module |
-
----
-
-## 📦 Deliverables (Portfolio)
-
-Aligned with the spec v1.2.2 submission structure:
-
-| # | Deliverable | Format |
-|---|---|---|
-| 1 | Source Code Archive | `g##_source.zip` (max 20MB) |
-| 2 | Demo Recording | `g##_recording.mp4` (15 min, max 200MB) |
-| 3 | Presentation Slides | `g##_slides.pptx` + `g##_slides.pdf` |
-| 4 | Project Report | `g##_report.docx` + `g##_report.pdf` (max 6 pages) |
-
-**Report must include:** architectural decisions, technical challenges, and each member's individual contribution mapped to the official PMS module list and advanced features above.
-
 ---
 
 ## 🧪 Testing
