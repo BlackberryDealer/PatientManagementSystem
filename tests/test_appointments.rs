@@ -514,6 +514,41 @@ async fn test_assign_room_conflict_rejected() {
 }
 
 // ============================================================
+// HTTP: calendar day filter (GET /appointments?date=YYYY-MM-DD)
+// ============================================================
+
+#[actix_web::test]
+async fn test_list_appointments_date_filter() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let cookie = register_and_login!(app, "datepat", "patient");
+        seed_and_login!(app, pool, "datedoc", "doctor");
+
+        // Two bookings on different days.
+        for date in ["2027-06-15", "2027-06-16"] {
+            let req = auth_post("/appointments/book", &cookie, serde_json::json!({
+                "doctor_id": 1, "appointment_date": date,
+                "start_time": "10:00", "end_time": "10:30",
+            })).to_request();
+            assert!(test::call_service(&app, req).await.status().is_redirection());
+        }
+
+        // The test harness stubs list.html.tera as "Apps: {{ appointments | length }}",
+        // so assertions are count-based: filtered day → 1 of the 2 bookings.
+        let req = auth_get("/appointments?date=2027-06-15", &cookie).to_request();
+        let body = test::read_body(test::call_service(&app, req).await).await;
+        assert_eq!(String::from_utf8_lossy(&body), "<html><body>Apps: 1</body></html>");
+
+        // Garbage date is ignored — full list of 2, no error.
+        let req = auth_get("/appointments?date=not-a-date", &cookie).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+        let body = test::read_body(resp).await;
+        assert_eq!(String::from_utf8_lossy(&body), "<html><body>Apps: 2</body></html>");
+    });
+}
+
+// ============================================================
 // HTTP: staff re-triage (POST /appointments/{id}/priority)
 // ============================================================
 

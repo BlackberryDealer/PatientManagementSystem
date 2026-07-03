@@ -23,6 +23,13 @@
     </div>
 </div>
 
+{% if date_filter %}
+<div class="notification is-info is-light py-3">
+    <i class="fas fa-filter mr-1"></i>Showing appointments for <strong>{{ date_filter }}</strong>
+    &nbsp;<a href="/appointments">Clear filter</a>
+</div>
+{% endif %}
+
 {% if appointments %}
 <div class="table-container fade-in">
     <table class="table is-fullwidth is-striped is-hoverable">

@@ -111,7 +111,7 @@ async fn seed_availability(pool: &SqlitePool) {
     // Blocked dates (holidays)
     sqlx::query(
         "INSERT OR IGNORE INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked)
-         VALUES (1, 0, '00:00', '23:59', 0, '2026-07-20', 1)",
+         VALUES (1, 0, '00:00', '23:59', 0, '2026-08-17', 1)",
     ).execute(pool).await.unwrap();
 
     println!("done (10 slots)");
@@ -124,12 +124,12 @@ async fn seed_room_assignments(pool: &SqlitePool) {
     // Doctor 2 (Dr. Jones) → Consultation Room B on most days
     let assignments = [
         // doctor_id, room_id, date
-        (1, 1, "2026-07-06"),
-        (2, 2, "2026-07-06"),
-        (1, 1, "2026-07-07"),
-        (2, 2, "2026-07-07"),
-        (1, 1, "2026-07-08"),
-        (2, 2, "2026-07-08"),
+        (1, 1, "2026-08-03"),
+        (2, 2, "2026-08-03"),
+        (1, 1, "2026-08-04"),
+        (2, 2, "2026-08-04"),
+        (1, 1, "2026-08-05"),
+        (2, 2, "2026-08-05"),
     ];
 
     for (doc, room, date) in &assignments {
@@ -149,16 +149,16 @@ async fn seed_appointments(pool: &SqlitePool) {
 
     let apps = [
         // patient_id, doctor_id, date, start, end, status, priority, room_id, notes
-        (1, 1, "2026-07-06", "09:00", "09:30", "completed",   3, Some(1), "Annual check-up — all clear"),
-        (1, 1, "2026-07-06", "09:30", "10:00", "scheduled",   3, Some(1), "Follow-up blood test"),
-        (2, 1, "2026-07-06", "10:00", "10:30", "scheduled",   3, Some(2), "Headache and dizziness"),
-        (3, 2, "2026-07-06", "08:30", "09:00", "completed",   4, Some(3), "Post-surgery check"),
-        (1, 1, "2026-07-07", "11:00", "11:30", "scheduled",   2, Some(1), "Chest pain — URGENT"),
-        (2, 2, "2026-07-07", "09:00", "09:30", "scheduled",   3, Some(4), "Routine cardiology consult"),
-        (3, 1, "2026-07-07", "14:00", "14:30", "cancelled",   3, None,      "Patient cancelled — rescheduled"),
-        (1, 1, "2026-07-08", "09:00", "09:30", "scheduled",   3, Some(1), "Prescription renewal"),
-        (2, 2, "2026-07-08", "10:00", "10:30", "scheduled",   4, Some(4), "ECG follow-up"),
-        (3, 1, "2026-07-08", "15:00", "15:30", "scheduled",   3, Some(2), "Vaccination"),
+        (1, 1, "2026-08-03", "09:00", "09:30", "completed",   3, Some(1), "Annual check-up — all clear"),
+        (1, 1, "2026-08-03", "09:30", "10:00", "scheduled",   3, Some(1), "Follow-up blood test"),
+        (2, 1, "2026-08-03", "10:00", "10:30", "scheduled",   3, Some(2), "Headache and dizziness"),
+        (3, 2, "2026-08-03", "08:30", "09:00", "completed",   4, Some(3), "Post-surgery check"),
+        (1, 1, "2026-08-04", "11:00", "11:30", "scheduled",   2, Some(1), "Chest pain — URGENT"),
+        (2, 2, "2026-08-04", "09:00", "09:30", "scheduled",   3, Some(4), "Routine cardiology consult"),
+        (3, 1, "2026-08-04", "14:00", "14:30", "cancelled",   3, None,      "Patient cancelled — rescheduled"),
+        (1, 1, "2026-08-05", "09:00", "09:30", "scheduled",   3, Some(1), "Prescription renewal"),
+        (2, 2, "2026-08-05", "10:00", "10:30", "scheduled",   4, Some(4), "ECG follow-up"),
+        (3, 1, "2026-08-05", "15:00", "15:30", "scheduled",   3, Some(2), "Vaccination"),
     ];
 
     for (pat, doc, date, start, end, status, pri, room, notes) in &apps {
@@ -244,9 +244,9 @@ async fn seed_waitlist(pool: &SqlitePool) {
     print!("  Creating waitlist entries... ");
 
     let entries = [
-        (3, 1, "2026-07-08", "09:00", "09:30", 1, "Emergency — chest pain follow-up"),
-        (2, 2, "2026-07-08", "14:00", "14:30", 2, "Urgent ECG review"),
-        (1, 1, "2026-07-09", "10:00", "10:30", 3, "Routine blood work"),
+        (3, 1, "2026-08-05", "09:00", "09:30", 1, "Emergency — chest pain follow-up"),
+        (2, 2, "2026-08-05", "14:00", "14:30", 2, "Urgent ECG review"),
+        (1, 1, "2026-08-06", "10:00", "10:30", 3, "Routine blood work"),
     ];
 
     for (pat, doc, date, start, end, pri, notes) in &entries {
