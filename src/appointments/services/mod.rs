@@ -17,6 +17,7 @@ pub use queries::{
     get_appointment_counts_for_doctor, get_appointment_counts_for_patient,
     get_appointments_for_doctor, get_appointments_for_patient,
     reschedule_appointment, reschedule_appointment_checked,
+    set_priority,
 };
 pub use rooms::{get_all_doctors, get_all_rooms};
 pub use waitlist::{

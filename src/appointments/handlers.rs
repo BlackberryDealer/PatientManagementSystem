@@ -2,7 +2,8 @@ use actix_web::{web, HttpResponse};
 use tera::Context;
 
 use crate::appointments::models::{
-    AssignRoomForm, BookAppointmentForm, CalendarMonth, RescheduleForm, SuggestSlotForm, WaitlistForm,
+    AssignRoomForm, BookAppointmentForm, CalendarMonth, RescheduleForm, SetPriorityForm,
+    SuggestSlotForm, WaitlistForm,
 };
 use crate::appointments::services;
 use crate::audit::services as audit;
@@ -325,6 +326,26 @@ pub async fn assign_room(
     audit::record(
         pool.get_ref(), &user, "appointment.room_assigned", "appointment", Some(appointment.id),
         &format!("Assigned room #{}", form.room_id),
+    ).await;
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/appointments/{}", appointment.id)))
+        .finish())
+}
+
+/// POST /appointments/{id}/priority — re-triage an appointment.
+/// Staff-only: priority is a clinical decision, so patients never reach this.
+pub async fn update_priority(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+    form: web::Form<SetPriorityForm>,
+) -> Result<HttpResponse, AppError> {
+    require_doctor(&user)?; // doctor or admin
+    let appointment_id = path.into_inner();
+    let appointment = services::set_priority(pool.get_ref(), appointment_id, &form).await?;
+    audit::record(
+        pool.get_ref(), &user, "appointment.priority_changed", "appointment", Some(appointment.id),
+        &format!("Priority set to {}", appointment.priority().label()),
     ).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))

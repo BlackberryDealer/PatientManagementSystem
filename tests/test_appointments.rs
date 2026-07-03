@@ -512,3 +512,43 @@ async fn test_assign_room_conflict_rejected() {
         assert_eq!(resp.status().as_u16(), 400, "same-slot room clash must be a clean 400");
     });
 }
+
+// ============================================================
+// HTTP: staff re-triage (POST /appointments/{id}/priority)
+// ============================================================
+
+#[actix_web::test]
+async fn test_update_priority_http() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "pridoc", "doctor");
+        let pcookie = register_and_login!(app, "pripat", "patient");
+
+        let req = auth_post("/appointments/book", &pcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30",
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        // Doctor escalates the visit to Emergency.
+        let req = auth_post("/appointments/1/priority", &dcookie,
+            serde_json::json!({ "priority": 1 })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "re-triage should redirect to detail");
+        let pri: (i32,) = sqlx::query_as("SELECT priority FROM appointments WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(pri.0, 1);
+
+        // Triage is a clinical decision — the patient may not perform it.
+        let req = auth_post("/appointments/1/priority", &pcookie,
+            serde_json::json!({ "priority": 2 })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 403);
+
+        // Out-of-range levels are rejected, not silently coerced to Normal.
+        let req = auth_post("/appointments/1/priority", &dcookie,
+            serde_json::json!({ "priority": 9 })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+    });
+}

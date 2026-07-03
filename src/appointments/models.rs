@@ -206,6 +206,26 @@ impl Appointment {
     /// The field is private so the only way to change it is through a
     /// constructor — no caller can write an out-of-range integer by hand.
     pub fn priority(&self) -> Priority { Priority::from_i32(self.priority) }
+
+    /// Re-triage this appointment (staff override, same family as
+    /// `assign_room`): only an active/scheduled appointment may change
+    /// priority. The range is checked explicitly because the fail-safe
+    /// `Priority::from_i32` would silently turn an out-of-range value
+    /// into Normal instead of rejecting it.
+    pub fn set_priority(&mut self, priority: i32) -> Result<(), crate::errors::AppError> {
+        if !self.is_active() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a scheduled appointment can be re-prioritized".into(),
+            ));
+        }
+        if !(1..=4).contains(&priority) {
+            return Err(crate::errors::AppError::BadRequest(
+                "Priority must be between 1 (Emergency) and 4 (Follow-up)".into(),
+            ));
+        }
+        self.priority = priority;
+        Ok(())
+    }
 }
 
 /// Form data submitted when a patient books an appointment.
@@ -274,6 +294,14 @@ impl RescheduleForm {
 #[derive(Debug, Deserialize)]
 pub struct AssignRoomForm {
     pub room_id: i64,
+}
+
+/// Form a doctor submits to re-triage an appointment's priority.
+/// Plain `i32` for the same reason as `AssignRoomForm`: the UI always
+/// offers a concrete level, so there is no empty value to mis-parse.
+#[derive(Debug, Deserialize)]
+pub struct SetPriorityForm {
+    pub priority: i32,
 }
 
 /// Form for the "suggest slot" feature — find next available time.

@@ -1,4 +1,4 @@
-use crate::appointments::models::{Appointment, AppointmentView, AssignRoomForm, RescheduleForm};
+use crate::appointments::models::{Appointment, AppointmentView, AssignRoomForm, RescheduleForm, SetPriorityForm};
 use crate::auth::Role;
 use crate::availability::services::ensure_doctor_available;
 use crate::db;
@@ -404,6 +404,35 @@ pub async fn assign_room(
             AppError::DatabaseError(e)
         })?;
     tx.commit().await?;
+
+    Ok(appt)
+}
+
+/// Re-triage an appointment's priority (staff override).
+/// The domain method enforces the rules (scheduled only, 1–4 range);
+/// slots carry no priority, so a single UPDATE is enough.
+pub async fn set_priority(
+    pool: &SqlitePool,
+    appointment_id: i64,
+    form: &SetPriorityForm,
+) -> Result<Appointment, AppError> {
+    let mut appt = sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE id = ?",
+    )
+    .bind(appointment_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+
+    appt.set_priority(form.priority)?;
+
+    sqlx::query("UPDATE appointments SET priority = ? WHERE id = ?")
+        .bind(form.priority)
+        .bind(appt.id)
+        .execute(pool)
+        .await?;
 
     Ok(appt)
 }

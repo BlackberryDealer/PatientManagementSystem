@@ -72,6 +72,41 @@
                         </form>
                         {% endif %}
                     </div>
+                    <div class="mb-4">
+                        <p class="is-size-7 has-text-grey mb-1">PRIORITY</p>
+                        <p class="is-size-5">
+                            {% if appointment.priority == 1 %}
+                            <span class="tag is-danger is-medium"><i class="fas fa-exclamation-triangle mr-1"></i>Emergency</span>
+                            {% elif appointment.priority == 2 %}
+                            <span class="tag is-warning is-medium"><i class="fas fa-exclamation-circle mr-1"></i>Urgent</span>
+                            {% elif appointment.priority == 4 %}
+                            <span class="tag is-success is-medium"><i class="fas fa-rotate-right mr-1"></i>Follow-up</span>
+                            {% else %}
+                            <span class="tag is-info is-medium"><i class="fas fa-flag mr-1"></i>Normal</span>
+                            {% endif %}
+                        </p>
+                        {% if appointment.status == "scheduled" and (user.role == "doctor" or user.role == "admin") %}
+                        <form method="POST" action="/appointments/{{ appointment.id }}/priority" class="mt-2">
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <div class="select is-small">
+                                        <select name="priority">
+                                            <option value="1" {% if appointment.priority == 1 %}selected{% endif %}>Emergency</option>
+                                            <option value="2" {% if appointment.priority == 2 %}selected{% endif %}>Urgent</option>
+                                            <option value="3" {% if appointment.priority == 3 %}selected{% endif %}>Normal</option>
+                                            <option value="4" {% if appointment.priority == 4 %}selected{% endif %}>Follow-up</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="control">
+                                    <button class="button is-small is-link is-light" type="submit">
+                                        <i class="fas fa-flag mr-1"></i>Change Priority
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                        {% endif %}
+                    </div>
                     {% if appointment.notes %}
                     <div>
                         <p class="is-size-7 has-text-grey mb-1">NOTES</p>
