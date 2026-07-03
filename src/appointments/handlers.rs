@@ -14,20 +14,31 @@ use crate::traits::Priority;
 
 /// GET /appointments — list appointments filtered by role.
 /// Patients see their own appointments; doctors see theirs; admins see all.
+/// An optional `?date=YYYY-MM-DD` (the calendar's day links) narrows the
+/// list to that single day; an unparseable date is ignored rather than 400ing.
 pub async fn list_appointments(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
     user: AuthUser,
+    query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse, AppError> {
-    let appointments = match user.role {
+    let mut appointments = match user.role {
         Role::Patient => services::get_appointments_for_patient(pool.get_ref(), user.user_id).await?,
         Role::Doctor => services::get_appointments_for_doctor(pool.get_ref(), user.user_id).await?,
         Role::Admin => services::get_all_appointments(pool.get_ref()).await?,
     };
 
+    let date_filter = query
+        .get("date")
+        .and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
+    if let Some(date) = date_filter {
+        appointments.retain(|a| a.appointment_date == date);
+    }
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("appointments", &appointments);
+    ctx.insert("date_filter", &date_filter);
     ctx.insert("title", "Appointments");
     let rendered = tera.render("appointments/list.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
