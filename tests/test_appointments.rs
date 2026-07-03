@@ -229,28 +229,151 @@ async fn test_booking_error_is_styled_html_with_message() {
 }
 
 #[actix_web::test]
-async fn test_priority_booking_http() {
+async fn test_staff_priority_booking_bumps_lower_priority() {
+    // A doctor books an emergency patient into a slot held by a normal
+    // booking — the single /appointments/book endpoint applies the bump.
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
-        let _dcookie = seed_and_login!(app, pool, "priodoc", "doctor");
+        let dcookie = seed_and_login!(app, pool, "priodoc", "doctor");
         let normal_cookie = register_and_login!(app, "prionormal", "patient");
-        let emerg_cookie = register_and_login!(app, "prioemerg", "patient");
+        let _emerg_cookie = register_and_login!(app, "prioemerg", "patient");
 
-        // Normal patient books a slot
+        // Normal patient books a slot (patient row id 1)
         let req1 = auth_post("/appointments/book", &normal_cookie, serde_json::json!({
             "doctor_id": 1, "appointment_date": "2027-06-16",
-            "start_time": "09:00", "end_time": "09:30", "priority": 3,
+            "start_time": "09:00", "end_time": "09:30",
         })).to_request();
         let resp1 = test::call_service(&app, req1).await;
         assert!(resp1.status().is_redirection(), "Normal booking should succeed");
 
-        // Emergency patient uses priority override â€” should bump the normal one
-        let req2 = auth_post("/appointments/book/priority", &emerg_cookie, serde_json::json!({
-            "doctor_id": 1, "appointment_date": "2027-06-16",
+        // Doctor books the emergency patient (row id 2) into the same slot.
+        // No doctor_id is sent — the appointment lands in the doctor's own
+        // schedule. The lower-priority booking is bumped to the waitlist.
+        let req2 = auth_post("/appointments/book", &dcookie, serde_json::json!({
+            "patient_id": 2, "appointment_date": "2027-06-16",
             "start_time": "09:00", "end_time": "09:30", "priority": 1,
         })).to_request();
         let resp2 = test::call_service(&app, req2).await;
         assert!(resp2.status().is_redirection(), "Emergency priority booking should succeed");
+
+        // The bumped normal booking is now on the waitlist.
+        let bumped: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM waitlist WHERE status = 'waiting' AND patient_id = 1",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(bumped.0, 1, "the displaced booking must land on the waitlist");
+    });
+}
+
+#[actix_web::test]
+async fn test_patient_priority_is_forced_to_normal() {
+    // Triage is a clinical decision: even a hand-crafted POST claiming
+    // Emergency must produce a Normal-priority appointment for a patient.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "clampdoc", "doctor");
+        let pcookie = register_and_login!(app, "clamppat", "patient");
+
+        let req = auth_post("/appointments/book", &pcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-16",
+            "start_time": "10:00", "end_time": "10:30", "priority": 1,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "booking itself should succeed");
+
+        let pri: (i32,) = sqlx::query_as("SELECT priority FROM appointments WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(pri.0, 3, "a patient's self-reported priority must be clamped to Normal");
+    });
+}
+
+#[actix_web::test]
+async fn test_patient_cannot_bump_anothers_appointment() {
+    // Because patient bookings are always Normal, a patient posting
+    // priority=1 at an occupied slot gets a clean conflict, not a bump.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "bumpdoc", "doctor");
+        let pat1 = register_and_login!(app, "bumppat1", "patient");
+        let pat2 = register_and_login!(app, "bumppat2", "patient");
+
+        let req = auth_post("/appointments/book", &pat1, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-16",
+            "start_time": "11:00", "end_time": "11:30",
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        let req = auth_post("/appointments/book", &pat2, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-16",
+            "start_time": "11:00", "end_time": "11:30", "priority": 1,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400, "a patient must never bump an existing booking");
+
+        // The original appointment is untouched.
+        let status: (String,) = sqlx::query_as("SELECT status FROM appointments WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(status.0, "scheduled");
+    });
+}
+
+#[actix_web::test]
+async fn test_doctor_books_into_own_schedule_only() {
+    // A doctor's booking always lands in their own schedule: any submitted
+    // doctor_id is ignored, and a missing patient selection is rejected.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _d1 = seed_and_login!(app, pool, "owndoc1", "doctor");    // doctor row 1
+        let d2cookie = seed_and_login!(app, pool, "owndoc2", "doctor"); // doctor row 2
+        let _pat = register_and_login!(app, "ownpat", "patient");      // patient row 1
+
+        // Doctor 2 tries to book "with doctor 1" — the appointment must be
+        // created under doctor 2 regardless.
+        let req = auth_post("/appointments/book", &d2cookie, serde_json::json!({
+            "patient_id": 1, "doctor_id": 1, "appointment_date": "2027-06-16",
+            "start_time": "09:00", "end_time": "09:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "doctor booking for a patient should succeed");
+
+        let doc: (i64,) = sqlx::query_as("SELECT doctor_id FROM appointments WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(doc.0, 2, "the appointment must belong to the booking doctor's own schedule");
+
+        // Without a patient selected, a staff booking is a clean 400.
+        let req = auth_post("/appointments/book", &d2cookie, serde_json::json!({
+            "appointment_date": "2027-06-16",
+            "start_time": "10:00", "end_time": "10:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400, "staff booking without a patient must be rejected");
+    });
+}
+
+#[actix_web::test]
+async fn test_waitlist_join_is_patient_only_and_normal_priority() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "wljoindoc", "doctor");
+        let pcookie = register_and_login!(app, "wljoinpat", "patient");
+
+        // Staff cannot join the waitlist (they have no patient profile).
+        let req = auth_post("/appointments/waitlist/join", &dcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-16",
+            "requested_start": "09:00", "requested_end": "09:30", "priority": 3,
+        })).to_request();
+        assert_eq!(test::call_service(&app, req).await.status().as_u16(), 403);
+
+        // A patient's claimed Emergency priority is filed as Normal.
+        let req = auth_post("/appointments/waitlist/join", &pcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-16",
+            "requested_start": "09:00", "requested_end": "09:30", "priority": 1,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection(), "patient join should succeed");
+
+        let pri: (i32,) = sqlx::query_as("SELECT priority FROM waitlist WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(pri.0, 3, "patient-joined waitlist entries are always Normal priority");
     });
 }
 

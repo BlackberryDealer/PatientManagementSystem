@@ -55,7 +55,9 @@
                     <span class="tag is-light">{{ w.status }}</span>
                 </td>
                 <td>
-                    {% if w.status == "waiting" %}
+                    {# Promotion is a staff decision — patients see their
+                       queue position but cannot promote themselves. #}
+                    {% if w.status == "waiting" and (user.role == "doctor" or user.role == "admin") %}
                     <form method="POST" action="/appointments/waitlist/{{ w.id }}/promote" style="display:inline;">
                         <button class="button is-small is-success is-light" type="submit"
                                 title="Promote this patient if the slot is now free">
@@ -76,6 +78,88 @@
         <p class="title is-4 has-text-grey mt-4">Waitlist Empty</p>
         <p class="subtitle is-6">No patients are currently waiting for slots.</p>
     </div>
+</div>
+{% endif %}
+
+{# Patients can queue for a slot that is currently taken. Priority is not
+   asked for — the server files every patient-joined entry as Normal, since
+   triage is a clinical decision. #}
+{% if user.role == "patient" %}
+<div class="box mt-5">
+    <h2 class="title is-5"><i class="fas fa-plus-circle mr-2"></i>Join the Waitlist</h2>
+    <p class="is-size-7 has-text-grey mb-4">Want a time that is fully booked? Queue for it here — if the slot frees up, the clinic promotes waiting patients in order.</p>
+    <form method="POST" action="/appointments/waitlist/join">
+        <div class="columns">
+            <div class="column is-3">
+                <div class="field">
+                    <label class="label is-small">Doctor</label>
+                    <div class="control">
+                        <div class="select is-fullwidth is-small">
+                            <select name="doctor_id" required>
+                                <option value="">-- Choose a doctor --</option>
+                                {% for d in doctors %}
+                                <option value="{{ d.0 }}">{{ d.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-3">
+                <div class="field">
+                    <label class="label is-small">Date</label>
+                    <div class="control">
+                        <input class="input is-small" type="date" name="appointment_date" required>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-2">
+                <div class="field">
+                    <label class="label is-small">From</label>
+                    <div class="control">
+                        <div class="select is-fullwidth is-small">
+                            <select name="requested_start" required>
+                                {% for s in start_slots %}
+                                <option value="{{ s }}">{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-2">
+                <div class="field">
+                    <label class="label is-small">To</label>
+                    <div class="control">
+                        <div class="select is-fullwidth is-small">
+                            <select name="requested_end" required>
+                                {% for e in end_slots %}
+                                <option value="{{ e }}">{{ e }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-2">
+                <div class="field">
+                    <label class="label is-small">&nbsp;</label>
+                    <div class="control">
+                        <button class="button is-primary is-small is-fullwidth" type="submit">
+                            <i class="fas fa-list-ol mr-1"></i>Join Waitlist
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <input type="hidden" name="priority" value="3">
+        <div class="field">
+            <label class="label is-small">Notes <span class="has-text-grey">(optional)</span></label>
+            <div class="control">
+                <input class="input is-small" type="text" name="notes" placeholder="Reason for the visit...">
+            </div>
+        </div>
+    </form>
 </div>
 {% endif %}
 

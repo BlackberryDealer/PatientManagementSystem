@@ -6,7 +6,7 @@ mod rooms;
 mod waitlist;
 
 pub use algorithms::{check_conflict, find_alternative_doctor, find_earliest_slot, reassign_appointment};
-pub use booking::{book_appointment, book_with_priority};
+pub use booking::{book_appointment, book_with_priority, resolve_booking_target};
 pub use queries::{
     assign_room,
     cancel_appointment, cancel_appointment_checked,

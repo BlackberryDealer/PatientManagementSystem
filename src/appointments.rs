@@ -11,7 +11,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("", web::get().to(handlers::list_appointments))
             .route("/book", web::get().to(handlers::book_form))
             .route("/book", web::post().to(handlers::book_appointment))
-            .route("/book/priority", web::post().to(handlers::book_with_priority))
             .route("/suggest", web::get().to(handlers::suggest_slot_form))
             .route("/suggest", web::post().to(handlers::suggest_slot))
             .route("/waitlist", web::get().to(handlers::list_waitlist))

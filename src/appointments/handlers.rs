@@ -2,13 +2,15 @@ use actix_web::{web, HttpResponse};
 use tera::Context;
 
 use crate::appointments::models::{
-    AssignRoomForm, BookAppointmentForm, CalendarMonth, RescheduleForm, SetPriorityForm,
+    AssignRoomForm, BookRequestForm, CalendarMonth, RescheduleForm, SetPriorityForm,
     SuggestSlotForm, WaitlistForm,
 };
 use crate::appointments::services;
 use crate::audit::services as audit;
 use crate::auth::{require_doctor, AuthUser, Role};
+use crate::db;
 use crate::errors::AppError;
+use crate::traits::Priority;
 
 /// GET /appointments — list appointments filtered by role.
 /// Patients see their own appointments; doctors see theirs; admins see all.
@@ -31,18 +33,30 @@ pub async fn list_appointments(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// GET /appointments/book — show the booking form with doctor list,
-/// 30-min time-slot dropdowns, and priority selector.
+/// GET /appointments/book — show the role-aware booking form.
+/// Patients pick a doctor; doctors pick a patient (the appointment lands in
+/// their own schedule); admins pick both. 30-min time-slot dropdowns and a
+/// staff-only priority selector round out the form.
 pub async fn book_form(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
-    let doctors = services::get_all_doctors(pool.get_ref()).await?;
+    // Doctors book into their own schedule, so they get a patient list
+    // instead of a doctor list; admins get both.
+    let doctors = match user.role {
+        Role::Patient | Role::Admin => services::get_all_doctors(pool.get_ref()).await?,
+        Role::Doctor => Vec::new(),
+    };
+    let patients = match user.role {
+        Role::Doctor | Role::Admin => db::get_all_patients(pool.get_ref()).await?,
+        Role::Patient => Vec::new(),
+    };
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("doctors", &doctors);
+    ctx.insert("patients", &patients);
     ctx.insert("start_slots", &services::start_time_slots());
     ctx.insert("end_slots", &services::end_time_slots());
     ctx.insert("title", "Book Appointment");
@@ -50,39 +64,34 @@ pub async fn book_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /appointments/book — process a standard booking.
-/// Validates the form, checks for conflicts, resolves the doctor's daily
-/// room automatically, and creates the appointment atomically.
+/// POST /appointments/book — process a booking for any role.
+/// `resolve_booking_target` applies the role rules (who the appointment is
+/// for/with, and that patients always book at Normal priority). Staff
+/// bookings at Emergency/Urgent go through the priority path, which bumps
+/// lower-priority appointments to the waitlist when the slot is contested;
+/// everything else is a standard conflict-checked booking.
 pub async fn book_appointment(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,
-    form: web::Form<BookAppointmentForm>,
+    form: web::Form<BookRequestForm>,
 ) -> Result<HttpResponse, AppError> {
-    let appointment = services::book_appointment(pool.get_ref(), user.user_id, &form).await?;
+    let (patient_user_id, booking) =
+        services::resolve_booking_target(pool.get_ref(), &user, &form).await?;
+
+    // Emergency/Urgent is staff-only by construction: patients are already
+    // forced to Normal by the resolver above.
+    let appointment = if booking.requested_priority().can_override() {
+        services::book_with_priority(pool.get_ref(), patient_user_id, &booking).await?
+    } else {
+        services::book_appointment(pool.get_ref(), patient_user_id, &booking).await?
+    };
+
     audit::record(
         pool.get_ref(), &user, "appointment.booked", "appointment", Some(appointment.id),
-        &format!("{} {}–{} with doctor #{}",
+        &format!("{} {}–{} with doctor #{} for patient #{} ({})",
             appointment.appointment_date, appointment.start_time,
-            appointment.end_time, appointment.doctor_id()),
-    ).await;
-    Ok(HttpResponse::SeeOther()
-        .append_header(("Location", format!("/appointments/{}", appointment.id)))
-        .finish())
-}
-
-/// POST /appointments/book/priority — priority-based booking.
-/// Emergency/Urgent appointments may bump lower-priority ones to the
-/// waitlist inside a single database transaction.
-pub async fn book_with_priority(
-    pool: web::Data<sqlx::SqlitePool>,
-    user: AuthUser,
-    form: web::Form<BookAppointmentForm>,
-) -> Result<HttpResponse, AppError> {
-    let appointment = services::book_with_priority(pool.get_ref(), user.user_id, &form).await?;
-    audit::record(
-        pool.get_ref(), &user, "appointment.priority_booked", "appointment",
-        Some(appointment.id),
-        &format!("{} priority booking on {}", appointment.priority().label(), appointment.appointment_date),
+            appointment.end_time, appointment.doctor_id(),
+            appointment.patient_id, appointment.priority().label()),
     ).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))
@@ -155,22 +164,44 @@ pub async fn list_waitlist(
         }
     };
 
+    // Patients get a join form on this page, which needs the doctor list
+    // and the same grid-aligned slot options the booking form offers.
+    let doctors = match user.role {
+        Role::Patient => services::get_all_doctors(pool.get_ref()).await?,
+        Role::Doctor | Role::Admin => Vec::new(),
+    };
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("waitlist", &waitlist);
     ctx.insert("doctor_label", &doctor_label);
+    ctx.insert("doctors", &doctors);
+    ctx.insert("start_slots", &services::start_time_slots());
+    ctx.insert("end_slots", &services::end_time_slots());
     ctx.insert("title", "Waitlist");
     let rendered = tera.render("appointments/waitlist.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
 }
 
 /// POST /appointments/waitlist/join — add the current patient to the
-/// waitlist for a specific doctor, date, and time window.
+/// waitlist for a specific doctor, date, and time window. Patient-only:
+/// staff have no patient profile to waitlist, and appointments bumped by a
+/// priority booking reach the waitlist automatically. The priority is
+/// forced to Normal — triage is a clinical decision, so a patient cannot
+/// jump the queue by self-reporting an emergency.
 pub async fn join_waitlist(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,
     form: web::Form<WaitlistForm>,
 ) -> Result<HttpResponse, AppError> {
+    if user.role != Role::Patient {
+        return Err(AppError::Forbidden(
+            "Only patients join the waitlist. Bumped appointments are waitlisted automatically."
+                .into(),
+        ));
+    }
+    let mut form = form.into_inner();
+    form.priority = Priority::Normal as i32;
     services::add_to_waitlist(pool.get_ref(), user.user_id, &form).await?;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", "/appointments/waitlist"))

@@ -883,7 +883,9 @@ The `Some(u) if condition` is a **match guard** — it only matches `Some(u)` if
 
 ### 9.2 Appointments Module (Core Feature)
 
-**Routes:** `/appointments` (list), `/appointments/book` (form + submit), `/appointments/book/priority` (priority override), `/appointments/suggest` (find slot), `/appointments/waitlist` (view queue), `/appointments/waitlist/join`, `/appointments/waitlist/{id}/promote`, `/appointments/{id}` (detail), `/appointments/{id}/cancel` (cancel)
+**Routes:** `/appointments` (list), `/appointments/book` (role-aware form + submit — staff Emergency/Urgent bookings route through the priority-override path automatically), `/appointments/suggest` (find slot), `/appointments/waitlist` (view queue + patient join form), `/appointments/waitlist/join` (patient-only), `/appointments/waitlist/{id}/promote` (staff-only), `/appointments/{id}` (detail), `/appointments/{id}/cancel` (cancel)
+
+**Role-aware booking:** the same form serves all three roles with different fields. A patient picks a doctor and books for themselves — always at Normal priority (the server clamps any smuggled priority, so a patient can never bump anyone). A doctor picks a *patient* and books them into their own schedule (a submitted `doctor_id` is ignored — doctors don't book other doctors' clinics; moving a visit is the reassignment flow). An admin picks both patient and doctor, front-desk style. `resolve_booking_target()` in `services/booking.rs` encodes these rules in one place.
 
 This is the most important module — it contains **four scheduling algorithms** implementing the project's core focus: the three covered in depth below, plus a greedy, load-balanced **doctor reassignment** algorithm (`find_alternative_doctor` / `reassign_appointment`) that moves a scheduled appointment to the best available alternative doctor when the original goes on leave.
 
@@ -964,6 +966,8 @@ pub async fn book_with_priority(
 **The `BinaryHeap<PriorityItem>`** is Rust's standard priority queue (a max-heap). To make the most urgent patient come out first, we **reverse** the `Ord` implementation: `other.priority.cmp(&self.priority)`. This flips the heap so the lowest priority number (most urgent) is at the top. Tie-breaking uses `created_at` — oldest waitlist entry wins.
 
 **Transaction safety:** All mutations (cancelling bumped appointments, inserting waitlist rows, booking the new appointment) run inside `pool.begin()...tx.commit()`. If ANY step fails, the entire operation rolls back — no half-cancelled appointments left dangling.
+
+**Who can trigger it:** there is no separate "override" button or endpoint. The one `POST /appointments/book` handler routes a booking through `book_with_priority` exactly when the *resolved* priority is Emergency or Urgent — and only staff can resolve to those levels, because `resolve_booking_target` clamps every patient booking to Normal. A patient posting `priority=1` by hand gets a Normal appointment, and at an occupied slot gets a clean 400, never a bump.
 
 > **"BinaryHeap"** = A tree-based data structure where the "largest" (or in our case, "most urgent") element is always at the top. Insertion and extraction are O(log n). We use it to efficiently retrieve the highest-priority patient from the waitlist.
 

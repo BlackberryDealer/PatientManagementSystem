@@ -9,12 +9,35 @@
 </nav>
 
 <h1 class="title"><i class="fas fa-plus-circle mr-2"></i>Book an Appointment</h1>
-<p class="subtitle is-6 has-text-grey mb-5">Select a doctor, date, and time slot. The system will check for conflicts automatically.</p>
+<p class="subtitle is-6 has-text-grey mb-5">
+    {% if user.role == "patient" %}Select a doctor, date, and time slot. The system will check for conflicts automatically.
+    {% elif user.role == "doctor" %}Book a patient into your own schedule. The system will check for conflicts automatically.
+    {% else %}Book on a patient's behalf with any doctor. The system will check for conflicts automatically.{% endif %}
+</p>
 
 <div class="box fade-in">
     <form method="POST" action="/appointments/book">
         <div class="columns">
             <div class="column is-6">
+                {% if user.role == "doctor" or user.role == "admin" %}
+                <div class="field">
+                    <label class="label"><i class="fas fa-user mr-1"></i>Select Patient</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="patient_id" required>
+                                <option value="">-- Choose a patient --</option>
+                                {% for p in patients %}
+                                <option value="{{ p.0 }}">{{ p.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-user"></i></div>
+                    </div>
+                    <p class="help">The patient this appointment is for.</p>
+                </div>
+                {% endif %}
+
+                {% if user.role == "patient" or user.role == "admin" %}
                 <div class="field">
                     <label class="label"><i class="fas fa-user-md mr-1"></i>Select Doctor</label>
                     <div class="control has-icons-left">
@@ -30,6 +53,7 @@
                     </div>
                     <p class="help">Available doctors registered in the system.</p>
                 </div>
+                {% endif %}
 
                 <div class="field">
                     <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Appointment Date</label>
@@ -46,6 +70,12 @@
                     <p><i class="fas fa-info-circle mr-1"></i><strong>Auto-Assigned Room</strong></p>
                     <p class="is-size-7 mt-1">A room is automatically assigned from the doctor's daily allocation. The system prevents double-booking by checking for overlapping appointments.</p>
                 </div>
+                {% if user.role == "doctor" %}
+                <div class="notification is-light">
+                    <p><i class="fas fa-user-md mr-1"></i><strong>Your Schedule</strong></p>
+                    <p class="is-size-7 mt-1">This appointment will be booked into your own schedule. To move an existing visit to a colleague, use <em>Reassign Doctor</em> on the appointment page instead.</p>
+                </div>
+                {% endif %}
             </div>
         </div>
 
@@ -92,11 +122,9 @@
             </div>
         </div>
 
-        {# Room and priority are clinical/resource decisions, so they are shown
-           only to staff (doctor/admin). A patient's form omits these fields
-           entirely — room_id is then simply absent and decodes to "no room",
-           which also avoids the empty-string parse error the old
-           "-- No specific room --" option produced. #}
+        {# Priority is a triage decision, so it is shown only to staff
+           (doctor/admin). A patient's form omits the field entirely — the
+           server forces patient bookings to Normal regardless. #}
         {% if user.role == "doctor" or user.role == "admin" %}
         <hr>
 
@@ -114,7 +142,7 @@
                             </select>
                         </div>
                     </div>
-                    <p class="help">Emergency/Urgent bookings can bump lower-priority appointments to the waitlist.</p>
+                    <p class="help">If the slot is taken, an Emergency/Urgent booking automatically bumps lower-priority appointments to the waitlist.</p>
                 </div>
             </div>
         </div>
@@ -124,20 +152,10 @@
 
         <div class="field is-grouped">
             <div class="control">
-                <button class="button is-primary is-medium" type="submit" formaction="/appointments/book">
-                    <i class="fas fa-check-circle mr-1"></i>Book (Standard)
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-check-circle mr-1"></i>Book Appointment
                 </button>
             </div>
-            {# Priority override (bumping a lower-priority booking) is a triage
-               decision, so it is staff-only — patients only get standard booking. #}
-            {% if user.role == "doctor" or user.role == "admin" %}
-            <div class="control">
-                <button class="button is-danger is-medium" type="submit" formaction="/appointments/book/priority"
-                        title="If slot is taken by a lower-priority appointment, it will be bumped">
-                    <i class="fas fa-star mr-1"></i>Book (Priority Override)
-                </button>
-            </div>
-            {% endif %}
             <div class="control">
                 <a class="button is-light is-medium" href="/appointments">
                     <i class="fas fa-times mr-1"></i>Cancel

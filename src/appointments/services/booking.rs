@@ -1,4 +1,5 @@
-use crate::appointments::models::{Appointment, BookAppointmentForm};
+use crate::appointments::models::{Appointment, BookAppointmentForm, BookRequestForm};
+use crate::auth::{AuthUser, Role};
 use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
@@ -9,6 +10,68 @@ use sqlx::SqlitePool;
 use super::algorithms::check_conflict;
 use super::helpers::{bump_to_waitlist, insert_appointment, insert_appointment_in_tx, NewAppointment};
 use super::rooms::resolve_room;
+
+// ============================================================
+// Role resolution: who is this appointment FOR, and WITH whom?
+// ============================================================
+
+/// Apply the role rules to a raw booking request, producing the patient's
+/// user id plus a fully-resolved `BookAppointmentForm`:
+///
+/// * **Patient** — books for themselves with the doctor they picked. The
+///   priority field is discarded: triage is a clinical decision, so a
+///   patient booking is always Normal no matter what the request claims
+///   (the UI never shows patients a priority field, but a hand-crafted
+///   POST must not bypass that either).
+/// * **Doctor** — books a chosen patient into *their own* schedule. Any
+///   submitted doctor_id is ignored: a doctor never books another
+///   doctor's clinic (moving a visit between doctors is the separate
+///   reassignment flow).
+/// * **Admin** — books a chosen patient with a chosen doctor (front-desk
+///   booking on a patient's behalf).
+pub async fn resolve_booking_target(
+    pool: &SqlitePool,
+    user: &AuthUser,
+    form: &BookRequestForm,
+) -> Result<(i64, BookAppointmentForm), AppError> {
+    let need = |what: &str| AppError::BadRequest(format!("Please select a {what}."));
+
+    let (patient_user_id, doctor_id, priority) = match user.role {
+        Role::Patient => (
+            user.user_id,
+            form.doctor_id.ok_or_else(|| need("doctor"))?,
+            None, // patients cannot self-triage — Normal priority
+        ),
+        Role::Doctor => {
+            let patient_id = form.patient_id.ok_or_else(|| need("patient"))?;
+            (
+                db::get_patient_user_id(pool, patient_id).await?,
+                db::get_doctor_id(pool, user.user_id).await?,
+                form.priority,
+            )
+        }
+        Role::Admin => {
+            let patient_id = form.patient_id.ok_or_else(|| need("patient"))?;
+            (
+                db::get_patient_user_id(pool, patient_id).await?,
+                form.doctor_id.ok_or_else(|| need("doctor"))?,
+                form.priority,
+            )
+        }
+    };
+
+    Ok((
+        patient_user_id,
+        BookAppointmentForm {
+            doctor_id,
+            appointment_date: form.appointment_date.clone(),
+            start_time: form.start_time.clone(),
+            end_time: form.end_time.clone(),
+            priority,
+            notes: form.notes.clone(),
+        },
+    ))
+}
 
 // ============================================================
 // Simple booking (no priority bumping)
@@ -43,7 +106,7 @@ pub async fn book_appointment(
     if has_conflict {
         return Err(AppError::BadRequest(
             "The requested time slot conflicts with an existing appointment.\
-             \nPlease choose a different time, or use priority booking (Emergency/Urgent)."
+             \nPlease choose a different time, or use Find Available Slot for a suggestion."
                 .into(),
         ));
     }

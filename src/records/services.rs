@@ -175,13 +175,10 @@ pub async fn create_prescription(
 }
 
 /// All patients as (patient_id, full_name) pairs, for staff dropdowns.
+/// Delegates to the shared helper in `db` (also used by billing and the
+/// staff booking form).
 pub async fn get_all_patients(pool: &SqlitePool) -> Result<Vec<(i64, String)>, AppError> {
-    Ok(sqlx::query_as::<_, (i64, String)>(
-        "SELECT p.id, u.full_name FROM patients p JOIN users u ON p.user_id = u.id
-         ORDER BY u.full_name",
-    )
-    .fetch_all(pool)
-    .await?)
+    crate::db::get_all_patients(pool).await
 }
 
 // ============================================================

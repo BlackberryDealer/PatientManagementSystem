@@ -66,15 +66,16 @@ All passwords: **`password123`** (login works with username OR email)
 
 ### 5. Book an Appointment (`/appointments/book`)
 - [ ] Doctor dropdown shows Dr. Smith and Dr. Jones
+- [ ] **No patient dropdown** (patients book for themselves) and **no priority selector** (patient bookings are always Normal — triage is a staff decision)
 - [ ] Date picker (YYYY-MM-DD format)
 - [ ] Start/End time dropdowns on 30-min grid
 - [ ] Room is auto-assigned (no manual room selection)
-- [ ] Priority radio buttons: Emergency, Urgent, Normal, Follow-up
 - [ ] Notes textarea
+- [ ] Single **Book Appointment** button (no separate override button)
 - [ ] **Try booking a past date** (e.g. 2020-01-01) → should show error
 - [ ] **Try booking end before start** (e.g. 10:30–10:00) → should show error
 - [ ] **Try non-grid time** (e.g. 10:15–10:45) → should show error
-- [ ] Book a valid slot: pick a future date, 09:00–09:30, Normal priority → should redirect to appointment list
+- [ ] Book a valid slot: pick a future date, 09:00–09:30 → should redirect to appointment detail showing a **Normal** priority badge
 
 ### 6. Calendar View (`/appointments/calendar`)
 - [ ] Month grid loads showing current month
@@ -137,7 +138,12 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] Columns include Patient Name (not just Doctor)
 - [ ] Mixed statuses: scheduled, completed, cancelled
 - [ ] Room names displayed
-- [ ] **Priority booking visible**: book an Emergency appointment that conflicts → should work
+
+### 2b. Book for a Patient (`/appointments/book`)
+- [ ] **Patient dropdown** shows all patients; **no doctor dropdown** — the booking lands in Dr. Smith's own schedule
+- [ ] Priority dropdown visible (Emergency, Urgent, Normal, Follow-up)
+- [ ] Book an **Emergency** appointment for a patient into a slot held by a Normal booking → succeeds; the displaced booking is cancelled and appears on the waitlist
+- [ ] On any scheduled appointment's detail page: **Change Priority** dropdown re-triages it (e.g. Normal → Urgent)
 
 ### 3. Availability (`/availability`)
 - [ ] Shows Dr. Smith's weekly schedule slots
@@ -264,15 +270,14 @@ All passwords: **`password123`** (login works with username OR email)
 | `/users/{id}` | GET | Self only | ✅ | ✅ |
 | `/users/{id}/edit` | GET/POST | Self only | ❌ | ✅ |
 | `/appointments` | GET | ✅ (own) | ✅ (own) | ✅ (all) |
-| `/appointments/book` | GET/POST | ✅ | — | — |
-| `/appointments/book/priority` | POST | ✅ | — | — |
+| `/appointments/book` | GET/POST | ✅ (self, Normal priority) | ✅ (for a patient, own schedule) | ✅ (for a patient, any doctor) |
 | `/appointments/suggest` | GET/POST | ✅ | ✅ | ✅ |
 | `/appointments/calendar` | GET | ✅ | ✅ | ✅ |
 | `/appointments/{id}` | GET | Own only | ✅ | ✅ |
 | `/appointments/{id}/cancel` | POST | Own only | ✅ | ✅ |
 | `/appointments/{id}/reassign` | POST | ❌ | ✅ | ✅ |
 | `/appointments/waitlist` | GET | ✅ (own) | ✅ (own) | ✅ (all) |
-| `/appointments/waitlist/join` | POST | ✅ | — | — |
+| `/appointments/waitlist/join` | POST | ✅ (filed as Normal) | ❌ | ❌ |
 | `/appointments/waitlist/{id}/promote` | POST | ❌ | ✅ | ✅ |
 | `/availability` | GET | ❌ | Own only | ✅ |
 | `/availability/set` | GET/POST | ❌ | ✅ | ✅ |

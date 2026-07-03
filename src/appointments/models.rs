@@ -228,9 +228,27 @@ impl Appointment {
     }
 }
 
-/// Form data submitted when a patient books an appointment.
-/// Room is auto-assigned from the doctor's daily room allocation —
-/// patients no longer select a room manually.
+/// Raw POST body of the booking form. Who the appointment is FOR and WITH
+/// depends on the submitter's role, so both parties are optional at the HTTP
+/// layer and `services::resolve_booking_target` applies the business rules:
+///   patient → themselves + their chosen doctor, always Normal priority;
+///   doctor  → their chosen patient + themselves (a doctor never books
+///             another doctor's schedule — reassignment is a separate flow);
+///   admin   → their chosen patient + their chosen doctor.
+#[derive(Debug, Deserialize)]
+pub struct BookRequestForm {
+    pub patient_id: Option<i64>,
+    pub doctor_id: Option<i64>,
+    pub appointment_date: String, // YYYY-MM-DD
+    pub start_time: String,       // HH:MM
+    pub end_time: String,         // HH:MM
+    pub priority: Option<i32>,
+    pub notes: Option<String>,
+}
+
+/// A fully-resolved booking: every role question already answered, so the
+/// booking services below stay role-agnostic. Room is auto-assigned from
+/// the doctor's daily room allocation — nobody selects a room manually.
 #[derive(Debug, Deserialize)]
 pub struct BookAppointmentForm {
     pub doctor_id: i64,
