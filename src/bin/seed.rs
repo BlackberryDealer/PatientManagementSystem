@@ -172,6 +172,16 @@ async fn seed_appointments(pool: &SqlitePool) {
         .execute(pool).await.unwrap();
     }
 
+    // Occupancy ledger: the app decomposes every live appointment into
+    // 30-minute slot rows whose UNIQUE indexes are the double-booking
+    // backstop. Seeded appointments need the same rows or they are
+    // invisible to that protection. All seeds are exactly one slot long.
+    sqlx::query(
+        "INSERT INTO appointment_slots (appointment_id, doctor_id, appointment_date, slot_time, room_id)
+         SELECT id, doctor_id, appointment_date, start_time, room_id
+         FROM appointments WHERE status != 'cancelled'",
+    ).execute(pool).await.unwrap();
+
     println!("done (10 appointments)");
 }
 

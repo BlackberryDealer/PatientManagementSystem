@@ -326,14 +326,18 @@ async fn test_room_conflict_detected() {
         priority: Some(3), notes: None,
     }).await.unwrap();
 
-    // Same doctor, same room (auto-assigned = room 1), overlapping time — should conflict
+    // Same doctor, same room (auto-assigned = room 1), overlapping time — conflict
     assert!(services::check_conflict(&pool, 1, "2027-06-01", "10:15", "10:45", 1, None).await.unwrap());
 
-    // Same doctor, same time, DIFFERENT room — should NOT conflict on that room
-    assert!(!services::check_conflict(&pool, 1, "2027-06-01", "10:15", "10:45", 2, None).await.unwrap());
+    // Same doctor, DIFFERENT room, overlapping time — still a conflict:
+    // the doctor is busy no matter which room the new booking resolves to
+    assert!(services::check_conflict(&pool, 1, "2027-06-01", "10:15", "10:45", 2, None).await.unwrap());
 
-    // Different doctor (2), same room 1, same time — no conflict (doctor 2 isn't booked)
-    assert!(!services::check_conflict(&pool, 2, "2027-06-01", "10:00", "10:30", 1, None).await.unwrap());
+    // Different doctor, but room 1 is occupied at that time — conflict too
+    assert!(services::check_conflict(&pool, 2, "2027-06-01", "10:00", "10:30", 1, None).await.unwrap());
+
+    // Different doctor AND different room — genuinely free, no conflict
+    assert!(!services::check_conflict(&pool, 2, "2027-06-01", "10:00", "10:30", 2, None).await.unwrap());
 }
 
 #[actix_web::test]
