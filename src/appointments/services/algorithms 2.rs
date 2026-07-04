@@ -216,6 +216,10 @@ pub async fn find_alternative_doctor(
     start_time: &str,
     end_time: &str,
     room_id: i64,
+    // The appointment being reassigned still occupies its own room, so it
+    // must be excluded from the candidate conflict check or every candidate
+    // would "conflict" with the very slot we are trying to move.
+    exclude_appointment_id: Option<i64>,
 ) -> Result<Option<(i64, String)>, AppError> {
     let candidates = sqlx::query_as::<_, (i64, String)>(
         "SELECT d.id, u.full_name
@@ -246,7 +250,8 @@ pub async fn find_alternative_doctor(
             continue;
         }
         let conflict = check_conflict(
-            pool, candidate_id, appointment_date, start_time, end_time, room_id, None,
+            pool, candidate_id, appointment_date, start_time, end_time, room_id,
+            exclude_appointment_id,
         ).await?;
         if !conflict {
             return Ok(Some((candidate_id, candidate_name)));
@@ -280,6 +285,7 @@ pub async fn reassign_appointment(
 
     let (new_doctor_id, new_doctor_name) = find_alternative_doctor(
         pool, appt.doctor_id(), &date_str, &appt.start_time, &appt.end_time, room_id,
+        Some(appt.id),
     )
     .await?
     .ok_or_else(|| {
