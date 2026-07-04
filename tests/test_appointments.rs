@@ -636,6 +636,38 @@ async fn test_assign_room_conflict_rejected() {
     });
 }
 
+#[actix_web::test]
+async fn test_conflict_detected_across_rooms() {
+    // A doctor busy in one room must still conflict with a new booking that
+    // resolves to a different room — doctor and room are independent
+    // resources (regression: `doctor AND room` let this double-book).
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "xroomdoc", "doctor");
+        let pcookie = register_and_login!(app, "xroompat1", "patient");
+        let p2cookie = register_and_login!(app, "xroompat2", "patient");
+
+        let req = auth_post("/appointments/book", &pcookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30",
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        // Move the visit out of the doctor's daily room (seeded room id 4),
+        // so a second booking at the same time resolves a DIFFERENT room.
+        let req = auth_post("/appointments/1/assign-room", &dcookie,
+            serde_json::json!({ "room_id": 4 })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        let req = auth_post("/appointments/book", &p2cookie, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30",
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400, "doctor busy in another room must still conflict");
+    });
+}
+
 // ============================================================
 // HTTP: calendar day filter (GET /appointments?date=YYYY-MM-DD)
 // ============================================================
