@@ -29,24 +29,7 @@ pub async fn ensure_doctor_available(
     start_time: &str,
     end_time: &str,
 ) -> Result<(), AppError> {
-    let date = chrono::NaiveDate::parse_from_str(appointment_date, "%Y-%m-%d")
-        .map_err(|_| AppError::BadRequest("Invalid appointment date".into()))?;
-    // Schema convention: 0 = Sunday .. 6 = Saturday
-    let day_of_week = date.weekday().num_days_from_sunday() as i32;
-
-    // All rules that apply to this day: recurring entries for this weekday
-    // plus any one-off entries pinned to this exact date.
-    let rules = sqlx::query_as::<_, DoctorAvailability>(
-        "SELECT id, doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked
-         FROM doctor_availability
-         WHERE doctor_id = ?
-           AND ((is_recurring = 1 AND day_of_week = ?) OR specific_date = ?)",
-    )
-    .bind(doctor_id)
-    .bind(day_of_week)
-    .bind(appointment_date)
-    .fetch_all(pool)
-    .await?;
+    let rules = fetch_rules_for_day(pool, doctor_id, appointment_date).await?;
 
     // Rule 1: any overlapping blocked entry rejects the booking. The requested
     // window is lifted into the TimeSlotted world (`TimeWindow`) so the shared
@@ -76,6 +59,61 @@ pub async fn ensure_doctor_available(
     }
 
     Ok(())
+}
+
+/// Load every availability rule that applies to `appointment_date` for a
+/// doctor: recurring weekly entries matching that weekday, plus any one-off
+/// entries pinned to that exact date. Split out of `ensure_doctor_available`
+/// so callers that check many slots for the same day (the free-slot API and
+/// the batch-reassignment feasibility matrix) fetch the rules once and then
+/// evaluate them in memory with `slot_allowed_by_rules`.
+pub async fn fetch_rules_for_day(
+    pool: &SqlitePool,
+    doctor_id: i64,
+    appointment_date: &str,
+) -> Result<Vec<DoctorAvailability>, AppError> {
+    let date = chrono::NaiveDate::parse_from_str(appointment_date, "%Y-%m-%d")
+        .map_err(|_| AppError::BadRequest("Invalid appointment date".into()))?;
+    // Schema convention: 0 = Sunday .. 6 = Saturday
+    let day_of_week = date.weekday().num_days_from_sunday() as i32;
+
+    Ok(sqlx::query_as::<_, DoctorAvailability>(
+        "SELECT id, doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked
+         FROM doctor_availability
+         WHERE doctor_id = ?
+           AND ((is_recurring = 1 AND day_of_week = ?) OR specific_date = ?)",
+    )
+    .bind(doctor_id)
+    .bind(day_of_week)
+    .bind(appointment_date)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Pure, in-memory version of the availability gate: does the window
+/// `[start_time, end_time)` satisfy this doctor's rules for the day?
+///
+/// Same two rules `ensure_doctor_available` enforces, minus the specific error
+/// messages (callers here only need a yes/no):
+/// 1. no overlapping blocked entry, and
+/// 2. if any working windows are declared, the slot sits entirely inside one.
+///
+/// Reuses the polymorphic `TimeSlotted` helpers (`any_conflict`, `contains`)
+/// so the overlap and containment logic is never re-encoded by hand.
+pub fn slot_allowed_by_rules(
+    rules: &[DoctorAvailability],
+    start_time: &str,
+    end_time: &str,
+) -> bool {
+    let requested = TimeWindow::new(start_time, end_time);
+    if any_conflict(&requested, rules.iter().filter(|r| r.blocked())) {
+        return false;
+    }
+    let windows: Vec<&DoctorAvailability> = rules.iter().filter(|r| !r.blocked()).collect();
+    if !windows.is_empty() && !windows.iter().any(|w| w.contains(start_time, end_time)) {
+        return false;
+    }
+    true
 }
 
 /// List all availability slots for a doctor.

@@ -1,0 +1,150 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/appointments"><i class="fas fa-calendar-check mr-1"></i>Appointments</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Cover Leave</a></li>
+    </ul>
+</nav>
+
+<h1 class="title"><i class="fas fa-people-arrows mr-2"></i>Cover a Doctor's Leave</h1>
+<p class="subtitle is-6 has-text-grey mb-5">
+    When a doctor is out for the day, the system redistributes their whole schedule to colleagues in one step — choosing the assignment that minimises total disruption using the <strong>Hungarian (optimal assignment) algorithm</strong>.
+</p>
+
+<div class="box fade-in">
+    <form method="POST" action="/appointments/reassign-day">
+        <div class="columns">
+            <div class="column is-5">
+                <div class="field">
+                    <label class="label"><i class="fas fa-user-md mr-1"></i>Doctor on Leave</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="doctor_id" required>
+                                <option value="">-- Choose a doctor --</option>
+                                {% for d in doctors %}
+                                <option value="{{ d.0 }}" {% if form_doctor_id is defined and form_doctor_id == d.0 %}selected{% endif %}>{{ d.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-user-md"></i></div>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-4">
+                <div class="field">
+                    <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Date</label>
+                    <div class="control">
+                        <input class="input" type="date" name="appointment_date" required
+                               {% if form_date is defined %}value="{{ form_date }}"{% endif %}>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-3 is-flex is-align-items-flex-end">
+                <div class="field" style="width: 100%;">
+                    <div class="control">
+                        <button class="button is-primary is-fullwidth" type="submit">
+                            <i class="fas fa-wand-magic-sparkles mr-1"></i>Compute Plan
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p class="help">This preview changes nothing. You review the proposed moves, then apply them.</p>
+    </form>
+</div>
+
+{% if plan %}
+<div class="box fade-in">
+    <div class="is-flex is-align-items-center is-justify-content-space-between mb-4">
+        <div>
+            <h2 class="title is-4 mb-1">Proposed Plan</h2>
+            <p class="is-size-6 has-text-grey">
+                {{ plan.source_doctor_name }} &middot; {{ plan.date }}
+            </p>
+        </div>
+        <div class="tags">
+            <span class="tag is-success is-medium"><i class="fas fa-check mr-1"></i>{{ plan.assigned_count }} reassigned</span>
+            {% if plan.unassigned_count > 0 %}
+            <span class="tag is-warning is-medium"><i class="fas fa-triangle-exclamation mr-1"></i>{{ plan.unassigned_count }} unplaced</span>
+            {% endif %}
+            <span class="tag is-light is-medium" title="Total optimiser cost — lower is better">
+                <i class="fas fa-gauge mr-1"></i>score {{ plan.total_cost }}
+            </span>
+        </div>
+    </div>
+
+    {% if plan.rows | length == 0 %}
+    <div class="notification is-info is-light">
+        <i class="fas fa-info-circle mr-1"></i>{{ plan.source_doctor_name }} has no scheduled appointments on {{ plan.date }}. Nothing to reassign.
+    </div>
+    {% else %}
+    <div class="table-container">
+        <table class="table is-fullwidth is-hoverable is-striped">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Patient</th>
+                    <th>Reassigned To</th>
+                    <th>Continuity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in plan.rows %}
+                <tr>
+                    <td class="has-text-weight-semibold">{{ row.start_time }}–{{ row.end_time }}</td>
+                    <td>{{ row.patient_name }}</td>
+                    <td>
+                        {% if row.to_doctor_name %}
+                        <span class="icon-text has-text-success">
+                            <span class="icon"><i class="fas fa-arrow-right-long"></i></span>
+                            <span>{{ row.to_doctor_name }}</span>
+                        </span>
+                        {% else %}
+                        <span class="tag is-warning is-light"><i class="fas fa-user-slash mr-1"></i>Could not place</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if row.to_doctor_name %}
+                            {% if row.same_specialization %}
+                            <span class="tag is-success is-light">Same specialty</span>
+                            {% else %}
+                            <span class="tag is-info is-light">Cross-cover</span>
+                            {% endif %}
+                        {% else %}
+                        <span class="has-text-grey">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if plan.unassigned_count > 0 %}
+    <div class="notification is-warning is-light">
+        <i class="fas fa-triangle-exclamation mr-1"></i>
+        {{ plan.unassigned_count }} appointment(s) had no available colleague for their slot. Applying the plan moves the rest; consider rescheduling or waitlisting the remainder.
+    </div>
+    {% endif %}
+
+    <hr>
+    <div class="is-flex is-align-items-center" style="gap: 0.75rem;">
+        <form method="POST" action="/appointments/reassign-day/apply">
+            <input type="hidden" name="doctor_id" value="{{ form_doctor_id }}">
+            <input type="hidden" name="appointment_date" value="{{ form_date }}">
+            <button class="button is-primary is-medium" type="submit"
+                    {% if plan.assigned_count == 0 %}disabled{% endif %}
+                    onclick="return confirm('Apply this plan? {{ plan.assigned_count }} appointment(s) will be moved to their assigned colleagues.')">
+                <i class="fas fa-circle-check mr-1"></i>Apply Plan ({{ plan.assigned_count }})
+            </button>
+        </form>
+        <a class="button is-light is-medium" href="/appointments/reassign-day">
+            <i class="fas fa-xmark mr-1"></i>Discard
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

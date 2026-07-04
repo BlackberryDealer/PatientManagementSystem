@@ -24,6 +24,9 @@
                 <a class="navbar-item" href="/availability">
                     <i class="fas fa-clock mr-1"></i> Availability
                 </a>
+                <a class="navbar-item" href="/appointments/reassign-day">
+                    <i class="fas fa-people-arrows mr-1"></i> Cover Leave
+                </a>
                 {% endif %}
                 <a class="navbar-item" href="/records">
                     <i class="fas fa-notes-medical mr-1"></i> Medical Records

@@ -8,7 +8,7 @@ use crate::traits::StatusManaged;
 use sqlx::SqlitePool;
 
 use super::algorithms::check_conflict;
-use super::helpers::insert_slots;
+use super::helpers::{insert_slots, load_appointment};
 use super::rooms::resolve_room;
 use super::waitlist::auto_promote_waitlist;
 
@@ -172,15 +172,7 @@ pub async fn get_all_appointment_counts(
 /// Cancel an appointment. After cancellation, automatically attempts to
 /// promote the highest-priority waitlist entry into the freed slot.
 pub async fn cancel_appointment(pool: &SqlitePool, appointment_id: i64) -> Result<(), AppError> {
-    let mut appt = sqlx::query_as::<_, Appointment>(
-        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
-                status, notes, created_at, room_id, priority
-         FROM appointments WHERE id = ?",
-    )
-    .bind(appointment_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+    let mut appt = load_appointment(pool, appointment_id).await?;
 
     appt.cancel()?;
 
@@ -237,15 +229,7 @@ pub async fn complete_appointment(
     pool: &SqlitePool,
     appointment_id: i64,
 ) -> Result<Appointment, AppError> {
-    let mut appt = sqlx::query_as::<_, Appointment>(
-        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
-                status, notes, created_at, room_id, priority
-         FROM appointments WHERE id = ?",
-    )
-    .bind(appointment_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+    let mut appt = load_appointment(pool, appointment_id).await?;
 
     appt.complete()?;
 
@@ -274,15 +258,7 @@ pub async fn reschedule_appointment(
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
     let (start, end) = (minutes_to_time(start_mins), minutes_to_time(end_mins));
 
-    let mut appt = sqlx::query_as::<_, Appointment>(
-        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
-                status, notes, created_at, room_id, priority
-         FROM appointments WHERE id = ?",
-    )
-    .bind(appointment_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+    let mut appt = load_appointment(pool, appointment_id).await?;
 
     ensure_doctor_available(pool, appt.doctor_id(), date_str, &start, &end).await?;
 
@@ -358,15 +334,7 @@ pub async fn assign_room(
     appointment_id: i64,
     form: &AssignRoomForm,
 ) -> Result<Appointment, AppError> {
-    let mut appt = sqlx::query_as::<_, Appointment>(
-        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
-                status, notes, created_at, room_id, priority
-         FROM appointments WHERE id = ?",
-    )
-    .bind(appointment_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+    let mut appt = load_appointment(pool, appointment_id).await?;
 
     let room_active: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM rooms WHERE id = ? AND is_active = 1")
@@ -416,15 +384,7 @@ pub async fn set_priority(
     appointment_id: i64,
     form: &SetPriorityForm,
 ) -> Result<Appointment, AppError> {
-    let mut appt = sqlx::query_as::<_, Appointment>(
-        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
-                status, notes, created_at, room_id, priority
-         FROM appointments WHERE id = ?",
-    )
-    .bind(appointment_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))?;
+    let mut appt = load_appointment(pool, appointment_id).await?;
 
     appt.set_priority(form.priority)?;
 

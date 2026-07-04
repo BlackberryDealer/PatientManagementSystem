@@ -13,6 +13,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/book", web::post().to(handlers::book_appointment))
             .route("/suggest", web::get().to(handlers::suggest_slot_form))
             .route("/suggest", web::post().to(handlers::suggest_slot))
+            // JSON slot lookup for the booking form's live dropdown.
+            .route("/availability", web::get().to(handlers::available_slots_api))
+            // Batch reassignment (Algorithm 5) — registered before `/{id}` so
+            // the static path is not captured by the dynamic id route.
+            .route("/reassign-day", web::get().to(handlers::reassign_day_form))
+            .route("/reassign-day", web::post().to(handlers::reassign_day_preview))
+            .route("/reassign-day/apply", web::post().to(handlers::reassign_day_apply))
             .route("/waitlist", web::get().to(handlers::list_waitlist))
             .route("/waitlist/join", web::post().to(handlers::join_waitlist))
             .route("/waitlist/{id}/promote", web::post().to(handlers::promote_waitlist))

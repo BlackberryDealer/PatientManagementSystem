@@ -16,11 +16,14 @@ async fn seed_patient(pool: &SqlitePool, uid: i64, name: &str) {
     sqlx::query("INSERT INTO patients (user_id) VALUES (?)").bind(uid).execute(pool).await.unwrap();
 }
 async fn seed_doctor(pool: &SqlitePool, uid: i64, name: &str) {
+    seed_doctor_spec(pool, uid, name, "GP").await;
+}
+async fn seed_doctor_spec(pool: &SqlitePool, uid: i64, name: &str, spec: &str) {
     sqlx::query("INSERT INTO users (id, username, email, password_hash, role, full_name) VALUES (?,?,?,?,'doctor',?)")
         .bind(uid).bind(name).bind(format!("{}@t", name)).bind("$2b$10$abc").bind(format!("Dr {}", name))
         .execute(pool).await.unwrap();
     sqlx::query("INSERT INTO doctors (user_id, specialization, license_number) VALUES (?,?,?)")
-        .bind(uid).bind("GP").bind("LIC").execute(pool).await.unwrap();
+        .bind(uid).bind(spec).bind("LIC").execute(pool).await.unwrap();
 }
 
 #[actix_web::test]
@@ -749,4 +752,172 @@ async fn test_two_doctors_get_distinct_rooms() {
         "INSERT INTO doctor_room_assignments (doctor_id, room_id, assignment_date) VALUES (99, ?, ?)",
     ).bind(assignments[0].0).bind(date).execute(&pool).await;
     assert!(dup.is_err(), "UNIQUE(room_id, assignment_date) must reject a second claimant");
+}
+
+// ============================================================
+// Algorithm 5: Optimal Batch Doctor Reassignment (Hungarian)
+// ============================================================
+
+// A leaving doctor's whole day is redistributed at once. With two free
+// colleagues and two appointments, the optimiser must place BOTH — and, because
+// the load term is convex, it spreads them one-each rather than dumping both on
+// one colleague.
+#[actix_web::test]
+async fn test_batch_reassign_spreads_across_free_doctors() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "bp").await;      // patient id 1
+    seed_doctor(&pool, 2, "bsrc").await;     // doctor id 1 (leaving)
+    seed_doctor(&pool, 3, "bc1").await;      // doctor id 2 (candidate)
+    seed_doctor(&pool, 4, "bc2").await;      // doctor id 3 (candidate)
+    let date = "2027-09-01";
+
+    for (s, e) in [("10:00", "10:30"), ("11:00", "11:30")] {
+        services::book_appointment(&pool, 1, &BookAppointmentForm {
+            doctor_id: 1, appointment_date: date.into(),
+            start_time: s.into(), end_time: e.into(), priority: Some(3), notes: None,
+        }).await.unwrap();
+    }
+
+    let plan = services::plan_day_reassignment(&pool, 1, date).await.unwrap();
+    assert_eq!(plan.assigned_count, 2, "both appointments should be placed");
+    assert_eq!(plan.unassigned_count, 0);
+
+    let (_, moved, unplaced) = services::apply_day_reassignment(&pool, 1, date).await.unwrap();
+    assert_eq!((moved, unplaced), (2, 0));
+
+    // The leaving doctor now holds nothing on that date.
+    let src: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM appointments WHERE doctor_id = 1 AND appointment_date = ? AND status = 'scheduled'",
+    ).bind(date).fetch_one(&pool).await.unwrap();
+    assert_eq!(src.0, 0, "leaving doctor's schedule should be cleared");
+
+    // ...and the two appointments landed on the two distinct colleagues.
+    let docs: Vec<(i64,)> = sqlx::query_as(
+        "SELECT DISTINCT doctor_id FROM appointments
+         WHERE appointment_date = ? AND status = 'scheduled' ORDER BY doctor_id",
+    ).bind(date).fetch_all(&pool).await.unwrap();
+    assert_eq!(docs, vec![(2,), (3,)], "load should spread one-each across colleagues");
+}
+
+// Continuity of care: a same-specialisation colleague is preferred over a
+// cheaper-by-nothing-else general one. This is the global optimum the Hungarian
+// cost function encodes.
+#[actix_web::test]
+async fn test_batch_reassign_prefers_same_specialization() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "spp").await;                       // patient id 1
+    seed_doctor_spec(&pool, 2, "ssrc", "Cardiology").await;   // doctor id 1 (leaving)
+    seed_doctor_spec(&pool, 3, "scard", "Cardiology").await;  // doctor id 2 (same specialty)
+    seed_doctor_spec(&pool, 4, "sgp", "GP").await;            // doctor id 3 (different)
+    let date = "2027-09-03";
+
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: date.into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let plan = services::plan_day_reassignment(&pool, 1, date).await.unwrap();
+    assert_eq!(plan.assigned_count, 1);
+    let row = &plan.rows[0];
+    assert_eq!(row.to_doctor_id, Some(2), "same-specialty cardiologist should win");
+    assert!(row.same_specialization);
+}
+
+// If the only colleague is already booked over the slot, that appointment
+// cannot be placed and is reported as unassigned rather than double-booked.
+#[actix_web::test]
+async fn test_batch_reassign_reports_unplaceable() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "upa").await;   // patient id 1
+    seed_patient(&pool, 3, "upb").await;   // patient id 2
+    seed_doctor(&pool, 2, "usrc").await;   // doctor id 1 (leaving)
+    seed_doctor(&pool, 4, "ucand").await;  // doctor id 2 (only colleague)
+    let date = "2027-09-04";
+
+    // Leaving doctor's appointment.
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: date.into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+    // The only colleague is busy at that exact slot with their own patient.
+    services::book_appointment(&pool, 3, &BookAppointmentForm {
+        doctor_id: 2, appointment_date: date.into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let plan = services::plan_day_reassignment(&pool, 1, date).await.unwrap();
+    assert_eq!(plan.assigned_count, 0);
+    assert_eq!(plan.unassigned_count, 1);
+    assert!(plan.rows[0].to_doctor_id.is_none(), "no colleague was free for the slot");
+}
+
+// ============================================================
+// Dynamic free-slot lookup (booking form's live dropdown)
+// ============================================================
+
+fn has_slot(slots: &[String], t: &str) -> bool {
+    slots.iter().any(|s| s == t)
+}
+
+#[actix_web::test]
+async fn test_free_slots_empty_day_is_full_grid() {
+    let pool = test_db_pool().await;
+    seed_doctor(&pool, 2, "fsd1").await; // doctor id 1
+    let slots = services::free_slots(&pool, 1, "2027-06-01").await.unwrap();
+    // 08:00..16:30 on a 30-min grid = 18 startable slots.
+    assert_eq!(slots.len(), 18);
+    assert_eq!(slots.first().unwrap(), "08:00");
+    assert_eq!(slots.last().unwrap(), "16:30");
+}
+
+#[actix_web::test]
+async fn test_free_slots_excludes_booked_time() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "fsp").await;
+    seed_doctor(&pool, 2, "fsd2").await;
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let slots = services::free_slots(&pool, 1, "2027-06-01").await.unwrap();
+    assert!(!has_slot(&slots, "10:00"), "booked slot must be hidden");
+    assert!(has_slot(&slots, "09:30"), "adjacent free slot stays");
+    assert!(has_slot(&slots, "10:30"), "adjacent free slot stays");
+}
+
+#[actix_web::test]
+async fn test_free_slots_hides_all_covered_slots_of_multi_slot_booking() {
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "fsm").await;
+    seed_doctor(&pool, 2, "fsd3").await;
+    // A 60-minute booking occupies both 10:00 and 10:30.
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "11:00".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    let slots = services::free_slots(&pool, 1, "2027-06-01").await.unwrap();
+    assert!(!has_slot(&slots, "10:00"));
+    assert!(!has_slot(&slots, "10:30"));
+    assert!(has_slot(&slots, "11:00"), "the slot after the booking is free");
+}
+
+#[actix_web::test]
+async fn test_free_slots_respects_blocked_window() {
+    let pool = test_db_pool().await;
+    seed_doctor(&pool, 2, "fsb").await; // doctor id 1
+    let date = "2027-06-01";
+    let dow = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+    let dow = chrono::Datelike::weekday(&dow).num_days_from_sunday() as i32;
+    // Doctor is on leave 08:00–09:00 that date.
+    sqlx::query(
+        "INSERT INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked)
+         VALUES (1, ?, '08:00', '09:00', 0, ?, 1)",
+    ).bind(dow).bind(date).execute(&pool).await.unwrap();
+
+    let slots = services::free_slots(&pool, 1, date).await.unwrap();
+    assert!(!has_slot(&slots, "08:00"), "blocked window must be excluded");
+    assert!(!has_slot(&slots, "08:30"), "blocked window must be excluded");
+    assert!(has_slot(&slots, "09:00"), "first slot after the block is free");
 }

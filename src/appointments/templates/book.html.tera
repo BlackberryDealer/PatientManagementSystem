@@ -16,7 +16,7 @@
 </p>
 
 <div class="box fade-in">
-    <form method="POST" action="/appointments/book">
+    <form method="POST" action="/appointments/book" id="book-form" data-self-doctor-id="{{ self_doctor_id | default(value='') }}">
         <div class="columns">
             <div class="column is-6">
                 {% if user.role == "doctor" or user.role == "admin" %}
@@ -42,7 +42,7 @@
                     <label class="label"><i class="fas fa-user-md mr-1"></i>Select Doctor</label>
                     <div class="control has-icons-left">
                         <div class="select is-fullwidth">
-                            <select name="doctor_id" required>
+                            <select name="doctor_id" id="doctor_id" required>
                                 <option value="">-- Choose a doctor --</option>
                                 {% for d in doctors %}
                                 <option value="{{ d.0 }}">{{ d.1 }}</option>
@@ -58,7 +58,7 @@
                 <div class="field">
                     <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Appointment Date</label>
                     <div class="control">
-                        <input class="input" type="date" name="appointment_date" required
+                        <input class="input" type="date" name="appointment_date" id="appointment_date" required
                                min="2026-01-01" placeholder="YYYY-MM-DD">
                     </div>
                     <p class="help">Select a future date. Weekend availability depends on the doctor's schedule.</p>
@@ -67,8 +67,8 @@
 
             <div class="column is-6">
                 <div class="notification is-info is-light">
-                    <p><i class="fas fa-info-circle mr-1"></i><strong>Auto-Assigned Room</strong></p>
-                    <p class="is-size-7 mt-1">A room is automatically assigned from the doctor's daily allocation. The system prevents double-booking by checking for overlapping appointments.</p>
+                    <p><i class="fas fa-info-circle mr-1"></i><strong>Live Availability</strong></p>
+                    <p class="is-size-7 mt-1">Pick a doctor and date, and the time dropdowns fill with only that doctor's <strong>open</strong> slots — no more guessing which times are free. A room is auto-assigned, and the database prevents double-booking if two patients grab the same slot at once.</p>
                 </div>
                 {% if user.role == "doctor" %}
                 <div class="notification is-light">
@@ -85,7 +85,7 @@
                     <label class="label"><i class="fas fa-clock mr-1"></i>Start Time</label>
                     <div class="control has-icons-left">
                         <div class="select is-fullwidth">
-                            <select name="start_time" required>
+                            <select name="start_time" id="start_time" required>
                                 <option value="">-- Select start --</option>
                                 {% for s in start_slots %}
                                 <option value="{{ s }}">{{ s }}</option>
@@ -94,6 +94,7 @@
                         </div>
                         <div class="icon is-small is-left"><i class="fas fa-clock"></i></div>
                     </div>
+                    <p class="help" id="slot-status"></p>
                 </div>
             </div>
             <div class="column is-6">
@@ -101,7 +102,7 @@
                     <label class="label"><i class="fas fa-clock mr-1"></i>End Time</label>
                     <div class="control has-icons-left">
                         <div class="select is-fullwidth">
-                            <select name="end_time" required>
+                            <select name="end_time" id="end_time" required>
                                 <option value="">-- Select end --</option>
                                 {% for e in end_slots %}
                                 <option value="{{ e }}">{{ e }}</option>
@@ -173,24 +174,108 @@
 
 {% block scripts %}
 <script>
-    // Progressive enhancement: when a start slot is chosen, default the end
-    // slot to 30 minutes later. Works without JS too — both dropdowns only
-    // contain grid-aligned times and the server validates start < end.
+    // Live availability (progressive enhancement). Once a doctor and date are
+    // chosen, the Start dropdown is narrowed to only that doctor's free 30-min
+    // slots (fetched from /appointments/availability), and End is limited to a
+    // run of consecutive free slots from the chosen start. Without JS the form
+    // still works: the full grid is server-rendered and the server re-validates
+    // and rejects any conflicting slot regardless.
     (function () {
-        const start = document.querySelector('select[name="start_time"]');
-        const end = document.querySelector('select[name="end_time"]');
-        if (!start || !end) return;
-        start.addEventListener('change', function () {
-            if (!start.value) return;
-            const [h, m] = start.value.split(':').map(Number);
-            const next = h * 60 + m + 30;
-            const target = String(Math.floor(next / 60)).padStart(2, '0') + ':' + String(next % 60).padStart(2, '0');
-            if (!end.value || end.value <= start.value) {
-                for (const opt of end.options) {
-                    if (opt.value === target) { end.value = target; break; }
-                }
+        const form = document.getElementById('book-form');
+        const doctorSelect = document.getElementById('doctor_id');   // absent for the doctor role
+        const dateInput = document.getElementById('appointment_date');
+        const startSelect = document.getElementById('start_time');
+        const endSelect = document.getElementById('end_time');
+        const statusEl = document.getElementById('slot-status');
+        if (!form || !dateInput || !startSelect || !endSelect) return;
+
+        const selfDoctorId = form.dataset.selfDoctorId || '';
+        const CLOSE = 17 * 60, STEP = 30;
+        let freeSet = new Set();
+        // Role-aware placeholder: doctors already know the doctor (themselves),
+        // so prompt them to pick a patient + date instead.
+        const waitingPrompt = {% if user.role == "doctor" %}'-- Select a patient and date first --'{% else %}'-- Select a doctor and date first --'{% endif %};
+
+        const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+        const toTime = (mins) => String(Math.floor(mins / 60)).padStart(2, '0') + ':' + String(mins % 60).padStart(2, '0');
+        const currentDoctorId = () => (doctorSelect ? doctorSelect.value : selfDoctorId);
+
+        function setSingle(select, text) {
+            select.innerHTML = '';
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = text;
+            select.appendChild(opt);
+        }
+
+        // End options: consecutive free slots starting at the chosen start. An
+        // appointment [start, end) needs every 30-min slot it covers to be free,
+        // so we extend only while the next covered slot is still in freeSet.
+        function rebuildEndOptions() {
+            const start = startSelect.value;
+            if (!start) { setSingle(endSelect, '-- Select start first --'); return; }
+            endSelect.innerHTML = '';
+            const startMin = toMin(start);
+            let added = 0;
+            for (let k = 1; ; k++) {
+                const endMin = startMin + STEP * k;
+                if (endMin > CLOSE) break;
+                const coveredSlot = toTime(startMin + STEP * (k - 1));
+                if (!freeSet.has(coveredSlot)) break;
+                const opt = document.createElement('option');
+                opt.value = toTime(endMin);
+                opt.textContent = toTime(endMin);
+                endSelect.appendChild(opt);
+                added++;
             }
-        });
+            if (added === 0) setSingle(endSelect, '-- No free time here --');
+        }
+
+        async function refreshSlots() {
+            const doctorId = currentDoctorId();
+            const date = dateInput.value;
+            if (!doctorId || !date) {
+                setSingle(startSelect, waitingPrompt);
+                setSingle(endSelect, '-- Select start first --');
+                if (statusEl) statusEl.textContent = '';
+                return;
+            }
+            if (statusEl) statusEl.textContent = 'Checking available times…';
+            try {
+                const res = await fetch(`/appointments/availability?doctor_id=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}`);
+                const data = await res.json();
+                freeSet = new Set(data.slots || []);
+                if (freeSet.size === 0) {
+                    setSingle(startSelect, '-- No free slots on this date --');
+                    setSingle(endSelect, '-- No free slots --');
+                    if (statusEl) statusEl.textContent = 'Fully booked or unavailable that day. Try another date, or join the waitlist.';
+                    return;
+                }
+                startSelect.innerHTML = '';
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = '-- Select start --';
+                startSelect.appendChild(placeholder);
+                [...freeSet].sort().forEach((s) => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    startSelect.appendChild(opt);
+                });
+                rebuildEndOptions();
+                if (statusEl) statusEl.textContent = freeSet.size + ' open slot(s) available.';
+            } catch (e) {
+                // Network/parse failure: leave the server-rendered grid in place
+                // and let the server validate on submit.
+                if (statusEl) statusEl.textContent = 'Could not load live slots; you can still pick a time and submit.';
+            }
+        }
+
+        if (doctorSelect) doctorSelect.addEventListener('change', refreshSlots);
+        dateInput.addEventListener('change', refreshSlots);
+        startSelect.addEventListener('change', rebuildEndOptions);
+
+        refreshSlots();
     })();
 </script>
 {% endblock %}

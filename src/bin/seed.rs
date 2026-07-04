@@ -2,6 +2,7 @@
 //! Run with:  cargo run --bin seed
 
 use patient_management_system::db;
+use patient_management_system::time::{minutes_to_time, time_to_minutes, SLOT_MINUTES};
 use sqlx::SqlitePool;
 
 #[actix_rt::main]
@@ -170,6 +171,43 @@ async fn seed_appointments(pool: &SqlitePool) {
         .bind(pri).bind(room).bind(notes)
         .bind(format!("-{} days", apps.len() as i32)) // stagger creation dates
         .execute(pool).await.unwrap();
+    }
+
+    // Populate the occupancy ledger for the seeded appointments so the database
+    // is internally consistent — the same 30-minute slot rows the booking path
+    // would have written. Cancelled appointments free their time, so they are
+    // skipped. Without this, seeded appointments would exist with no ledger
+    // rows, and the live free-slot lookup / DB double-booking guard would not
+    // see them.
+    let booked = sqlx::query_as::<_, (i64, i64, String, String, String, Option<i64>)>(
+        "SELECT id, doctor_id, appointment_date, start_time, end_time, room_id
+         FROM appointments WHERE status != 'cancelled'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    for (id, doctor_id, date, start, end, room_id) in booked {
+        let (Some(start_min), Some(end_min)) = (time_to_minutes(&start), time_to_minutes(&end))
+        else {
+            continue;
+        };
+        let mut m = start_min;
+        while m < end_min {
+            sqlx::query(
+                "INSERT OR IGNORE INTO appointment_slots
+                 (appointment_id, doctor_id, appointment_date, slot_time, room_id)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(doctor_id)
+            .bind(&date)
+            .bind(minutes_to_time(m))
+            .bind(room_id)
+            .execute(pool)
+            .await
+            .unwrap();
+            m += SLOT_MINUTES;
+        }
     }
 
     println!("done (10 appointments)");

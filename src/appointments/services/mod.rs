@@ -5,7 +5,10 @@ mod queries;
 mod rooms;
 mod waitlist;
 
-pub use algorithms::{check_conflict, find_alternative_doctor, find_earliest_slot, reassign_appointment};
+pub use algorithms::{
+    apply_day_reassignment, check_conflict, find_earliest_slot, free_slots,
+    plan_day_reassignment, reassign_appointment,
+};
 pub use booking::{book_appointment, book_with_priority, resolve_booking_target};
 pub use queries::{
     assign_room,

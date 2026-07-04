@@ -3,6 +3,25 @@ use crate::errors::AppError;
 use crate::time::{minutes_to_time, parse_slot, SLOT_MINUTES};
 use sqlx::SqlitePool;
 
+/// The full column list for loading an `Appointment` row. Every mutation
+/// (cancel, complete, reschedule, reassign, batch-reassign, ...) re-reads the
+/// row it is about to change, so the SELECT lives here once instead of being
+/// copied into each service.
+pub(super) async fn load_appointment(
+    pool: &SqlitePool,
+    appointment_id: i64,
+) -> Result<Appointment, AppError> {
+    sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE id = ?",
+    )
+    .bind(appointment_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Appointment not found".into()))
+}
+
 /// Translate a slot-insert failure: a UNIQUE-index violation means another
 /// booking grabbed the slot first (a race we lost), surfaced as a clean 400.
 pub(super) fn map_slot_conflict(e: sqlx::Error) -> AppError {

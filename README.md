@@ -31,7 +31,7 @@ Each team member implements one or more advanced features aligned with the offic
 |---|---|---|---|
 | **Queue management system** / **Priority queues** | Waitlist auto-scheduler with priority triage via `BinaryHeap` | Lennon | ✅ Implemented |
 | **Time slot validation** | Conflict detection & earliest-slot suggestion algorithm | Lennon | ✅ Implemented |
-| **Scheduling algorithms** | Lazy doctor-room auto-allocation (`resolve_room()`) with 3-tier fallback and a race-safe claim-retry loop (plain `INSERT` guarded by dual UNIQUE indexes, retrying on a unique violation); availability enforcement engine — 3-rule priority system (blocked → windowed → open default) in the critical path of all 4 booking algorithms; greedy load-balanced doctor reassignment (`find_alternative_doctor()`) | Dylan | ✅ Implemented |
+| **Scheduling algorithms** | Lazy doctor-room auto-allocation (`resolve_room()`) with 3-tier fallback and a race-safe claim-retry loop (plain `INSERT` guarded by dual UNIQUE indexes, retrying on a unique violation); availability enforcement engine — 3-rule priority system (blocked → windowed → open default) in the critical path of every booking path; greedy single-appointment doctor reassignment (`find_alternative_doctor()`); optimal whole-day batch reassignment via the Hungarian algorithm (`plan_day_reassignment()`); live availability-driven booking slots (`free_slots()`) | Dylan | ✅ Implemented |
 | **Patient history timelines** | Chronological record view with appointment/record/prescription/invoice merging | Raees | ✅ Implemented |
 | **Medical report PDF generation** | Server-side PDF export of a medical report via the pure-Rust `printpdf` crate (paginated, word-wrapped, no external binaries) | Raees | ✅ Implemented |
 | **Role-based staff access** | Type-level role enforcement via Rust trait system (`AuthUser`, `require_role`) | Afif | ✅ Implemented |
@@ -78,15 +78,16 @@ PatientManagementSystem/
 │   └── shared/
 │       ├── navbar.html.tera
 │       └── footer.html.tera
-├── tests/                   # Integration test suite (159 tests incl. unit tests)
+├── tests/                   # Integration test suite (185 tests incl. unit tests)
 │   ├── common/mod.rs        # Test infrastructure & macros
 │   ├── test_auth.rs         # Authentication & authorization (20 tests)
-│   ├── test_algorithms.rs   # Scheduling algorithms + reschedule + completion (36 tests)
-│   ├── test_appointments.rs # Appointment booking + room override (23 tests)
+│   ├── test_algorithms.rs   # Scheduling algorithms (incl. batch reassign + live slots) + reschedule + completion (43 tests)
+│   ├── test_appointments.rs # Appointment booking + room override (29 tests)
 │   ├── test_availability.rs # Doctor availability (3 tests)
 │   ├── test_records.rs      # Medical records + PDF export (6 tests)
 │   ├── test_billing.rs      # Invoices & payments (7 tests)
-│   └── test_extended.rs     # Availability, reassignment, timeline, audit, dashboard (17 tests)
+│   ├── test_extended.rs     # Availability, reassignment, timeline, audit, dashboard (17 tests)
+│   └── test_templates.rs    # Tera template rendering (4 tests)
 └── src/
     ├── main.rs              # Entry point, server config, route mounting
     ├── lib.rs               # Library crate for integration tests
@@ -98,7 +99,7 @@ PatientManagementSystem/
     ├── bin/
     │   └── seed.rs          # Database seeder (`cargo run --bin seed`)
     ├── users/               # User registration, login, profiles
-    ├── appointments/        # Scheduling engine (4 algorithms) + waitlist + calendar
+    ├── appointments/        # Scheduling engine (5 algorithms) + waitlist + calendar
     ├── availability/        # Doctor recurring & blocked availability
     ├── records/             # Medical records, prescriptions, timeline & PDF report export
     ├── billing/             # Invoices, line items, payments
@@ -108,9 +109,11 @@ PatientManagementSystem/
 
 Each domain is a sibling `src/<module>.rs` file (route configuration via `pub fn configure()`) plus a matching `src/<module>/` folder containing:
 - `models.rs` — struct definitions with serde + sqlx derives
-- `services.rs` — business logic and database queries (the `appointments` module splits this into a `services/` folder: `algorithms`, `booking`, `queries`, `rooms`, `waitlist`, `helpers`)
+- `services.rs` — business logic and database queries
 - `handlers.rs` — HTTP request handlers
 - `templates/` — Tera HTML templates for the module
+
+The `appointments` module is the largest, so each of those files is expanded into its own folder for readability and maintainability. `models/` groups the domain types by concern (`appointment`, `waitlist`, `room`, `forms`, `scheduling`, `assignment`, `calendar`). `handlers/` groups the routes by workflow (`listing`, `booking`, `lifecycle`, `waitlist`, `reassign_day`). `services/` holds the business logic (`booking`, `queries`, `rooms`, `waitlist`, `helpers`), and `services/algorithms/` gives each scheduling algorithm its own file (`conflict`, `earliest_slot`, `priority_queue`, `reassign`, `batch_reassign`, `free_slots`), so a maintainer can open exactly the algorithm they need.
 
 ---
 
@@ -172,7 +175,7 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 10 availabili
 |---|---|---|---|
 | `users` + `auth` | Patient Registration, Doctor Management | **Role-based staff access** — type-level role enforcement | Afif |
 | `appointments` | Appointment Scheduling (core) | **Queue management system** & **Priority queues** — waitlist with `BinaryHeap` priority triage; **Time slot validation** — overlap detection & earliest-slot algorithm | Lennon |
-| `availability` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement used by all 4 booking paths + greedy load-balanced doctor reassignment | Dylan |
+| `availability` | Doctor Management | **Scheduling algorithms** — lazy room auto-allocation + 3-rule availability enforcement in every booking path + greedy single-appointment reassignment + optimal whole-day batch reassignment (Hungarian) + live availability-driven booking slots | Dylan |
 | `records` | Medical Records, Prescription Tracking | **Patient history timelines** — chronological record view with multi-entity merging | Raees |
 | `billing` + `audit` | Billing | Analytics dashboard with revenue stats, busiest-doctors ranking, cancellation/collection rates; **Audit logging** — immutable cross-cutting action trail | Hanzalah |
 
@@ -207,6 +210,8 @@ Creates 6 users (1 admin, 2 doctors, 3 patients), 10 appointments, 10 availabili
 **Individual Extended Features & Technical Contributions:**
 - **Three-Rule Availability Gate** — Built a validation gate applying three structured rules. Blocked entries (like leave or lunch breaks) reject bookings immediately. Valid slots must fit completely inside a doctor's custom hours, otherwise they fall back to default clinic hours. This checks recurring and one-off rules in a single step.
 - **Dynamic Load-Balanced Reassignment** — Developed a greedy doctor reassignment algorithm that ranks every alternative doctor inside a single SQL query. The query optimizes for continuity of care by ranking matching specializations first, followed by the fewest appointments that day for structural load balancing, walking the ranked list to pick the first doctor available and free of conflicts.
+- **Optimal Batch Reassignment (Hungarian Algorithm)** — Extended that greedy, one-at-a-time reassignment into a provably optimal whole-day version for when a doctor goes on leave. It models the day as an assignment problem and solves it from scratch with the Hungarian (Kuhn-Munkres) method, minimizing total disruption across every appointment simultaneously rather than letting an early appointment grab the only same-specialty colleague. The cost of moving an appointment to a colleague rewards a matching specialization and adds a convex load term (each extra appointment a colleague absorbs costs a little more), so the work spreads evenly, while a colleague who is on leave or already booked over the slot is priced out as infeasible. The modelling stays a clean assignment problem because a doctor's own appointments never overlap, so a colleague can safely take several of them and each pairing's feasibility depends only on that colleague's existing schedule. Staff preview the computed plan (who moves to whom, and any appointment no colleague can cover) and apply it in a single transaction, with the slot ledger's UNIQUE index still guarding against races. The solver is unit-tested against an exhaustive brute-force optimum.
+- **Live Availability Booking** — Reused the same three-rule availability gate to drive the booking form itself. Choosing a doctor and date now fetches only that doctor's genuinely open 30-minute slots from a JSON endpoint, so a patient picks from times that are actually free instead of brute-forcing every slot until one stops returning a conflict error. A slot counts as open only when no existing appointment covers it and the doctor's availability rules allow it. Occupancy is read from the `appointments` table, the exact source of truth the booking conflict check and the earliest-slot search already use, so a time that is already booked can never show up as free and the dropdown stays consistent with what the booking path will accept. This is purely a convenience layer. The database UNIQUE index on the slot ledger remains the authoritative guard for the true race, where two patients pick the same open slot at the same instant, and the second booking gets a clean "just taken" message.
 - **Race-Safe Room Allocation** — Designed an allocation system where a doctor's first daily booking locks in an available room. The claim is a plain INSERT guarded by two database-level UNIQUE indexes — one room per doctor per day (migration 005) and one doctor per room per day (migration 006) — so a lost race surfaces as a unique violation and the allocator retries with the next free room instead of double-assigning. When more doctors than rooms are working, sharing degrades gracefully and the slot-level room index still blocks same-time clashes.
 
 ### Raees — `records`
@@ -273,6 +278,7 @@ See `migrations/001_initial_schema.sql` through `migrations/006_room_assignment_
 - **Algorithm 2 — Earliest Available Slot**: `find_earliest_slot()` scans a doctor's schedule for a given date, walks through the gaps between existing appointments, and returns the first free slot ≥ the requested duration. Every candidate gap is also passed through the same 3-rule availability gate booking uses (`ensure_doctor_available`), so a suggested slot is always one the booking path would actually accept — leave and blocked breaks are skipped. Working hours: 08:00–17:00. Route: `GET/POST /appointments/suggest`.
 - **Algorithm 3 — Priority-Based Scheduling**: `book_with_priority()` allows Emergency (1) and Urgent (2) appointments to bump lower-priority ones to the waitlist. Uses Rust's `BinaryHeap<PriorityItem>` for the priority queue (reversed `Ord` implementation). Bumping is transactional — all mutations run inside `pool.begin()...tx.commit()`. There is a single booking endpoint (`POST /appointments/book`): when staff book at Emergency/Urgent, the handler routes through the priority path automatically, so no separate "override" action exists in the UI or the API. Patients are always booked at Normal priority (triage is a staff decision), so this path is unreachable for them.
 - **Algorithm 4 — Doctor Reassignment (greedy, load-balanced)**: `find_alternative_doctor()` ranks every other doctor by same-specialization-first (continuity of care) then fewest appointments that day (load balancing), and picks the first who is both available and conflict-free. `reassign_appointment()` moves the appointment and its occupancy slots atomically. Route: `POST /appointments/{id}/reassign`.
+- **Algorithm 5 — Optimal Batch Reassignment (Hungarian / assignment problem)**: `plan_day_reassignment()` redistributes a leaving doctor's entire day at once. It builds a cost matrix (rows are the leaving doctor's appointments, columns are colleague capacity slots plus unassigned fallbacks) and solves it with the pure `CostMatrix::assign_min_cost()` implementation of the Kuhn-Munkres method, giving the globally minimum-disruption assignment rather than Algorithm 4's per-appointment greed. Costs reward the same specialization and a convex load term (balancing), and price out colleagues who are on leave or already booked. `apply_day_reassignment()` recomputes against the live schedule and commits every move in one transaction. Staff-only. Routes: `GET/POST /appointments/reassign-day`, `POST /appointments/reassign-day/apply`. Live slot lookup for the booking form: `GET /appointments/availability`.
 
 ### Appointment Lifecycle
 
@@ -329,19 +335,20 @@ Deliberate scope decisions, with the reasoning we present in the demo:
 cargo test
 ```
 
-### Test Coverage (159 tests, 8 suites)
+### Test Coverage (185 tests, 9 suites)
 
 | Test Suite | Tests | Covers |
 |---|---|---|
 | `test_auth.rs` | 20 | Registration (patient/doctor/admin), duplicate rejection, login success/failure/nonexistent, login-with-email, POST-only logout, role guards, admin-only routes, profile PII anti-enumeration, **styled 403 error page** |
-| `test_algorithms.rs` | 36 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after/full/gap/multi-gap, **skips blocked windows / respects declared working hours**), priority (bump/equal-rejected/normal-gate/ordering-proof), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers), **reschedule (move+frees-old-slot / conflict-rejected / self-overlap-allowed / ownership)**, **completion (flips status / keeps slots / double-complete + cancelled rejected)**, **unpadded-time normalisation**, **distinct rooms per doctor per day + live UNIQUE index** |
-| `test_appointments.rs` | 23 | Booking form, HTTP booking (success/conflict/invalid-time), **clinic-hours rejection (before-open/past-close/night)**, **styled 400 error page keeps the domain message**, priority booking HTTP, cancel HTTP + list-verify, **complete HTTP (doctor) + patient forbidden**, **room override HTTP (appointment + slots move) + patient forbidden + same-slot clash → 400**, waitlist (doctor/patient), suggest form, promote forbidden (patient) |
+| `test_algorithms.rs` | 43 | Conflict detection (empty/overlap/cancelled/room), earliest-slot (empty/after/full/gap/multi-gap, **skips blocked windows / respects declared working hours**), priority (bump/equal-rejected/normal-gate/ordering-proof), invalid time/duration rejection, ownership checks, waitlist (add/promote/cancel-triggers), **reschedule (move+frees-old-slot / conflict-rejected / self-overlap-allowed / ownership)**, **completion (flips status / keeps slots / double-complete + cancelled rejected)**, **unpadded-time normalisation**, **distinct rooms per doctor per day + live UNIQUE index**, **batch day reassignment (Hungarian plan + apply + no-appointments case)**, **live free-slot lookup (full grid / excludes booked / hides multi-slot coverage / respects blocked windows)** |
+| `test_appointments.rs` | 29 | Booking form, HTTP booking (success/conflict/invalid-time), **clinic-hours rejection (before-open/past-close/night)**, **styled 400 error page keeps the domain message**, **role-aware booking (staff Emergency bump over Normal, patient priority clamped to Normal, patient cannot bump, doctor books own schedule only, missing patient → 400)**, cancel HTTP + list-verify, **complete HTTP (doctor) + patient forbidden**, **room override HTTP (appointment + slots move) + patient forbidden + same-slot clash → 400**, waitlist (doctor/patient views, **join patient-only + Normal-clamped**), **`?date=` list filter**, suggest form, promote forbidden (patient), **staff re-triage HTTP (doctor sets, patient forbidden, out-of-range → 400)** |
 | `test_availability.rs` | 3 | Doctor availability page, set-availability form, submit + verify persistence |
 | `test_records.rs` | 6 | Records list, create form (doctor), patient blocked from create, HTTP create-submit + detail verification, **PDF export download (content-type + `%PDF` magic), PDF ownership enforcement** |
 | `test_billing.rs` | 7 | Billing page (patient), create-invoice requires admin, admin creates invoice (single/multi-item), bad items rejected, payment recording, **settled invoice rejects further payment** |
 | `test_extended.rs` | 17 | Availability enforcement (blocked/recurring/open-default/past-date), doctor reassignment (success/failure-no-alternative/skips-busy), patient timeline (multi-entity merge), prescriptions, medical reports, audit logging, dashboard stats |
-| **Unit tests** (in `src/`) | **47** | Trait default-method tests (overlap/duration/priority/status), `DaySchedule` pure gap-finding, **`parse_slot` clinic-hours + grid rules**, **error-page HTML-escaping**, enum serialization round-trips, **PDF word-wrap + real `%PDF` byte rendering** |
-| **Total** | **159** | **100% pass rate** |
+| `test_templates.rs` | 4 | Tera render tests for the new features: batch-reassignment page (empty form / populated plan / no-work states) and the live-availability booking form render with representative contexts, so a bad variable or filter fails the build |
+| **Unit tests** (in `src/`) | **56** | Trait default-method tests (overlap/duration/priority/status), `DaySchedule` pure gap-finding **and per-slot `is_free` occupancy (drives the live booking dropdown)**, **`CostMatrix` Hungarian assignment (diagonal / beats-greedy / brute-force-optimum)**, **`parse_slot` clinic-hours + grid rules**, **error-page HTML-escaping**, enum serialization round-trips, **PDF word-wrap + real `%PDF` byte rendering** |
+| **Total** | **185** | **100% pass rate** |
 
 ### Architecture
 
