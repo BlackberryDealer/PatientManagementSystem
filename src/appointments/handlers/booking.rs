@@ -120,10 +120,10 @@ pub async fn book_appointment(
 
     // Emergency/Urgent is staff-only by construction: patients are already
     // forced to Normal by the resolver above.
-    let appointment = if booking.requested_priority().can_override() {
+    let (appointment, rescheduled) = if booking.requested_priority().can_override() {
         services::book_with_priority(pool.get_ref(), patient_user_id, &booking).await?
     } else {
-        services::book_appointment(pool.get_ref(), patient_user_id, &booking).await?
+        (services::book_appointment(pool.get_ref(), patient_user_id, &booking).await?, Vec::new())
     };
 
     audit::record(
@@ -133,6 +133,13 @@ pub async fn book_appointment(
             appointment.end_time, appointment.doctor_id(),
             appointment.patient_id, appointment.priority().label()),
     ).await;
+    for r in &rescheduled {
+        audit::record(
+            pool.get_ref(), &user, "appointment.auto_rescheduled", "appointment", Some(r.id),
+            &format!("Auto-rescheduled to {} {}–{} after a priority override bumped the original slot",
+                r.appointment_date, r.start_time, r.end_time),
+        ).await;
+    }
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))
         .finish())

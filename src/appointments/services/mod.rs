@@ -24,9 +24,9 @@ pub use queries::{
 };
 pub use rooms::{get_all_doctors, get_all_rooms};
 pub use waitlist::{
-    add_to_waitlist, auto_promote_waitlist, get_all_waitlist,
+    add_to_waitlist, auto_promote_waitlist, expire_stale_waitlist, get_all_waitlist,
     get_waitlist_for_doctor, get_waitlist_for_patient,
-    promote_from_waitlist, PromotionOutcome,
+    promote_from_waitlist, try_rebook_bumped, PromotionOutcome,
 };
 
 // Grid slot options for the booking UI — pure functions, no DB access.

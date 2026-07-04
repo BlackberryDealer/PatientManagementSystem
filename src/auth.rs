@@ -153,6 +153,13 @@ pub fn require_doctor(user: &AuthUser) -> Result<(), crate::errors::AppError> {
     require_role(user, &[Role::Doctor, Role::Admin])
 }
 
+/// Convenience: require doctor role, excluding admin. For clinical actions
+/// (writing a diagnosis, prescribing medication) where an admin acting as a
+/// stand-in doctor would be a patient-safety risk rather than a convenience.
+pub fn require_doctor_only(user: &AuthUser) -> Result<(), crate::errors::AppError> {
+    require_role(user, &[Role::Doctor])
+}
+
 /// Convenience: the acting user must be the target user themselves, or an admin.
 /// Used for profile pages where users manage their own data.
 pub fn require_self_or_admin(

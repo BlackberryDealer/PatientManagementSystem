@@ -1,12 +1,12 @@
-use crate::appointments::models::{Appointment, WaitlistEntry, WaitlistForm};
+use crate::appointments::models::{Appointment, SuggestSlotForm, WaitlistEntry, WaitlistForm};
 use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
-use crate::time::parse_slot;
+use crate::time::{minutes_to_time, parse_slot, time_to_minutes};
 use crate::traits::{Prioritized, Priority, StatusManaged, TimeSlotted};
 use sqlx::SqlitePool;
 
-use super::algorithms::{build_priority_queue, check_conflict};
+use super::algorithms::{build_priority_queue, check_conflict, find_earliest_slot};
 use super::helpers::{bump_conflict, insert_appointment, insert_appointment_in_tx, NewAppointment};
 use super::rooms::resolve_room;
 
@@ -19,8 +19,11 @@ use super::rooms::resolve_room;
 /// `Err` arm as `AppError`.
 pub enum PromotionOutcome {
     /// The entry was booked into a real appointment (slot was free, or an
-    /// override bumped a lower-priority occupant).
-    Promoted(Appointment),
+    /// override bumped a lower-priority occupant). The `Vec` holds any
+    /// bumped occupants that were immediately auto-rescheduled into the
+    /// doctor's next free same-day slot (empty when the slot was free or
+    /// when no gap was found for a bumped occupant).
+    Promoted(Appointment, Vec<Appointment>),
     /// The promotion was rejected; the string is a user-facing explanation.
     Blocked(String),
 }
@@ -93,12 +96,36 @@ pub async fn get_waitlist_for_patient(
          JOIN users pu ON p.user_id = pu.id
          JOIN doctors d ON w.doctor_id = d.id
          JOIN users du ON d.user_id = du.id
-         WHERE p.user_id = ? AND w.status = 'waiting'
+         WHERE p.user_id = ? AND w.status IN ('waiting', 'expired')
          ORDER BY w.priority ASC, w.created_at ASC",
     )
     .bind(patient_user_id)
     .fetch_all(pool)
     .await?)
+}
+
+/// Expire every waiting entry whose requested window has already passed:
+/// any past date, or today once requested_end is behind the current time.
+/// A set-based UPDATE for efficiency; the single-row `WaitlistEntry::expire`
+/// still owns the domain rule, and the `status = 'waiting'` clause here
+/// enforces the same transition guard at the database level.
+pub async fn expire_stale_waitlist(pool: &SqlitePool) -> Result<u64, AppError> {
+    let now = chrono::Utc::now();
+    let today = now.date_naive().format("%Y-%m-%d").to_string();
+    let time_now = now.format("%H:%M").to_string();
+
+    let result = sqlx::query(
+        "UPDATE waitlist SET status = 'expired'
+         WHERE status = 'waiting'
+           AND (appointment_date < ?
+                OR (appointment_date = ? AND requested_end <= ?))",
+    )
+    .bind(&today)
+    .bind(&today)
+    .bind(&time_now)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 /// Get all pending waitlist entries (admin view).
@@ -128,6 +155,7 @@ pub async fn auto_promote_waitlist(
     doctor_id: i64,
     appointment_date: &str,
 ) -> Result<Option<Appointment>, AppError> {
+    expire_stale_waitlist(pool).await?;
     let mut heap = build_priority_queue(pool, doctor_id, appointment_date).await?;
 
     while let Some(item) = heap.pop() {
@@ -199,15 +227,31 @@ pub async fn promote_from_waitlist(
     pool: &SqlitePool,
     waitlist_id: i64,
 ) -> Result<PromotionOutcome, AppError> {
-    let mut entry = sqlx::query_as::<_, WaitlistEntry>(
-        "SELECT * FROM waitlist WHERE id = ? AND status = 'waiting'"
-    )
-    .bind(waitlist_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Waitlist entry not found".into()))?;
+    // Sweep everything else stale first (system-wide hygiene), then load this
+    // entry regardless of status so a past-due click gets the friendly
+    // "already passed" message below instead of a bare NotFound.
+    expire_stale_waitlist(pool).await?;
+
+    let mut entry = sqlx::query_as::<_, WaitlistEntry>("SELECT * FROM waitlist WHERE id = ?")
+        .bind(waitlist_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Waitlist entry not found".into()))?;
 
     let date_str = entry.appointment_date.format("%Y-%m-%d").to_string();
+
+    let now = chrono::Utc::now();
+    let is_past = date_str < now.date_naive().format("%Y-%m-%d").to_string()
+        || (date_str == now.date_naive().format("%Y-%m-%d").to_string()
+            && entry.requested_end <= now.format("%H:%M").to_string());
+    if is_past {
+        return Ok(PromotionOutcome::Blocked(
+            "Could not promote: the requested time has already passed.".into(),
+        ));
+    }
+    if entry.current_status() != "waiting" {
+        return Err(AppError::NotFound("Waitlist entry not found".into()));
+    }
 
     // The doctor's availability rules gate every booking, priority or not, so a
     // slot the doctor has blocked can never be promoted into.
@@ -246,7 +290,7 @@ pub async fn promote_from_waitlist(
             notes: &entry.notes,
         }).await?;
         mark_entry_accepted(pool, &mut entry).await?;
-        return Ok(PromotionOutcome::Promoted(appt));
+        return Ok(PromotionOutcome::Promoted(appt, Vec::new()));
     }
 
     // Slot is occupied — a promotion may still proceed as a priority override,
@@ -291,8 +335,9 @@ pub async fn promote_from_waitlist(
     let (start_mins, end_mins) = parse_slot(&entry.requested_start, &entry.requested_end)?;
     let mut tx = pool.begin().await?;
 
+    let mut bumped_waitlist_ids = Vec::new();
     for (conflict_id, _, _, _, c_notes) in &conflicts {
-        bump_conflict(&mut tx, *conflict_id, c_notes).await?;
+        bumped_waitlist_ids.push(bump_conflict(&mut tx, *conflict_id, c_notes).await?);
     }
 
     let appt = insert_appointment_in_tx(
@@ -320,7 +365,102 @@ pub async fn promote_from_waitlist(
         .await?;
 
     tx.commit().await?;
-    Ok(PromotionOutcome::Promoted(appt))
+
+    let mut rescheduled = Vec::new();
+    for wl_id in bumped_waitlist_ids {
+        if let Some(rebooked) = try_rebook_bumped(pool, wl_id).await? {
+            rescheduled.push(rebooked);
+        }
+    }
+
+    Ok(PromotionOutcome::Promoted(appt, rescheduled))
+}
+
+/// Try to rebook a just-bumped waitlist entry into the doctor's earliest free
+/// same-duration gap on the same day. On success the entry is booked and
+/// marked accepted; the caller (which has the acting AuthUser) is responsible
+/// for the audit record. Returns `None` when the day is full — the entry then
+/// simply stays on the waitlist, the existing fallback behaviour.
+///
+/// Reuses Algorithm 2 (`find_earliest_slot`, which already walks
+/// `DaySchedule` gaps and checks `ensure_doctor_available`) rather than
+/// re-deriving the gap search, and books through the same `insert_appointment`
+/// helper every other booking path uses, so the `appointment_slots` UNIQUE
+/// index remains the single source of truth arbitrating any race.
+///
+/// Runs after the caller's override transaction has committed: the override
+/// itself (bump + urgent booking) must stay atomic, but rebooking is
+/// best-effort, so a rebooking failure can never roll back an emergency booking.
+pub async fn try_rebook_bumped(
+    pool: &SqlitePool,
+    waitlist_id: i64,
+) -> Result<Option<Appointment>, AppError> {
+    let Some(mut entry) = sqlx::query_as::<_, WaitlistEntry>(
+        "SELECT * FROM waitlist WHERE id = ? AND status = 'waiting'",
+    )
+    .bind(waitlist_id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(None);
+    };
+
+    let (start_mins, end_mins) = parse_slot(&entry.requested_start, &entry.requested_end)?;
+    let duration = end_mins - start_mins;
+    let date_str = entry.appointment_date.format("%Y-%m-%d").to_string();
+
+    let Some(new_start) = find_earliest_slot(
+        pool,
+        &SuggestSlotForm {
+            doctor_id: entry.doctor_id,
+            appointment_date: date_str.clone(),
+            duration_minutes: duration,
+        },
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+
+    let new_end = minutes_to_time(time_to_minutes(&new_start).unwrap() + duration);
+    let room_id = match entry.room_id {
+        Some(rid) => rid,
+        None => resolve_room(pool, entry.doctor_id, &date_str).await?,
+    };
+    let notes = Some(format!(
+        "{}auto-rescheduled from {} after a priority override",
+        entry
+            .notes
+            .as_deref()
+            .map(|n| format!("{n} — "))
+            .unwrap_or_default(),
+        entry.requested_start,
+    ));
+
+    match insert_appointment(
+        pool,
+        &NewAppointment {
+            patient_id: entry.patient_id,
+            doctor_id: entry.doctor_id,
+            date: &date_str,
+            start: &new_start,
+            end: &new_end,
+            priority: entry.priority_level(),
+            room_id,
+            notes: &notes,
+        },
+    )
+    .await
+    {
+        Ok(appt) => {
+            mark_entry_accepted(pool, &mut entry).await?;
+            Ok(Some(appt))
+        }
+        // Another booking grabbed it between find_earliest_slot's check and
+        // this insert (a real race, not a bug) — leave the entry waiting.
+        Err(AppError::BadRequest(msg)) if msg.contains("just been taken") => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// Mark a waiting entry as accepted after it has been booked (non-transactional

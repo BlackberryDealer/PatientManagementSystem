@@ -3,7 +3,7 @@ use crate::db;
 use crate::errors::AppError;
 use crate::records::models::{
     CreateRecordForm, MedicalRecord, PatientAppointmentOption, Prescription, PrescriptionForm,
-    RecordDetail, RecordReportData, TimelineEvent, TimelineEventKind,
+    RecordDetail, RecordListItem, RecordReportData, TimelineEvent, TimelineEventKind,
 };
 use crate::traits::{Reportable, StatusManaged};
 use sqlx::SqlitePool;
@@ -38,30 +38,40 @@ pub async fn create_record(
     .await?)
 }
 
+/// Shared SELECT for the records list: a medical record joined to its
+/// patient's and doctor's display names in one query, so the list page never
+/// falls back to showing raw ids.
+const RECORD_LIST_SELECT: &str = "
+    SELECT mr.id, mr.patient_id, mr.doctor_id, mr.appointment_id, mr.diagnosis, mr.treatment,
+           mr.notes, mr.created_at, pu.full_name AS patient_name, du.full_name AS doctor_name
+    FROM medical_records mr
+    JOIN patients p ON mr.patient_id = p.id
+    JOIN users pu ON p.user_id = pu.id
+    JOIN doctors d ON mr.doctor_id = d.id
+    JOIN users du ON d.user_id = du.id";
+
 /// List medical records for a patient.
 pub async fn get_records_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
-) -> Result<Vec<MedicalRecord>, AppError> {
+) -> Result<Vec<RecordListItem>, AppError> {
     let patient_id = db::get_patient_id(pool, patient_user_id).await?;
 
-    Ok(sqlx::query_as::<_, MedicalRecord>(
-        "SELECT * FROM medical_records WHERE patient_id = ? ORDER BY created_at DESC",
-    )
+    Ok(sqlx::query_as::<_, RecordListItem>(&format!(
+        "{RECORD_LIST_SELECT} WHERE mr.patient_id = ? ORDER BY mr.created_at DESC"
+    ))
     .bind(patient_id)
     .fetch_all(pool)
     .await?)
 }
 
 /// List all medical records (admin view).
-pub async fn get_all_records(pool: &SqlitePool) -> Result<Vec<MedicalRecord>, AppError> {
-    Ok(
-        sqlx::query_as::<_, MedicalRecord>(
-            "SELECT * FROM medical_records ORDER BY created_at DESC",
-        )
-        .fetch_all(pool)
-        .await?,
-    )
+pub async fn get_all_records(pool: &SqlitePool) -> Result<Vec<RecordListItem>, AppError> {
+    Ok(sqlx::query_as::<_, RecordListItem>(&format!(
+        "{RECORD_LIST_SELECT} ORDER BY mr.created_at DESC"
+    ))
+    .fetch_all(pool)
+    .await?)
 }
 
 /// Get a single medical record by ID.

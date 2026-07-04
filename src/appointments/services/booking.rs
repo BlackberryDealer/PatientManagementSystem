@@ -10,6 +10,7 @@ use sqlx::SqlitePool;
 use super::algorithms::check_conflict;
 use super::helpers::{bump_conflict, insert_appointment, insert_appointment_in_tx, NewAppointment};
 use super::rooms::resolve_room;
+use super::waitlist::try_rebook_bumped;
 
 // ============================================================
 // Role resolution: who is this appointment FOR, and WITH whom?
@@ -136,7 +137,7 @@ pub async fn book_with_priority(
     pool: &SqlitePool,
     patient_user_id: i64,
     form: &BookAppointmentForm,
-) -> Result<Appointment, AppError> {
+) -> Result<(Appointment, Vec<Appointment>), AppError> {
     form.validate()?;
     // Canonical zero-padded "HH:MM" — same normalisation as book_appointment.
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
@@ -162,7 +163,7 @@ pub async fn book_with_priority(
     ).await?;
 
     if !has_conflict {
-        return insert_appointment(pool, &NewAppointment {
+        let appt = insert_appointment(pool, &NewAppointment {
             patient_id,
             doctor_id: form.doctor_id,
             date: &form.appointment_date,
@@ -171,7 +172,8 @@ pub async fn book_with_priority(
             priority: new_priority as i32,
             room_id,
             notes: &form.notes,
-        }).await;
+        }).await?;
+        return Ok((appt, Vec::new()));
     }
 
     let conflicts = sqlx::query_as::<_, (i64, i32, String, String, String)>(
@@ -208,8 +210,9 @@ pub async fn book_with_priority(
 
     let mut tx = pool.begin().await?;
 
+    let mut bumped_waitlist_ids = Vec::new();
     for (conflict_id, _, _, _, c_notes) in &conflicts {
-        bump_conflict(&mut tx, *conflict_id, c_notes).await?;
+        bumped_waitlist_ids.push(bump_conflict(&mut tx, *conflict_id, c_notes).await?);
     }
 
     let appointment = insert_appointment_in_tx(
@@ -230,5 +233,13 @@ pub async fn book_with_priority(
     .await?;
 
     tx.commit().await?;
-    Ok(appointment)
+
+    let mut rescheduled = Vec::new();
+    for wl_id in bumped_waitlist_ids {
+        if let Some(rebooked) = try_rebook_bumped(pool, wl_id).await? {
+            rescheduled.push(rebooked);
+        }
+    }
+
+    Ok((appointment, rescheduled))
 }

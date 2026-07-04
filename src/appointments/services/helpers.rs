@@ -42,19 +42,20 @@ pub(super) async fn bump_to_waitlist(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     appointment_id: i64,
     notes: &str,
-) -> Result<(), AppError> {
-    sqlx::query(
+) -> Result<i64, AppError> {
+    let (id,): (i64,) = sqlx::query_as(
         "INSERT INTO waitlist (patient_id, doctor_id, room_id, appointment_date,
          requested_start, requested_end, priority, notes, status)
          SELECT patient_id, doctor_id, room_id, appointment_date,
                 start_time, end_time, priority, ?, 'waiting'
-         FROM appointments WHERE id = ?",
+         FROM appointments WHERE id = ?
+         RETURNING id",
     )
     .bind(notes)
     .bind(appointment_id)
-    .execute(&mut **tx)
+    .fetch_one(&mut **tx)
     .await?;
-    Ok(())
+    Ok(id)
 }
 
 /// Evict one lower-priority appointment from its slot inside a booking
@@ -67,8 +68,8 @@ pub(super) async fn bump_conflict(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     conflict_id: i64,
     notes: &str,
-) -> Result<(), AppError> {
-    bump_to_waitlist(tx, conflict_id, notes).await?;
+) -> Result<i64, AppError> {
+    let waitlist_id = bump_to_waitlist(tx, conflict_id, notes).await?;
 
     let mut bumped = sqlx::query_as::<_, Appointment>(
         "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
@@ -89,7 +90,7 @@ pub(super) async fn bump_conflict(
         .bind(conflict_id)
         .execute(&mut **tx)
         .await?;
-    Ok(())
+    Ok(waitlist_id)
 }
 
 /// Write one occupancy row per 30-minute slot in `[start_mins, end_mins)`

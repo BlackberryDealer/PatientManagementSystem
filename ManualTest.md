@@ -142,7 +142,7 @@ All passwords: **`password123`** (login works with username OR email)
 ### 2b. Book for a Patient (`/appointments/book`)
 - [ ] **Patient dropdown** shows all patients; **no doctor dropdown** — the booking lands in Dr. Smith's own schedule
 - [ ] Priority dropdown visible (Emergency, Urgent, Normal, Follow-up)
-- [ ] Book an **Emergency** appointment for a patient into a slot held by a Normal booking → succeeds; the displaced booking is cancelled and appears on the waitlist
+- [ ] Book an **Emergency** appointment for a patient into a slot held by a Normal booking → succeeds; the displaced booking is cancelled. If the rest of that day is open, the displaced patient is auto-rescheduled into the earliest free slot (see section 9 below); only when the day is genuinely full does the entry land on the waitlist as `waiting`
 - [ ] On any scheduled appointment's detail page: **Change Priority** dropdown re-triages it (e.g. Normal → Urgent)
 
 ### 3. Availability (`/availability`)
@@ -187,6 +187,27 @@ All passwords: **`password123`** (login works with username OR email)
 ### 8. Cancel & Auto-Promote
 - [ ] Cancel a scheduled appointment → waitlist auto-promotion triggers
 - [ ] Highest priority waitlist entry should get the freed slot
+
+### 9. Waitlist Auto Re-slot & Expiry
+
+**Bump-and-rebook (open day):**
+- [ ] As a patient (or via staff booking), book a Normal appointment at e.g. `09:00–09:30` on a date where the rest of the doctor's day is otherwise open
+- [ ] As `dr.smith`, book an **Emergency** appointment for a different patient into that same `09:00–09:30` slot
+- [ ] The displaced patient's original appointment shows as `cancelled`
+- [ ] The displaced patient has a **new** `scheduled` appointment at the doctor's earliest free slot that day (may be earlier than the original time if nothing was booked before it — the search starts from clinic opening, not from the original slot)
+- [ ] On `/appointments/waitlist`, the displaced patient's entry does **not** appear as `waiting` — it was resolved automatically, not queued
+
+**Bump-and-rebook (full day, fallback):**
+- [ ] Fill every 30-minute slot for a doctor on one date with Normal bookings
+- [ ] Book an Emergency override into one of those slots
+- [ ] The displaced patient's entry now appears on `/appointments/waitlist` with status `waiting` (no gap existed, so the fallback holds)
+- [ ] Cancel the overriding Emergency appointment → the existing auto-promote-on-cancel flow restores the displaced patient into their original slot, and the waitlist entry flips to `accepted`
+
+**Expiry:**
+- [ ] Join the waitlist for a date, then let that date pass (or seed a past-dated row directly in the DB for testing)
+- [ ] Reload `/appointments/waitlist` as the patient → the entry now shows status `expired` (light gray badge) with a note: "This request expired before a slot opened. You can book a new appointment from the booking page."
+- [ ] Reload `/appointments/waitlist` as `dr.smith` or `admin` → the expired entry is **not** shown (their view stays a live action queue, not history)
+- [ ] Attempt `POST /appointments/waitlist/{id}/promote` on the expired entry as `dr.smith` → redirects back to the waitlist with the notice "Could not promote: the requested time has already passed." instead of a generic error
 
 ---
 

@@ -15,8 +15,10 @@
     <div class="level-right">
         <div class="buttons">
             <p class="button is-static has-text-grey"><i class="fas fa-file-medical mr-1"></i>{{ records | length }}</p>
+            {% if user.role == "doctor" %}
             <a class="button is-primary" href="/records/create"><i class="fas fa-plus mr-1"></i>New Record</a>
             <a class="button is-link" href="/records/prescriptions/create"><i class="fas fa-prescription mr-1"></i>Write Prescription</a>
+            {% endif %}
         </div>
     </div>
     {% endif %}
@@ -40,10 +42,10 @@
             <tr>
                 <td class="has-text-grey is-size-7">#{{ r.id }}</td>
                 <td>
-                    <span class="has-text-weight-semibold"><i class="fas fa-user has-text-success mr-1"></i>Patient #{{ r.patient_id }}</span>
+                    <span class="has-text-weight-semibold"><i class="fas fa-user has-text-success mr-1"></i>{{ r.patient_name }}</span>
                 </td>
                 <td>
-                    <span class="has-text-weight-semibold"><i class="fas fa-user-md has-text-info mr-1"></i>Dr. #{{ r.doctor_id }}</span>
+                    <span class="has-text-weight-semibold"><i class="fas fa-user-md has-text-info mr-1"></i>{{ r.doctor_name }}</span>
                 </td>
                 <td>
                     {% if r.diagnosis %}
@@ -72,7 +74,7 @@
             {% if user.role == "patient" %}Your medical records will appear here once a doctor creates them.
             {% else %}Create the first medical record for a patient.{% endif %}
         </p>
-        {% if user.role == "doctor" or user.role == "admin" %}
+        {% if user.role == "doctor" %}
         <a class="button is-primary mt-3" href="/records/create"><i class="fas fa-plus mr-1"></i>Create Record</a>
         {% endif %}
     </div>

@@ -176,9 +176,11 @@
                 <i class="fas fa-exchange-alt mr-1"></i>Reassign Doctor
             </button>
         </form>
+        {% if user.role == "doctor" %}
         <a class="button is-success is-light" href="/records/create?patient_id={{ appointment.patient_id }}&appointment_id={{ appointment.id }}">
             <i class="fas fa-file-medical mr-1"></i>Create Medical Record
         </a>
+        {% endif %}
         {% endif %}
         {% endif %}
     </div>

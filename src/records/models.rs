@@ -249,6 +249,25 @@ pub struct RecordDetail {
     pub doctor_name: String,
 }
 
+/// One row of the medical records list: a record plus its patient/doctor
+/// display names, resolved via a single joined query rather than per-row
+/// lookups. Mirrors `RecordDetail` but shaped for `sqlx::FromRow` since the
+/// list query selects both the record's own columns and the joined names
+/// in one pass.
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct RecordListItem {
+    pub id: i64,
+    pub patient_id: i64,
+    pub doctor_id: i64,
+    pub appointment_id: Option<i64>,
+    pub diagnosis: Option<String>,
+    pub treatment: Option<String>,
+    pub notes: Option<String>,
+    pub created_at: chrono::NaiveDateTime,
+    pub patient_name: String,
+    pub doctor_name: String,
+}
+
 /// Data bundle for the printable medical report (advanced feature,
 /// project spec: "medical report generation").
 #[derive(Debug, Serialize)]

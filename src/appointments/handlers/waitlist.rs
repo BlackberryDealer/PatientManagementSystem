@@ -24,6 +24,8 @@ pub async fn list_waitlist(
     user: AuthUser,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse, AppError> {
+    services::expire_stale_waitlist(pool.get_ref()).await?;
+
     let (waitlist, doctor_label) = match user.role {
         Role::Patient => {
             let entries = services::get_waitlist_for_patient(pool.get_ref(), user.user_id).await?;
@@ -102,11 +104,18 @@ pub async fn promote_waitlist(
     let waitlist_id = path.into_inner();
 
     match services::promote_from_waitlist(pool.get_ref(), waitlist_id).await? {
-        services::PromotionOutcome::Promoted(appt) => {
+        services::PromotionOutcome::Promoted(appt, rescheduled) => {
             audit::record(
                 pool.get_ref(), &user, "waitlist.promoted", "appointment", Some(appt.id),
                 &format!("Waitlist entry #{} promoted to appointment", waitlist_id),
             ).await;
+            for r in &rescheduled {
+                audit::record(
+                    pool.get_ref(), &user, "appointment.auto_rescheduled", "appointment", Some(r.id),
+                    &format!("Auto-rescheduled to {} {}–{} after a priority override bumped the original slot",
+                        r.appointment_date, r.start_time, r.end_time),
+                ).await;
+            }
             Ok(HttpResponse::SeeOther()
                 .append_header(("Location", format!("/appointments/{}", appt.id)))
                 .finish())

@@ -130,7 +130,7 @@ async fn test_waitlist_promote() {
     let e = services::add_to_waitlist(&pool, 1, &f).await.unwrap();
     // Slot is free → straightforward promotion.
     let r = services::promote_from_waitlist(&pool, e.id).await.unwrap();
-    assert!(matches!(r, services::PromotionOutcome::Promoted(_)));
+    assert!(matches!(r, services::PromotionOutcome::Promoted(..)));
 }
 
 #[actix_web::test]
@@ -156,7 +156,7 @@ async fn test_waitlist_promote_overrides_lower_priority() {
     }).await.unwrap();
 
     let r = services::promote_from_waitlist(&pool, e.id).await.unwrap();
-    assert!(matches!(r, services::PromotionOutcome::Promoted(_)));
+    assert!(matches!(r, services::PromotionOutcome::Promoted(..)));
 
     // The original Normal appointment is no longer holding the slot.
     let held_after = services::get_appointment_by_id(&pool, held.id).await.unwrap();

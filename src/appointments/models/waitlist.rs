@@ -68,6 +68,18 @@ impl WaitlistEntry {
         Ok(())
     }
 
+    /// Mark this entry as expired (its requested time passed while waiting).
+    /// Domain rule: only a waiting entry can expire, final states are immutable.
+    pub fn expire(&mut self) -> Result<(), crate::errors::AppError> {
+        if self.status != WaitlistStatus::Waiting {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a waiting entry can expire".into(),
+            ));
+        }
+        self.status = WaitlistStatus::Expired;
+        Ok(())
+    }
+
     /// Read-only accessor for the triage priority as a typed enum (mirrors
     /// `Appointment::priority` so both lifecycle types treat priority the same way).
     pub fn priority(&self) -> Priority { Priority::from_i32(self.priority) }
@@ -140,5 +152,38 @@ mod tests {
         assert_eq!(serde_json::to_string(&WaitlistStatus::Waiting).unwrap(), "\"waiting\"");
         assert_eq!(serde_json::to_string(&WaitlistStatus::Expired).unwrap(), "\"expired\"");
         assert_eq!(WaitlistStatus::Accepted.as_str(), "accepted");
+    }
+
+    fn waiting_entry() -> super::WaitlistEntry {
+        super::WaitlistEntry {
+            id: 1,
+            patient_id: 1,
+            doctor_id: 1,
+            room_id: None,
+            appointment_date: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            requested_start: "09:00".into(),
+            requested_end: "09:30".into(),
+            priority: 3,
+            notes: None,
+            status: WaitlistStatus::Waiting,
+            created_at: chrono::NaiveDateTime::default(),
+            patient_name: String::new(),
+            doctor_name: String::new(),
+        }
+    }
+
+    #[test]
+    fn expire_on_waiting_entry_succeeds() {
+        use crate::traits::StatusManaged;
+        let mut entry = waiting_entry();
+        assert!(entry.expire().is_ok());
+        assert_eq!(entry.current_status(), "expired");
+    }
+
+    #[test]
+    fn expire_on_accepted_entry_errors() {
+        let mut entry = waiting_entry();
+        entry.accept().unwrap();
+        assert!(entry.expire().is_err());
     }
 }

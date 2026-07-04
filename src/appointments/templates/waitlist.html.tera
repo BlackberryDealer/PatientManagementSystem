@@ -61,7 +61,18 @@
                     {% endif %}
                 </td>
                 <td>
+                    {% if w.status == "waiting" %}
+                    <span class="tag is-info">{{ w.status }}</span>
+                    {% elif w.status == "offered" %}
+                    <span class="tag is-warning">{{ w.status }}</span>
+                    {% elif w.status == "accepted" %}
+                    <span class="tag is-success">{{ w.status }}</span>
+                    {% else %}
                     <span class="tag is-light">{{ w.status }}</span>
+                    {% endif %}
+                    {% if w.status == "expired" %}
+                    <p class="is-size-7 has-text-grey mt-1">This request expired before a slot opened. You can book a new appointment from the booking page.</p>
+                    {% endif %}
                 </td>
                 <td>
                     {# Promotion is a staff decision — patients see their

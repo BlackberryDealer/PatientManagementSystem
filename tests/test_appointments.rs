@@ -2,6 +2,7 @@
 mod common;
 use common::*;
 use actix_web::test;
+use patient_management_system::appointments::services;
 
 #[actix_web::test]
 async fn test_booking_form_loads() {
@@ -232,6 +233,10 @@ async fn test_booking_error_is_styled_html_with_message() {
 async fn test_staff_priority_booking_bumps_lower_priority() {
     // A doctor books an emergency patient into a slot held by a normal
     // booking — the single /appointments/book endpoint applies the bump.
+    // The rest of the day is open, so the bumped patient is immediately
+    // auto-rescheduled into the doctor's earliest free slot rather than
+    // being left waiting (see test_bump_stays_waiting_when_day_is_full for
+    // the full-day fallback case).
     let pool = test_db_pool().await;
     with_test_app!(pool, app, {
         let dcookie = seed_and_login!(app, pool, "priodoc", "doctor");
@@ -248,7 +253,7 @@ async fn test_staff_priority_booking_bumps_lower_priority() {
 
         // Doctor books the emergency patient (row id 2) into the same slot.
         // No doctor_id is sent — the appointment lands in the doctor's own
-        // schedule. The lower-priority booking is bumped to the waitlist.
+        // schedule. The lower-priority booking is bumped, then auto-rebooked.
         let req2 = auth_post("/appointments/book", &dcookie, serde_json::json!({
             "patient_id": 2, "appointment_date": "2027-06-16",
             "start_time": "09:00", "end_time": "09:30", "priority": 1,
@@ -256,11 +261,19 @@ async fn test_staff_priority_booking_bumps_lower_priority() {
         let resp2 = test::call_service(&app, req2).await;
         assert!(resp2.status().is_redirection(), "Emergency priority booking should succeed");
 
-        // The bumped normal booking is now on the waitlist.
-        let bumped: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM waitlist WHERE status = 'waiting' AND patient_id = 1",
+        // The bumped normal booking was auto-rescheduled and accepted, not
+        // left waiting — the day's earliest free gap (08:00) precedes the
+        // original 09:00 slot.
+        let bumped: (String,) = sqlx::query_as(
+            "SELECT status FROM waitlist WHERE patient_id = 1",
         ).fetch_one(&pool).await.unwrap();
-        assert_eq!(bumped.0, 1, "the displaced booking must land on the waitlist");
+        assert_eq!(bumped.0, "accepted", "an open day must auto-rebook the bumped patient");
+
+        let rebooked: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM appointments
+             WHERE patient_id = 1 AND status = 'scheduled' AND start_time = '08:00'",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(rebooked.0, 1, "the bumped patient must land the day's earliest free slot");
     });
 }
 
@@ -740,5 +753,206 @@ async fn test_update_priority_http() {
             serde_json::json!({ "priority": 9 })).to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status().as_u16(), 400);
+    });
+}
+
+// ============================================================
+// Waitlist lifecycle: expiry + auto re-slot
+// ============================================================
+
+#[actix_web::test]
+async fn test_expire_stale_waitlist_sweep() {
+    // A waiting entry whose date has already passed must be swept to
+    // 'expired' and drop out of the doctor's (action-queue) view, while
+    // remaining visible (as expired) on the patient's own view.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "expiredoc", "doctor");
+        let _pcookie = register_and_login!(app, "expirepat", "patient");
+
+        sqlx::query(
+            "INSERT INTO waitlist (patient_id, doctor_id, room_id, appointment_date,
+             requested_start, requested_end, priority, notes, status)
+             VALUES (1, 1, NULL, '2020-01-01', '09:00', '09:30', 3, NULL, 'waiting')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let swept = services::expire_stale_waitlist(&pool).await.unwrap();
+        assert_eq!(swept, 1, "the stale entry must be swept");
+
+        let status: (String,) = sqlx::query_as("SELECT status FROM waitlist WHERE id = 1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(status.0, "expired");
+
+        let doctor_view = services::get_waitlist_for_doctor(&pool, 1).await.unwrap();
+        assert!(doctor_view.is_empty(), "expired entries are noise on the doctor's action queue");
+
+        let patient_view = services::get_waitlist_for_patient(&pool, 2).await.unwrap();
+        assert_eq!(patient_view.len(), 1, "the patient must still see what happened to their request");
+    });
+}
+
+#[actix_web::test]
+async fn test_bump_auto_reschedules_into_free_slot() {
+    // A bumped patient with an otherwise-open day is immediately rebooked
+    // into the doctor's earliest free same-duration slot, not left waitlisted.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "rebookdoc", "doctor");
+        let victim = register_and_login!(app, "rebookvictim", "patient");
+        let _emerg = register_and_login!(app, "rebookemerg", "patient");
+
+        // Victim (patient row 1) books 09:30-10:00 Normal, leaving 08:00-09:30
+        // open so the earliest-gap search has somewhere unambiguous to land.
+        let req = auth_post("/appointments/book", &victim, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-07-01",
+            "start_time": "09:30", "end_time": "10:00", "priority": 3,
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        // Doctor books an Emergency for patient row 2 into the same slot —
+        // the rest of the day is open, so the day's earliest gap (08:00)
+        // must be found and taken.
+        let req = auth_post("/appointments/book", &dcookie, serde_json::json!({
+            "patient_id": 2, "appointment_date": "2027-07-01",
+            "start_time": "09:30", "end_time": "10:00", "priority": 1,
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        let wl_status: (String,) = sqlx::query_as(
+            "SELECT status FROM waitlist WHERE patient_id = 1",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(wl_status.0, "accepted", "the bumped entry must be auto-rebooked, not left waiting");
+
+        let rebooked: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM appointments
+             WHERE patient_id = 1 AND status = 'scheduled' AND start_time = '08:00'",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(rebooked.0, 1, "the victim must land a new appointment at the day's earliest free slot");
+    });
+}
+
+#[actix_web::test]
+async fn test_bump_stays_waiting_when_day_is_full() {
+    // When the doctor's whole day is already booked solid, a bumped patient
+    // has nowhere to auto-reschedule to and must fall back to waiting — the
+    // pre-existing behaviour, preserved.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "fulldaydoc", "doctor");
+        let filler = register_and_login!(app, "fullfiller", "patient");
+        let _emerg = register_and_login!(app, "fullemerg", "patient");
+
+        // Fill every 30-minute clinic slot (08:00-17:00) with the filler.
+        for i in 0..18 {
+            let start_min = 8 * 60 + i * 30;
+            let end_min = start_min + 30;
+            let start = format!("{:02}:{:02}", start_min / 60, start_min % 60);
+            let end = format!("{:02}:{:02}", end_min / 60, end_min % 60);
+            let req = auth_post("/appointments/book", &filler, serde_json::json!({
+                "doctor_id": 1, "appointment_date": "2027-07-02",
+                "start_time": start, "end_time": end, "priority": 3,
+            })).to_request();
+            assert!(test::call_service(&app, req).await.status().is_redirection(),
+                "filler booking at {start} should succeed");
+        }
+
+        // Doctor overrides the 12:00 slot with an Emergency for patient row 2.
+        let req = auth_post("/appointments/book", &dcookie, serde_json::json!({
+            "patient_id": 2, "appointment_date": "2027-07-02",
+            "start_time": "12:00", "end_time": "12:30", "priority": 1,
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        let wl_status: (String,) = sqlx::query_as(
+            "SELECT status FROM waitlist WHERE patient_id = 1 AND requested_start = '12:00'",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(wl_status.0, "waiting", "no gap exists, so the fallback to waitlist must hold");
+    });
+}
+
+#[actix_web::test]
+async fn test_promote_past_dated_entry_is_blocked() {
+    // A stale Promote click must get a clear "already passed" notice, not a
+    // confusing conflict error or a silent no-op.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "pastdoc", "doctor");
+        let _pcookie = register_and_login!(app, "pastpat", "patient");
+
+        sqlx::query(
+            "INSERT INTO waitlist (patient_id, doctor_id, room_id, appointment_date,
+             requested_start, requested_end, priority, notes, status)
+             VALUES (1, 1, NULL, '2020-01-01', '09:00', '09:30', 3, NULL, 'waiting')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let req = test::TestRequest::post()
+            .uri("/appointments/waitlist/1/promote")
+            .insert_header(("Cookie", dcookie))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection());
+        let location = resp.headers().get("Location").unwrap().to_str().unwrap();
+        assert!(location.contains("waitlist?error="), "must redirect back with a notice");
+        assert!(location.contains("already"), "the notice must explain the time has passed");
+    });
+}
+
+#[actix_web::test]
+async fn test_cancel_still_restores_bumped_patient_when_day_was_full() {
+    // Regression: when a bumped patient could not be auto-rescheduled (day
+    // full) and stayed waiting, cancelling the overriding appointment must
+    // still restore them via the pre-existing auto-promote-on-cancel flow.
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "restoredoc", "doctor");
+        let filler = register_and_login!(app, "restorefiller", "patient");
+        let _emerg = register_and_login!(app, "restoreemerg", "patient");
+
+        for i in 0..18 {
+            let start_min = 8 * 60 + i * 30;
+            let end_min = start_min + 30;
+            let start = format!("{:02}:{:02}", start_min / 60, start_min % 60);
+            let end = format!("{:02}:{:02}", end_min / 60, end_min % 60);
+            let req = auth_post("/appointments/book", &filler, serde_json::json!({
+                "doctor_id": 1, "appointment_date": "2027-07-03",
+                "start_time": start, "end_time": end, "priority": 3,
+            })).to_request();
+            assert!(test::call_service(&app, req).await.status().is_redirection());
+        }
+        // 12:00-12:30 is the 9th booking (i = 8), so its appointment id is 9.
+        let req = auth_post("/appointments/book", &dcookie, serde_json::json!({
+            "patient_id": 2, "appointment_date": "2027-07-03",
+            "start_time": "12:00", "end_time": "12:30", "priority": 1,
+        })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_redirection());
+
+        let wl_status: (String,) = sqlx::query_as(
+            "SELECT status FROM waitlist WHERE patient_id = 1 AND requested_start = '12:00'",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(wl_status.0, "waiting");
+
+        // Cancel the Emergency appointment (id 19: 18 filler bookings + 1).
+        let cancel_req = test::TestRequest::post()
+            .uri("/appointments/19/cancel")
+            .insert_header(("Cookie", dcookie.clone()))
+            .to_request();
+        assert!(test::call_service(&app, cancel_req).await.status().is_redirection());
+
+        let wl_status: (String,) = sqlx::query_as(
+            "SELECT status FROM waitlist WHERE patient_id = 1 AND requested_start = '12:00'",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(wl_status.0, "accepted", "cancelling the override must auto-promote the waiter");
+
+        let restored: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM appointments
+             WHERE patient_id = 1 AND status = 'scheduled' AND start_time = '12:00'",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(restored.0, 1, "the filler must get their original slot back");
     });
 }

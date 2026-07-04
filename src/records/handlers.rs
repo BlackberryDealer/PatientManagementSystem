@@ -2,7 +2,7 @@ use actix_web::{web, HttpResponse};
 use tera::Context;
 
 use crate::audit::services as audit;
-use crate::auth::{require_doctor, AuthUser, Role};
+use crate::auth::{require_doctor_only, AuthUser, Role};
 use crate::errors::AppError;
 use crate::records::models::{CreateRecordForm, PrescriptionForm};
 use crate::records::services;
@@ -48,7 +48,7 @@ pub async fn create_record_form(
     user: AuthUser,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse, AppError> {
-    require_doctor(&user)?;
+    require_doctor_only(&user)?;
 
     let patients = services::get_all_patients(pool.get_ref()).await?;
     let prefill_patient_id = query.get("patient_id").and_then(|s| s.parse::<i64>().ok());
@@ -66,7 +66,7 @@ pub async fn create_record_form(
 
 /// GET /records/patient-appointments?patient_id=N — JSON list of a patient's
 /// appointments for the create-record form's "link to appointment" dropdown
-/// (doctor/admin only). Lets the form offer a pick-list of that patient's real
+/// (doctor only). Lets the form offer a pick-list of that patient's real
 /// visits, so the linked appointment is selected rather than its id typed by
 /// hand. A missing/unparsable `patient_id` yields an empty list rather than an
 /// error, mirroring the booking slot APIs.
@@ -75,7 +75,7 @@ pub async fn patient_appointments_api(
     user: AuthUser,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse, AppError> {
-    require_doctor(&user)?;
+    require_doctor_only(&user)?;
 
     let options = match query.get("patient_id").and_then(|s| s.parse::<i64>().ok()) {
         Some(patient_id) => {
@@ -93,7 +93,7 @@ pub async fn create_record(
     user: AuthUser,
     form: web::Form<CreateRecordForm>,
 ) -> Result<HttpResponse, AppError> {
-    require_doctor(&user)?;
+    require_doctor_only(&user)?;
 
     let record = services::create_record(pool.get_ref(), user.user_id, &form).await?;
     audit::record(
@@ -116,7 +116,7 @@ pub async fn prescription_form(
     tera: web::Data<tera::Tera>,
     user: AuthUser,
 ) -> Result<HttpResponse, AppError> {
-    require_doctor(&user)?;
+    require_doctor_only(&user)?;
 
     let patients = services::get_all_patients(pool.get_ref()).await?;
 
@@ -134,7 +134,7 @@ pub async fn create_prescription(
     user: AuthUser,
     form: web::Form<PrescriptionForm>,
 ) -> Result<HttpResponse, AppError> {
-    require_doctor(&user)?;
+    require_doctor_only(&user)?;
 
     let rx = services::create_prescription(pool.get_ref(), user.user_id, &form).await?;
     audit::record(

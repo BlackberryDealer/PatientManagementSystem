@@ -1,4 +1,4 @@
-use crate::availability::models::{DoctorAvailability, SetAvailabilityForm};
+use crate::availability::models::{AvailabilityListItem, DoctorAvailability, SetAvailabilityForm};
 use crate::db;
 use crate::errors::AppError;
 use crate::traits::{any_conflict, TimeSlotted, TimeWindow};
@@ -116,17 +116,25 @@ pub fn slot_allowed_by_rules(
     true
 }
 
+/// Shared SELECT for the availability list: a slot joined to its doctor's
+/// display name, so the list page never falls back to showing a raw id.
+const AVAILABILITY_LIST_SELECT: &str = "
+    SELECT da.id, da.doctor_id, da.day_of_week, da.start_time, da.end_time,
+           da.is_recurring, da.specific_date, da.is_blocked, u.full_name AS doctor_name
+    FROM doctor_availability da
+    JOIN doctors d ON da.doctor_id = d.id
+    JOIN users u ON d.user_id = u.id";
+
 /// List all availability slots for a doctor.
 pub async fn get_availability_for_doctor(
     pool: &SqlitePool,
     doctor_user_id: i64,
-) -> Result<Vec<DoctorAvailability>, AppError> {
+) -> Result<Vec<AvailabilityListItem>, AppError> {
     let doctor_id = db::get_doctor_id(pool, doctor_user_id).await?;
 
-    Ok(sqlx::query_as::<_, DoctorAvailability>(
-        "SELECT id, doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked
-         FROM doctor_availability WHERE doctor_id = ? ORDER BY day_of_week, start_time",
-    )
+    Ok(sqlx::query_as::<_, AvailabilityListItem>(&format!(
+        "{AVAILABILITY_LIST_SELECT} WHERE da.doctor_id = ? ORDER BY da.day_of_week, da.start_time"
+    ))
     .bind(doctor_id)
     .fetch_all(pool)
     .await?)
@@ -135,11 +143,10 @@ pub async fn get_availability_for_doctor(
 /// List all availability slots (admin view).
 pub async fn get_all_availability(
     pool: &SqlitePool,
-) -> Result<Vec<DoctorAvailability>, AppError> {
-    Ok(sqlx::query_as::<_, DoctorAvailability>(
-        "SELECT id, doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked
-         FROM doctor_availability ORDER BY doctor_id, day_of_week, start_time",
-    )
+) -> Result<Vec<AvailabilityListItem>, AppError> {
+    Ok(sqlx::query_as::<_, AvailabilityListItem>(&format!(
+        "{AVAILABILITY_LIST_SELECT} ORDER BY da.doctor_id, da.day_of_week, da.start_time"
+    ))
     .fetch_all(pool)
     .await?)
 }

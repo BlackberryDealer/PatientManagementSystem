@@ -31,6 +31,23 @@ impl TimeSlotted for DoctorAvailability {
     fn end_time(&self) -> &str { &self.end_time }
 }
 
+/// One row of the availability list page: a slot plus its doctor's display
+/// name, resolved via a join. The booking-conflict machinery keeps using the
+/// bare `DoctorAvailability` (it never needs the name); this shape exists so
+/// the list page never falls back to showing a raw doctor id.
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct AvailabilityListItem {
+    pub id: i64,
+    pub doctor_id: i64,
+    pub day_of_week: i32,
+    pub start_time: String,
+    pub end_time: String,
+    pub is_recurring: i32,
+    pub specific_date: Option<chrono::NaiveDate>,
+    pub is_blocked: i32,
+    pub doctor_name: String,
+}
+
 /// Form submitted by a doctor to set their availability.
 #[derive(Debug, Deserialize)]
 pub struct SetAvailabilityForm {
