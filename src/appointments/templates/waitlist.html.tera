@@ -13,6 +13,15 @@
     Patients waiting for appointment slots. Ordered by priority — Emergency patients are served first.
 </p>
 
+{# One-time notice when a promotion could not proceed (e.g. the slot is held by
+   an equal or higher priority appointment). Passed through the URL by the
+   promote handler; Tera auto-escapes it. #}
+{% if error %}
+<div class="notification is-warning is-light fade-in">
+    <i class="fas fa-exclamation-triangle mr-1"></i>{{ error }}
+</div>
+{% endif %}
+
 {% if waitlist %}
 <div class="table-container fade-in">
     <table class="table is-fullwidth is-striped is-hoverable">
@@ -60,7 +69,7 @@
                     {% if w.status == "waiting" and (user.role == "doctor" or user.role == "admin") %}
                     <form method="POST" action="/appointments/waitlist/{{ w.id }}/promote" style="display:inline;">
                         <button class="button is-small is-success is-light" type="submit"
-                                title="Promote this patient if the slot is now free">
+                                title="Book this patient into the slot. If it is taken by a lower-priority appointment, that one is bumped to the waitlist.">
                             <i class="fas fa-arrow-up mr-1"></i>Promote
                         </button>
                     </form>

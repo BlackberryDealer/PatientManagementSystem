@@ -1,6 +1,7 @@
 use crate::appointments::models::Appointment;
 use crate::errors::AppError;
 use crate::time::{minutes_to_time, parse_slot, SLOT_MINUTES};
+use crate::traits::StatusManaged;
 use sqlx::SqlitePool;
 
 /// The full column list for loading an `Appointment` row. Every mutation
@@ -53,6 +54,41 @@ pub(super) async fn bump_to_waitlist(
     .bind(appointment_id)
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+/// Evict one lower-priority appointment from its slot inside a booking
+/// transaction so a more urgent booking can take its place: copy it onto the
+/// waitlist, cancel it, and release its occupancy slots. The single source of
+/// truth for "bump the occupant", shared by priority booking
+/// (`book_with_priority`) and priority-override waitlist promotion
+/// (`promote_from_waitlist`).
+pub(super) async fn bump_conflict(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    conflict_id: i64,
+    notes: &str,
+) -> Result<(), AppError> {
+    bump_to_waitlist(tx, conflict_id, notes).await?;
+
+    let mut bumped = sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE id = ?",
+    )
+    .bind(conflict_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    bumped.cancel()?;
+    sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
+        .bind(bumped.current_status())
+        .bind(bumped.id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
+        .bind(conflict_id)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 

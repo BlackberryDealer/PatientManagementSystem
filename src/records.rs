@@ -12,6 +12,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("", web::get().to(handlers::list_records))
             .route("/create", web::get().to(handlers::create_record_form))
             .route("/create", web::post().to(handlers::create_record))
+            .route("/patient-appointments", web::get().to(handlers::patient_appointments_api))
             .route("/timeline", web::get().to(handlers::patient_timeline))
             .route("/prescriptions/create", web::get().to(handlers::prescription_form))
             .route("/prescriptions/create", web::post().to(handlers::create_prescription))

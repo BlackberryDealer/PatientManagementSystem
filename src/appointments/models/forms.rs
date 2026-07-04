@@ -138,3 +138,21 @@ pub struct ReassignDayForm {
 pub struct FreeSlotsResponse {
     pub slots: Vec<String>,
 }
+
+/// One 30-minute start slot plus whether it is currently unoccupied. Powers the
+/// staff "show every slot, mark the taken ones" booking dropdown, where a doctor
+/// may deliberately pick an occupied slot to trigger a priority override.
+#[derive(Debug, Serialize)]
+pub struct SlotAvailability {
+    pub time: String, // HH:MM
+    pub free: bool,   // true = open, false = already booked (overridable)
+}
+
+/// JSON payload for the staff booking form: every 30-minute start slot within
+/// clinic hours the doctor's availability rules allow, each marked free or
+/// occupied. Unlike `FreeSlotsResponse` (patient view, free slots only) this
+/// lets doctors/admins see and select occupied slots for a priority override.
+#[derive(Debug, Serialize)]
+pub struct AllSlotsResponse {
+    pub slots: Vec<SlotAvailability>,
+}

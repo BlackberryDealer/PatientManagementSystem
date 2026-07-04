@@ -35,22 +35,56 @@ pub async fn list_records(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// GET /records/create — show create record form (doctor only)
+/// GET /records/create — show create record form (doctor only).
+///
+/// Optional `?patient_id=&appointment_id=` pre-fill the form when a doctor
+/// arrives from an appointment's "Create Medical Record" button: the patient
+/// dropdown is pre-selected (never re-typed) and the linked appointment id is
+/// carried through, so the record lands on the right patient and visit without
+/// manual id entry — the most common source of misfiled records.
 pub async fn create_record_form(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
     user: AuthUser,
+    query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse, AppError> {
     require_doctor(&user)?;
 
     let patients = services::get_all_patients(pool.get_ref()).await?;
+    let prefill_patient_id = query.get("patient_id").and_then(|s| s.parse::<i64>().ok());
+    let prefill_appointment_id = query.get("appointment_id").and_then(|s| s.parse::<i64>().ok());
 
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("patients", &patients);
+    ctx.insert("prefill_patient_id", &prefill_patient_id);
+    ctx.insert("prefill_appointment_id", &prefill_appointment_id);
     ctx.insert("title", "Create Medical Record");
     let rendered = tera.render("records/create.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
+}
+
+/// GET /records/patient-appointments?patient_id=N — JSON list of a patient's
+/// appointments for the create-record form's "link to appointment" dropdown
+/// (doctor/admin only). Lets the form offer a pick-list of that patient's real
+/// visits, so the linked appointment is selected rather than its id typed by
+/// hand. A missing/unparsable `patient_id` yields an empty list rather than an
+/// error, mirroring the booking slot APIs.
+pub async fn patient_appointments_api(
+    pool: web::Data<sqlx::SqlitePool>,
+    user: AuthUser,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> Result<HttpResponse, AppError> {
+    require_doctor(&user)?;
+
+    let options = match query.get("patient_id").and_then(|s| s.parse::<i64>().ok()) {
+        Some(patient_id) => {
+            services::get_patient_appointment_options(pool.get_ref(), patient_id).await?
+        }
+        None => Vec::new(),
+    };
+
+    Ok(HttpResponse::Ok().json(options))
 }
 
 /// POST /records/create — create a new medical record (doctor only)

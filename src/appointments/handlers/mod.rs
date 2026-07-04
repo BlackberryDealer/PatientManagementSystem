@@ -17,7 +17,8 @@ mod reassign_day;
 mod waitlist;
 
 pub use booking::{
-    available_slots_api, book_appointment, book_form, suggest_slot, suggest_slot_form,
+    all_slots_api, available_slots_api, book_appointment, book_form, suggest_slot,
+    suggest_slot_form,
 };
 pub use lifecycle::{
     assign_room, cancel_appointment, complete_appointment, reassign_appointment,

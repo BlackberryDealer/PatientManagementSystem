@@ -11,6 +11,14 @@
 <h1 class="title"><i class="fas fa-plus-circle mr-2"></i>Create Medical Record</h1>
 <p class="subtitle is-6 has-text-grey mb-5">Document a new diagnosis, treatment plan, and clinical notes for a patient.</p>
 
+{# Arrived from an appointment's "Create Medical Record" button: the patient and
+   the linked visit are already known, so both are pre-filled below. #}
+{% if prefill_appointment_id %}
+<div class="notification is-info is-light fade-in">
+    <i class="fas fa-link mr-1"></i>Creating a record for <strong>appointment #{{ prefill_appointment_id }}</strong>. The patient is pre-selected — just fill in the clinical details.
+</div>
+{% endif %}
+
 <div class="box fade-in">
     <form method="POST" action="/records/create">
         <div class="columns">
@@ -19,25 +27,30 @@
                     <label class="label"><i class="fas fa-user mr-1"></i>Patient</label>
                     <div class="control has-icons-left">
                         <div class="select is-fullwidth">
-                            <select name="patient_id" required>
+                            <select name="patient_id" id="patient_id" required>
                                 <option value="">-- Select patient --</option>
                                 {% for p in patients %}
-                                <option value="{{ p.0 }}">{{ p.1 }}</option>
+                                <option value="{{ p.0 }}" {% if prefill_patient_id and p.0 == prefill_patient_id %}selected{% endif %}>{{ p.1 }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                         <div class="icon is-small is-left"><i class="fas fa-user"></i></div>
                     </div>
-                    <p class="help">Select the patient for this medical record.</p>
+                    <p class="help">Pick the patient from the list — no id typing, so the record can't be misfiled.</p>
                 </div>
 
                 <div class="field">
-                    <label class="label"><i class="fas fa-calendar-check mr-1"></i>Appointment ID <span class="has-text-grey">(optional)</span></label>
+                    <label class="label"><i class="fas fa-calendar-check mr-1"></i>Linked Appointment <span class="has-text-grey">(optional)</span></label>
                     <div class="control has-icons-left">
-                        <input class="input" type="number" name="appointment_id" placeholder="Link to an appointment">
+                        <div class="select is-fullwidth">
+                            <select name="appointment_id" id="appointment_id"
+                                    data-prefill="{{ prefill_appointment_id | default(value='') }}">
+                                <option value="">-- Select a patient first --</option>
+                            </select>
+                        </div>
                         <span class="icon is-small is-left"><i class="fas fa-link"></i></span>
                     </div>
-                    <p class="help">Linking to an appointment provides context for the consultation.</p>
+                    <p class="help" id="appointment-help">{% if prefill_appointment_id %}Linked automatically from the appointment you came from.{% else %}Pick from this patient's appointments — no id typing, so the record links to the right visit.{% endif %}</p>
                 </div>
             </div>
             <div class="column is-6">
@@ -85,4 +98,75 @@
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Fill the "Linked Appointment" dropdown from the chosen patient's own
+    // appointments (progressive enhancement). Selecting a patient loads their
+    // visits via a JSON lookup so the doctor picks a real appointment instead of
+    // typing an id. Without JS the field is simply the optional placeholder and
+    // the record still saves; the server treats appointment_id as optional.
+    (function () {
+        const patientSelect = document.getElementById('patient_id');
+        const apptSelect = document.getElementById('appointment_id');
+        const helpEl = document.getElementById('appointment-help');
+        if (!patientSelect || !apptSelect) return;
+
+        // Appointment we arrived pre-linked to (from an appointment's "Create
+        // Medical Record" button) — re-selected once its patient's list loads.
+        const prefill = apptSelect.dataset.prefill || '';
+
+        function setSingle(text) {
+            apptSelect.innerHTML = '';
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = text;
+            apptSelect.appendChild(opt);
+        }
+
+        async function refreshAppointments() {
+            const patientId = patientSelect.value;
+            if (!patientId) {
+                setSingle('-- Select a patient first --');
+                return;
+            }
+            setSingle('Loading appointments…');
+            try {
+                const res = await fetch(`/records/patient-appointments?patient_id=${encodeURIComponent(patientId)}`);
+                const options = await res.json();
+
+                apptSelect.innerHTML = '';
+                const none = document.createElement('option');
+                none.value = '';
+                none.textContent = options.length
+                    ? '-- No linked appointment --'
+                    : '-- This patient has no appointments --';
+                apptSelect.appendChild(none);
+
+                options.forEach((o) => {
+                    const opt = document.createElement('option');
+                    opt.value = o.id;
+                    opt.textContent = o.label;
+                    if (String(o.id) === prefill) opt.selected = true;
+                    apptSelect.appendChild(opt);
+                });
+
+                if (helpEl && options.length === 0) {
+                    helpEl.textContent = 'This patient has no appointments to link — you can still save the record.';
+                }
+            } catch (e) {
+                // Network/parse failure: leave the field empty (appointment_id
+                // is optional) so the record still saves, just without a link.
+                setSingle('-- Could not load appointments --');
+            }
+        }
+
+        patientSelect.addEventListener('change', refreshAppointments);
+
+        // Pre-fill case: the patient is already selected, so load their
+        // appointments immediately and re-select the linked one.
+        if (patientSelect.value) refreshAppointments();
+    })();
+</script>
 {% endblock %}

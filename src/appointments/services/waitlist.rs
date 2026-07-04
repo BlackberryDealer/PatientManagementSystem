@@ -2,12 +2,28 @@ use crate::appointments::models::{Appointment, WaitlistEntry, WaitlistForm};
 use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
-use crate::traits::{Prioritized, StatusManaged, TimeSlotted};
+use crate::time::parse_slot;
+use crate::traits::{Prioritized, Priority, StatusManaged, TimeSlotted};
 use sqlx::SqlitePool;
 
 use super::algorithms::{build_priority_queue, check_conflict};
-use super::helpers::{insert_appointment, NewAppointment};
+use super::helpers::{bump_conflict, insert_appointment, insert_appointment_in_tx, NewAppointment};
 use super::rooms::resolve_room;
+
+/// Outcome of a staff-initiated waitlist promotion.
+///
+/// Distinguishes the two non-error results the handler must render differently:
+/// a successful booking (redirect to the new appointment) versus a promotion
+/// that could not proceed under the triage rules (redirect back with a reason
+/// the user sees). Genuine failures (DB errors, a missing entry) stay in the
+/// `Err` arm as `AppError`.
+pub enum PromotionOutcome {
+    /// The entry was booked into a real appointment (slot was free, or an
+    /// override bumped a lower-priority occupant).
+    Promoted(Appointment),
+    /// The promotion was rejected; the string is a user-facing explanation.
+    Blocked(String),
+}
 
 /// Add a patient to the waitlist.
 pub async fn add_to_waitlist(
@@ -168,11 +184,21 @@ pub async fn auto_promote_waitlist(
     Ok(None)
 }
 
-/// Promote a waitlist entry: if its slot is now free, book it.
+/// Promote a waitlist entry into a real appointment (staff-initiated).
+///
+/// Two cases:
+/// * **Slot free** — book it directly (the original behaviour, also used when a
+///   cancellation just opened the slot up).
+/// * **Slot occupied** — apply the same triage rule as `book_with_priority`:
+///   if the waiting entry strictly outranks *every* appointment holding the
+///   slot, bump those lower-priority occupants to the waitlist and book the
+///   promoted entry in their place, all inside one transaction. Otherwise the
+///   promotion is `Blocked` with a reason the caller surfaces to the user —
+///   never a silent no-op.
 pub async fn promote_from_waitlist(
     pool: &SqlitePool,
     waitlist_id: i64,
-) -> Result<Option<Appointment>, AppError> {
+) -> Result<PromotionOutcome, AppError> {
     let mut entry = sqlx::query_as::<_, WaitlistEntry>(
         "SELECT * FROM waitlist WHERE id = ? AND status = 'waiting'"
     )
@@ -182,10 +208,18 @@ pub async fn promote_from_waitlist(
     .ok_or_else(|| AppError::NotFound("Waitlist entry not found".into()))?;
 
     let date_str = entry.appointment_date.format("%Y-%m-%d").to_string();
+
+    // The doctor's availability rules gate every booking, priority or not, so a
+    // slot the doctor has blocked can never be promoted into.
     let available = ensure_doctor_available(
         pool, entry.doctor_id, &date_str,
         &entry.requested_start, &entry.requested_end,
     ).await.is_ok();
+    if !available {
+        return Ok(PromotionOutcome::Blocked(
+            "Could not promote: the doctor is not available for that time on that date.".into(),
+        ));
+    }
 
     let room_id = match entry.room_id {
         Some(rid) => rid,
@@ -199,27 +233,108 @@ pub async fn promote_from_waitlist(
         room_id, None,
     ).await?;
 
-    if conflict || !available {
-        return Ok(None);
+    // Slot is free — the simple path: book it as-is.
+    if !conflict {
+        let appt = insert_appointment(pool, &NewAppointment {
+            patient_id: entry.patient_id,
+            doctor_id: entry.doctor_id,
+            date: &date_str,
+            start: &entry.requested_start,
+            end: &entry.requested_end,
+            priority: entry.priority_level(),
+            room_id,
+            notes: &entry.notes,
+        }).await?;
+        mark_entry_accepted(pool, &mut entry).await?;
+        return Ok(PromotionOutcome::Promoted(appt));
     }
 
-    let appt = insert_appointment(pool, &NewAppointment {
-        patient_id: entry.patient_id,
-        doctor_id: entry.doctor_id,
-        date: &date_str,
-        start: &entry.requested_start,
-        end: &entry.requested_end,
-        priority: entry.priority_level(),
-        room_id,
-        notes: &entry.notes,
-    }).await?;
+    // Slot is occupied — a promotion may still proceed as a priority override,
+    // under the same triage rule as book_with_priority.
+    let new_priority = entry.priority();
 
+    let conflicts = sqlx::query_as::<_, (i64, i32, String, String, String)>(
+        "SELECT id, priority, start_time, end_time, notes FROM appointments
+         WHERE doctor_id = ? AND appointment_date = ? AND status = 'scheduled'
+           AND start_time < ? AND end_time > ?",
+    )
+    .bind(entry.doctor_id)
+    .bind(&date_str)
+    .bind(&entry.requested_end)
+    .bind(&entry.requested_start)
+    .fetch_all(pool)
+    .await?;
+
+    // Occupied, but not by any *scheduled* appointment — a completed visit holds
+    // the slot and completed appointments are immutable history, so no override.
+    if conflicts.is_empty() {
+        return Ok(PromotionOutcome::Blocked(
+            "Could not promote: the slot is held by a completed appointment, \
+             which cannot be overridden."
+                .into(),
+        ));
+    }
+
+    let can_bump = conflicts
+        .iter()
+        .all(|(_, pri, _, _, _)| new_priority.outranks(Priority::from_i32(*pri)));
+
+    if !can_bump {
+        return Ok(PromotionOutcome::Blocked(
+            "Could not promote: the slot is held by an appointment of equal or \
+             higher priority. Reschedule the current holder, or choose another slot."
+                .into(),
+        ));
+    }
+
+    // Every occupant is strictly lower priority: bump them and book the entry.
+    let (start_mins, end_mins) = parse_slot(&entry.requested_start, &entry.requested_end)?;
+    let mut tx = pool.begin().await?;
+
+    for (conflict_id, _, _, _, c_notes) in &conflicts {
+        bump_conflict(&mut tx, *conflict_id, c_notes).await?;
+    }
+
+    let appt = insert_appointment_in_tx(
+        &mut tx,
+        &NewAppointment {
+            patient_id: entry.patient_id,
+            doctor_id: entry.doctor_id,
+            date: &date_str,
+            start: &entry.requested_start,
+            end: &entry.requested_end,
+            priority: new_priority as i32,
+            room_id,
+            notes: &entry.notes,
+        },
+        start_mins,
+        end_mins,
+    )
+    .await?;
+
+    entry.accept()?;
+    sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")
+        .bind(entry.current_status())
+        .bind(entry.id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(PromotionOutcome::Promoted(appt))
+}
+
+/// Mark a waiting entry as accepted after it has been booked (non-transactional
+/// path, used when the slot was free). Enforces the "only a waiting entry can be
+/// promoted" domain rule via `WaitlistEntry::accept`.
+async fn mark_entry_accepted(
+    pool: &SqlitePool,
+    entry: &mut WaitlistEntry,
+) -> Result<(), AppError> {
     entry.accept()?;
     sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")
         .bind(entry.current_status())
         .bind(entry.id)
         .execute(pool)
         .await?;
-
-    Ok(Some(appt))
+    Ok(())
 }

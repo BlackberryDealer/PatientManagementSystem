@@ -5,10 +5,12 @@
 use actix_web::{web, HttpResponse};
 use tera::Context;
 
-use crate::appointments::models::{BookRequestForm, FreeSlotsResponse, SuggestSlotForm};
+use crate::appointments::models::{
+    AllSlotsResponse, BookRequestForm, FreeSlotsResponse, SuggestSlotForm,
+};
 use crate::appointments::services;
 use crate::audit::services as audit;
-use crate::auth::{AuthUser, Role};
+use crate::auth::{require_doctor, AuthUser, Role};
 use crate::db;
 use crate::errors::AppError;
 
@@ -73,6 +75,33 @@ pub async fn available_slots_api(
     };
 
     Ok(HttpResponse::Ok().json(FreeSlotsResponse { slots }))
+}
+
+/// GET /appointments/all-slots?doctor_id=&date= — JSON list of every 30-minute
+/// start slot for a doctor on a date, each marked free or occupied. Drives the
+/// staff booking form, where a doctor/admin may deliberately select an occupied
+/// slot to trigger a priority override (which bumps the lower-priority occupant
+/// to the waitlist). Staff-only: patients never see occupied slots, and like
+/// `available_slots_api` the payload exposes only free/busy times, no patient
+/// data. Invalid or missing inputs yield an empty list rather than an error.
+pub async fn all_slots_api(
+    pool: web::Data<sqlx::SqlitePool>,
+    user: AuthUser,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> Result<HttpResponse, AppError> {
+    require_doctor(&user)?;
+
+    let doctor_id = query.get("doctor_id").and_then(|s| s.parse::<i64>().ok());
+    let date = query.get("date").cloned().unwrap_or_default();
+
+    let slots = match doctor_id {
+        Some(did) if !date.is_empty() => {
+            services::all_slots(pool.get_ref(), did, &date).await.unwrap_or_default()
+        }
+        _ => Vec::new(),
+    };
+
+    Ok(HttpResponse::Ok().json(AllSlotsResponse { slots }))
 }
 
 /// POST /appointments/book — process a booking for any role.

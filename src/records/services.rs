@@ -2,8 +2,8 @@ use crate::auth::Role;
 use crate::db;
 use crate::errors::AppError;
 use crate::records::models::{
-    CreateRecordForm, MedicalRecord, Prescription, PrescriptionForm, RecordDetail,
-    RecordReportData, TimelineEvent, TimelineEventKind,
+    CreateRecordForm, MedicalRecord, PatientAppointmentOption, Prescription, PrescriptionForm,
+    RecordDetail, RecordReportData, TimelineEvent, TimelineEventKind,
 };
 use crate::traits::{Reportable, StatusManaged};
 use sqlx::SqlitePool;
@@ -179,6 +179,35 @@ pub async fn create_prescription(
 /// staff booking form).
 pub async fn get_all_patients(pool: &SqlitePool) -> Result<Vec<(i64, String)>, AppError> {
     crate::db::get_all_patients(pool).await
+}
+
+/// A patient's appointments as pick-list options for the create-record form,
+/// newest first. Each option carries a ready-made label
+/// ("#12 — 2026-07-01 09:00, Dr. Smith (completed)") so the doctor links a real
+/// visit from a dropdown instead of typing an appointment id by hand.
+pub async fn get_patient_appointment_options(
+    pool: &SqlitePool,
+    patient_id: i64,
+) -> Result<Vec<PatientAppointmentOption>, AppError> {
+    let rows = sqlx::query_as::<_, (i64, chrono::NaiveDate, String, String, String)>(
+        "SELECT a.id, a.appointment_date, a.start_time, a.status, u.full_name
+         FROM appointments a
+         JOIN doctors d ON a.doctor_id = d.id
+         JOIN users u ON d.user_id = u.id
+         WHERE a.patient_id = ?
+         ORDER BY a.appointment_date DESC, a.start_time DESC",
+    )
+    .bind(patient_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, date, start, status, doctor)| PatientAppointmentOption {
+            id,
+            label: format!("#{id} — {date} {start}, {doctor} ({status})"),
+        })
+        .collect())
 }
 
 // ============================================================

@@ -4,7 +4,7 @@
 //! it reuses `DaySchedule` (the pure gap-finder behind Algorithm 2) and the
 //! availability gate to answer "which 30-minute starts are actually open?".
 
-use crate::appointments::models::DaySchedule;
+use crate::appointments::models::{DaySchedule, SlotAvailability};
 use crate::availability::services::{fetch_rules_for_day, slot_allowed_by_rules};
 use crate::errors::AppError;
 use crate::time::{
@@ -12,13 +12,16 @@ use crate::time::{
 };
 use sqlx::SqlitePool;
 
-/// The doctor's free 30-minute start slots on `date`, within clinic hours.
+/// Every 30-minute start slot the doctor's availability rules allow on `date`,
+/// within clinic hours, each marked free (unoccupied) or occupied.
 ///
-/// A slot is offered only when it is both (a) unoccupied by an existing
-/// appointment and (b) allowed by the doctor's availability rules — the same two
-/// tests booking enforces — so a slot shown here is one the booking path will
-/// actually accept. This powers the booking form's live dropdown, turning the
-/// old "guess a time and hope it is free" flow into picking from open slots.
+/// A slot appears here only when it is allowed by the doctor's availability
+/// rules — the same gate booking enforces via `ensure_doctor_available` — so a
+/// slot outside those rules is never shown, because no priority can book it.
+/// Among the allowed slots, `free` reports whether an existing appointment
+/// already holds it; occupied slots are still returned so a doctor/admin can
+/// select one and trigger a priority override, which bumps the lower-priority
+/// occupant to the waitlist.
 ///
 /// Occupancy is read from the `appointments` table (the source of truth that
 /// `check_conflict` and `find_earliest_slot` also use), not from the
@@ -27,11 +30,11 @@ use sqlx::SqlitePool;
 /// so reading it here would let already-booked times show up as free. The
 /// UNIQUE index on the ledger still arbitrates the real race when two patients
 /// grab the same slot at once.
-pub async fn free_slots(
+pub async fn all_slots(
     pool: &SqlitePool,
     doctor_id: i64,
     date: &str,
-) -> Result<Vec<String>, AppError> {
+) -> Result<Vec<SlotAvailability>, AppError> {
     // Reject past/invalid dates the same way booking does.
     crate::time::parse_booking_date(date)?;
 
@@ -59,10 +62,32 @@ pub async fn free_slots(
     while s < CLINIC_CLOSE_MINUTES {
         let start = minutes_to_time(s);
         let end = minutes_to_time(s + SLOT_MINUTES);
-        if schedule.is_free(s, SLOT_MINUTES) && slot_allowed_by_rules(&rules, &start, &end) {
-            slots.push(start);
+        if slot_allowed_by_rules(&rules, &start, &end) {
+            slots.push(SlotAvailability {
+                free: schedule.is_free(s, SLOT_MINUTES),
+                time: start,
+            });
         }
         s += SLOT_MINUTES;
     }
     Ok(slots)
+}
+
+/// The doctor's free 30-minute start slots on `date`, within clinic hours.
+///
+/// The free-only projection of [`all_slots`]: a slot shown here is both
+/// unoccupied and rule-allowed, so the booking path will accept it as-is. This
+/// powers the patient booking form's live dropdown, turning the old "guess a
+/// time and hope it is free" flow into picking from open slots.
+pub async fn free_slots(
+    pool: &SqlitePool,
+    doctor_id: i64,
+    date: &str,
+) -> Result<Vec<String>, AppError> {
+    Ok(all_slots(pool, doctor_id, date)
+        .await?
+        .into_iter()
+        .filter(|slot| slot.free)
+        .map(|slot| slot.time)
+        .collect())
 }

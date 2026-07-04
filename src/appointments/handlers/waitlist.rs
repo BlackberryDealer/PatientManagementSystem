@@ -14,10 +14,15 @@ use crate::traits::Priority;
 /// GET /appointments/waitlist — view waitlist filtered by role.
 /// Patients see their own entries; doctors see their patients;
 /// admins see all. Entries ordered by urgency (priority ASC).
+///
+/// An optional `?error=` carries a one-time notice from a failed promotion
+/// (the project has no flash-session layer, so the message round-trips through
+/// the URL and is rendered once in a notification banner).
 pub async fn list_waitlist(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
     user: AuthUser,
+    query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse, AppError> {
     let (waitlist, doctor_label) = match user.role {
         Role::Patient => {
@@ -49,6 +54,8 @@ pub async fn list_waitlist(
     ctx.insert("doctors", &doctors);
     ctx.insert("start_slots", &services::start_time_slots());
     ctx.insert("end_slots", &services::end_time_slots());
+    // One-time promotion-failure notice, if the redirect carried one.
+    ctx.insert("error", &query.get("error"));
     ctx.insert("title", "Waitlist");
     let rendered = tera.render("appointments/waitlist.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
@@ -79,9 +86,13 @@ pub async fn join_waitlist(
         .finish())
 }
 
-/// POST /appointments/waitlist/{id}/promote — promote a waitlist entry
-/// to a real appointment. Doctor/admin only. If the slot is now free,
-/// the entry is booked atomically.
+/// POST /appointments/waitlist/{id}/promote — promote a waitlist entry to a
+/// real appointment. Doctor/admin only. If the slot is free it is booked; if it
+/// is occupied by strictly lower-priority appointments they are bumped to the
+/// waitlist and the entry takes the slot (a priority override). If the override
+/// cannot proceed (equal/higher-priority holder, or the doctor is unavailable),
+/// the user is redirected back with a notice explaining why — never a silent
+/// no-op.
 pub async fn promote_waitlist(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,
@@ -89,10 +100,9 @@ pub async fn promote_waitlist(
 ) -> Result<HttpResponse, AppError> {
     require_doctor(&user)?;
     let waitlist_id = path.into_inner();
-    let result = services::promote_from_waitlist(pool.get_ref(), waitlist_id).await?;
 
-    match result {
-        Some(appt) => {
+    match services::promote_from_waitlist(pool.get_ref(), waitlist_id).await? {
+        services::PromotionOutcome::Promoted(appt) => {
             audit::record(
                 pool.get_ref(), &user, "waitlist.promoted", "appointment", Some(appt.id),
                 &format!("Waitlist entry #{} promoted to appointment", waitlist_id),
@@ -101,8 +111,29 @@ pub async fn promote_waitlist(
                 .append_header(("Location", format!("/appointments/{}", appt.id)))
                 .finish())
         }
-        None => Ok(HttpResponse::SeeOther()
-            .append_header(("Location", "/appointments/waitlist"))
+        // No flash-session layer: round-trip the reason through the URL so the
+        // waitlist page can render it once in a notification banner.
+        services::PromotionOutcome::Blocked(reason) => Ok(HttpResponse::SeeOther()
+            .append_header((
+                "Location",
+                format!("/appointments/waitlist?error={}", encode_query(&reason)),
+            ))
             .finish()),
     }
+}
+
+/// Percent-encode a short message for safe use as a URL query value. Kept
+/// minimal (encodes everything outside the RFC 3986 unreserved set) because the
+/// only values passed through are our own fixed promotion-failure messages.
+fn encode_query(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for &b in value.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
 }

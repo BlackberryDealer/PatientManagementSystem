@@ -68,7 +68,11 @@
             <div class="column is-6">
                 <div class="notification is-info is-light">
                     <p><i class="fas fa-info-circle mr-1"></i><strong>Live Availability</strong></p>
+                    {% if user.role == "doctor" or user.role == "admin" %}
+                    <p class="is-size-7 mt-1">Pick a doctor and date, and the time dropdowns fill with that doctor's slots for the day. <strong>Open</strong> times are bookable as usual; times marked <strong>(occupied)</strong> are already taken but can still be selected to <strong>override</strong> a lower-priority appointment (see Priority below). A room is auto-assigned, and the database prevents accidental double-booking.</p>
+                    {% else %}
                     <p class="is-size-7 mt-1">Pick a doctor and date, and the time dropdowns fill with only that doctor's <strong>open</strong> slots — no more guessing which times are free. A room is auto-assigned, and the database prevents double-booking if two patients grab the same slot at once.</p>
+                    {% endif %}
                 </div>
                 {% if user.role == "doctor" %}
                 <div class="notification is-light">
@@ -115,6 +119,17 @@
                 </div>
             </div>
         </div>
+
+        {# Revealed by the availability script when the chosen window covers an
+           already-booked slot — a doctor/admin-only priority override. #}
+        {% if user.role == "doctor" or user.role == "admin" %}
+        <div class="notification is-warning is-light" id="override-warning" style="display:none;">
+            <i class="fas fa-exclamation-triangle mr-1"></i><strong>Priority override.</strong>
+            This time is already booked. To take it, set <strong>Priority</strong> below to
+            Emergency or Urgent — the current lower-priority appointment is moved to the waitlist.
+            A slot held by an equal or higher priority appointment cannot be overridden.
+        </div>
+        {% endif %}
 
         <div class="field">
             <label class="label"><i class="fas fa-pencil-alt mr-1"></i>Notes <span class="has-text-grey is-size-7">(optional)</span></label>
@@ -175,11 +190,19 @@
 {% block scripts %}
 <script>
     // Live availability (progressive enhancement). Once a doctor and date are
-    // chosen, the Start dropdown is narrowed to only that doctor's free 30-min
-    // slots (fetched from /appointments/availability), and End is limited to a
-    // run of consecutive free slots from the chosen start. Without JS the form
-    // still works: the full grid is server-rendered and the server re-validates
-    // and rejects any conflicting slot regardless.
+    // chosen, the Start dropdown is filled from a JSON lookup and End is limited
+    // to a run of consecutive selectable slots from the chosen start.
+    //
+    // Two modes, by role:
+    //  * Patients see only free slots (/appointments/availability) and can book
+    //    only where nothing conflicts.
+    //  * Doctors/admins see every clinic slot (/appointments/all-slots), with
+    //    occupied ones marked "(occupied)". Selecting an occupied slot is
+    //    allowed: an Emergency/Urgent booking bumps the lower-priority occupant
+    //    to the waitlist server-side, and a warning reminds them of that rule.
+    //
+    // Without JS the form still works: the full grid is server-rendered and the
+    // server re-validates and rejects any invalid slot regardless.
     (function () {
         const form = document.getElementById('book-form');
         const doctorSelect = document.getElementById('doctor_id');   // absent for the doctor role
@@ -187,10 +210,17 @@
         const startSelect = document.getElementById('start_time');
         const endSelect = document.getElementById('end_time');
         const statusEl = document.getElementById('slot-status');
+        const warnEl = document.getElementById('override-warning');  // staff only
         if (!form || !dateInput || !startSelect || !endSelect) return;
 
         const selfDoctorId = form.dataset.selfDoctorId || '';
+        const isStaff = {% if user.role == "doctor" or user.role == "admin" %}true{% else %}false{% endif %};
+        const slotsUrl = isStaff ? '/appointments/all-slots' : '/appointments/availability';
         const CLOSE = 17 * 60, STEP = 30;
+        // Every selectable slot (free OR overridable-occupied) — drives End
+        // extension; for patients this equals the free set.
+        let offerableSet = new Set();
+        // Slots with nothing booked — used to mark occupied slots and to warn.
         let freeSet = new Set();
         // Role-aware placeholder: doctors already know the doctor (themselves),
         // so prompt them to pick a patient + date instead.
@@ -208,9 +238,9 @@
             select.appendChild(opt);
         }
 
-        // End options: consecutive free slots starting at the chosen start. An
-        // appointment [start, end) needs every 30-min slot it covers to be free,
-        // so we extend only while the next covered slot is still in freeSet.
+        // End options: consecutive selectable slots starting at the chosen start.
+        // An appointment [start, end) needs every 30-min slot it covers to be
+        // selectable, so we extend only while the next covered slot is offerable.
         function rebuildEndOptions() {
             const start = startSelect.value;
             if (!start) { setSingle(endSelect, '-- Select start first --'); return; }
@@ -221,19 +251,37 @@
                 const endMin = startMin + STEP * k;
                 if (endMin > CLOSE) break;
                 const coveredSlot = toTime(startMin + STEP * (k - 1));
-                if (!freeSet.has(coveredSlot)) break;
+                if (!offerableSet.has(coveredSlot)) break;
                 const opt = document.createElement('option');
                 opt.value = toTime(endMin);
                 opt.textContent = toTime(endMin);
                 endSelect.appendChild(opt);
                 added++;
             }
-            if (added === 0) setSingle(endSelect, '-- No free time here --');
+            if (added === 0) setSingle(endSelect, '-- No selectable time here --');
+        }
+
+        // Reveal the priority-override reminder when the chosen window covers any
+        // already-booked slot. Staff only (patients never see occupied slots).
+        function updateOverrideWarning() {
+            if (!warnEl) return;
+            const start = startSelect.value;
+            const end = endSelect.value;
+            let spansOccupied = false;
+            if (start && end) {
+                for (let m = toMin(start); m < toMin(end); m += STEP) {
+                    if (!freeSet.has(toTime(m))) { spansOccupied = true; break; }
+                }
+            } else if (start && !freeSet.has(start)) {
+                spansOccupied = true;
+            }
+            warnEl.style.display = spansOccupied ? '' : 'none';
         }
 
         async function refreshSlots() {
             const doctorId = currentDoctorId();
             const date = dateInput.value;
+            if (warnEl) warnEl.style.display = 'none';
             if (!doctorId || !date) {
                 setSingle(startSelect, waitingPrompt);
                 setSingle(endSelect, '-- Select start first --');
@@ -242,28 +290,48 @@
             }
             if (statusEl) statusEl.textContent = 'Checking available times…';
             try {
-                const res = await fetch(`/appointments/availability?doctor_id=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}`);
+                const res = await fetch(`${slotsUrl}?doctor_id=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}`);
                 const data = await res.json();
-                freeSet = new Set(data.slots || []);
-                if (freeSet.size === 0) {
-                    setSingle(startSelect, '-- No free slots on this date --');
-                    setSingle(endSelect, '-- No free slots --');
-                    if (statusEl) statusEl.textContent = 'Fully booked or unavailable that day. Try another date, or join the waitlist.';
+                // Normalise both payloads to a common [{time, free}] shape.
+                const entries = isStaff
+                    ? (data.slots || [])
+                    : (data.slots || []).map((t) => ({ time: t, free: true }));
+                entries.sort((a, b) => a.time.localeCompare(b.time));
+
+                offerableSet = new Set(entries.map((e) => e.time));
+                freeSet = new Set(entries.filter((e) => e.free).map((e) => e.time));
+
+                if (entries.length === 0) {
+                    setSingle(startSelect, '-- No slots on this date --');
+                    setSingle(endSelect, '-- No slots --');
+                    if (statusEl) statusEl.textContent = isStaff
+                        ? 'Doctor is off or the day is outside clinic hours. Try another date.'
+                        : 'Fully booked or unavailable that day. Try another date, or join the waitlist.';
                     return;
                 }
+
                 startSelect.innerHTML = '';
                 const placeholder = document.createElement('option');
                 placeholder.value = '';
                 placeholder.textContent = '-- Select start --';
                 startSelect.appendChild(placeholder);
-                [...freeSet].sort().forEach((s) => {
+                entries.forEach((e) => {
                     const opt = document.createElement('option');
-                    opt.value = s;
-                    opt.textContent = s;
+                    opt.value = e.time;
+                    opt.textContent = e.free ? e.time : `${e.time} (occupied)`;
                     startSelect.appendChild(opt);
                 });
                 rebuildEndOptions();
-                if (statusEl) statusEl.textContent = freeSet.size + ' open slot(s) available.';
+                updateOverrideWarning();
+
+                if (statusEl) {
+                    if (isStaff) {
+                        const occupied = offerableSet.size - freeSet.size;
+                        statusEl.textContent = `${freeSet.size} open, ${occupied} occupied slot(s). Occupied slots need Emergency/Urgent priority to override.`;
+                    } else {
+                        statusEl.textContent = freeSet.size + ' open slot(s) available.';
+                    }
+                }
             } catch (e) {
                 // Network/parse failure: leave the server-rendered grid in place
                 // and let the server validate on submit.
@@ -273,7 +341,8 @@
 
         if (doctorSelect) doctorSelect.addEventListener('change', refreshSlots);
         dateInput.addEventListener('change', refreshSlots);
-        startSelect.addEventListener('change', rebuildEndOptions);
+        startSelect.addEventListener('change', () => { rebuildEndOptions(); updateOverrideWarning(); });
+        endSelect.addEventListener('change', updateOverrideWarning);
 
         refreshSlots();
     })();

@@ -6,7 +6,7 @@ mod rooms;
 mod waitlist;
 
 pub use algorithms::{
-    apply_day_reassignment, check_conflict, find_earliest_slot, free_slots,
+    all_slots, apply_day_reassignment, check_conflict, find_earliest_slot, free_slots,
     plan_day_reassignment, reassign_appointment,
 };
 pub use booking::{book_appointment, book_with_priority, resolve_booking_target};
@@ -26,7 +26,7 @@ pub use rooms::{get_all_doctors, get_all_rooms};
 pub use waitlist::{
     add_to_waitlist, auto_promote_waitlist, get_all_waitlist,
     get_waitlist_for_doctor, get_waitlist_for_patient,
-    promote_from_waitlist,
+    promote_from_waitlist, PromotionOutcome,
 };
 
 // Grid slot options for the booking UI — pure functions, no DB access.

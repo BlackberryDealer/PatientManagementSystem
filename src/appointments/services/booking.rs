@@ -4,11 +4,11 @@ use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
 use crate::time::{minutes_to_time, parse_slot};
-use crate::traits::{Priority, StatusManaged};
+use crate::traits::Priority;
 use sqlx::SqlitePool;
 
 use super::algorithms::check_conflict;
-use super::helpers::{bump_to_waitlist, insert_appointment, insert_appointment_in_tx, NewAppointment};
+use super::helpers::{bump_conflict, insert_appointment, insert_appointment_in_tx, NewAppointment};
 use super::rooms::resolve_room;
 
 // ============================================================
@@ -209,27 +209,7 @@ pub async fn book_with_priority(
     let mut tx = pool.begin().await?;
 
     for (conflict_id, _, _, _, c_notes) in &conflicts {
-        bump_to_waitlist(&mut tx, *conflict_id, c_notes).await?;
-
-        let mut bumped = sqlx::query_as::<_, Appointment>(
-            "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
-                    status, notes, created_at, room_id, priority
-             FROM appointments WHERE id = ?",
-        )
-        .bind(conflict_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        bumped.cancel()?;
-        sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
-            .bind(bumped.current_status())
-            .bind(bumped.id)
-            .execute(&mut *tx)
-            .await?;
-
-        sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
-            .bind(conflict_id)
-            .execute(&mut *tx)
-            .await?;
+        bump_conflict(&mut tx, *conflict_id, c_notes).await?;
     }
 
     let appointment = insert_appointment_in_tx(

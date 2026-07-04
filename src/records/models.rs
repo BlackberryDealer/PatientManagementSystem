@@ -1,6 +1,26 @@
 use crate::traits::Reportable;
 use serde::{Deserialize, Serialize};
 
+/// Deserialize an optional numeric form field that may arrive as an empty value.
+///
+/// An HTML form submits an unset optional field as `key=` (empty string), which
+/// `serde_urlencoded` cannot parse straight into `Option<i64>` — it errors on
+/// the empty string rather than yielding `None`, which 400s the whole
+/// submission. Treating a missing key or an empty/whitespace value as `None`
+/// makes an "optional appointment link" genuinely optional.
+fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    let raw = Option::<String>::deserialize(de)?;
+    match raw.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(s) => s.parse::<T>().map(Some).map_err(serde::de::Error::custom),
+    }
+}
+
 /// Medical record: diagnosis and treatment linked to an appointment.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MedicalRecord {
@@ -33,6 +53,7 @@ impl Reportable for MedicalRecord {
 #[derive(Debug, Deserialize)]
 pub struct CreateRecordForm {
     pub patient_id: i64,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub appointment_id: Option<i64>,
     pub diagnosis: String,
     pub treatment: String,
@@ -52,6 +73,17 @@ impl CreateRecordForm {
         }
         Ok(())
     }
+}
+
+/// One option for the create-record form's "link to appointment" dropdown: a
+/// patient's appointment plus a ready-made label the JS drops straight into a
+/// `<select>`. Populated on the fly when the doctor picks a patient, so a visit
+/// is chosen from a list instead of an appointment id being typed by hand — the
+/// same "no id typing" guard the patient dropdown already gives.
+#[derive(Debug, Serialize)]
+pub struct PatientAppointmentOption {
+    pub id: i64,
+    pub label: String,
 }
 
 /// Prescription linked to an appointment.
@@ -88,6 +120,7 @@ impl Reportable for Prescription {
 #[derive(Debug, Deserialize)]
 pub struct PrescriptionForm {
     pub patient_id: i64,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub appointment_id: Option<i64>,
     pub medication_name: String,
     pub dosage: String,

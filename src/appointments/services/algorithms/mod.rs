@@ -25,7 +25,7 @@ mod reassign;
 pub use batch_reassign::{apply_day_reassignment, plan_day_reassignment};
 pub use conflict::check_conflict;
 pub use earliest_slot::find_earliest_slot;
-pub use free_slots::free_slots;
+pub use free_slots::{all_slots, free_slots};
 pub use reassign::reassign_appointment;
 
 // Used by the waitlist service (a sibling module) to build the auto-promotion

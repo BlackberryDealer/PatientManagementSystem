@@ -29,8 +29,8 @@ pub use appointment::{Appointment, AppointmentStatus, AppointmentView};
 pub use assignment::{CostMatrix, ReassignPlan, ReassignRow};
 pub use calendar::{CalendarDay, CalendarMonth};
 pub use forms::{
-    AssignRoomForm, BookAppointmentForm, BookRequestForm, FreeSlotsResponse, ReassignDayForm,
-    RescheduleForm, SetPriorityForm, SuggestSlotForm,
+    AllSlotsResponse, AssignRoomForm, BookAppointmentForm, BookRequestForm, FreeSlotsResponse,
+    ReassignDayForm, RescheduleForm, SetPriorityForm, SlotAvailability, SuggestSlotForm,
 };
 pub use room::{DoctorRoomAssignment, Room};
 pub use scheduling::DaySchedule;

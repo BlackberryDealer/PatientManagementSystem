@@ -128,8 +128,63 @@ async fn test_waitlist_promote() {
     seed_patient(&pool, 1, "pwp").await; seed_doctor(&pool, 2, "dwp").await;
     let f = WaitlistForm { doctor_id: 1, appointment_date: "2027-06-01".into(), requested_start: "10:00".into(), requested_end: "10:30".into(), priority: 2, notes: None };
     let e = services::add_to_waitlist(&pool, 1, &f).await.unwrap();
+    // Slot is free → straightforward promotion.
     let r = services::promote_from_waitlist(&pool, e.id).await.unwrap();
-    assert!(r.is_some());
+    assert!(matches!(r, services::PromotionOutcome::Promoted(_)));
+}
+
+#[actix_web::test]
+async fn test_waitlist_promote_overrides_lower_priority() {
+    // Promoting an Urgent waitlist entry onto a slot held by a Normal
+    // appointment bumps the Normal one to the waitlist and books the Urgent one.
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "poccupant").await;
+    seed_patient(&pool, 3, "pwaiting").await;
+    seed_doctor(&pool, 2, "doverride").await;
+
+    // Normal (priority 3) appointment holds 10:00–10:30.
+    let held = services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(3), notes: None,
+    }).await.unwrap();
+
+    // Urgent (priority 2) waitlist entry for the same slot.
+    let e = services::add_to_waitlist(&pool, 3, &WaitlistForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        requested_start: "10:00".into(), requested_end: "10:30".into(),
+        priority: 2, notes: None,
+    }).await.unwrap();
+
+    let r = services::promote_from_waitlist(&pool, e.id).await.unwrap();
+    assert!(matches!(r, services::PromotionOutcome::Promoted(_)));
+
+    // The original Normal appointment is no longer holding the slot.
+    let held_after = services::get_appointment_by_id(&pool, held.id).await.unwrap();
+    assert_eq!(held_after.status, "cancelled");
+}
+
+#[actix_web::test]
+async fn test_waitlist_promote_blocked_by_equal_priority() {
+    // A Normal waitlist entry cannot override an Urgent occupant: the promotion
+    // is Blocked (with a reason) rather than silently doing nothing.
+    let pool = test_db_pool().await;
+    seed_patient(&pool, 1, "pheld").await;
+    seed_patient(&pool, 3, "pblocked").await;
+    seed_doctor(&pool, 2, "dblocked").await;
+
+    services::book_appointment(&pool, 1, &BookAppointmentForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        start_time: "10:00".into(), end_time: "10:30".into(), priority: Some(2), notes: None,
+    }).await.unwrap();
+
+    let e = services::add_to_waitlist(&pool, 3, &WaitlistForm {
+        doctor_id: 1, appointment_date: "2027-06-01".into(),
+        requested_start: "10:00".into(), requested_end: "10:30".into(),
+        priority: 3, notes: None,
+    }).await.unwrap();
+
+    let r = services::promote_from_waitlist(&pool, e.id).await.unwrap();
+    assert!(matches!(r, services::PromotionOutcome::Blocked(_)));
 }
 
 #[actix_web::test]
