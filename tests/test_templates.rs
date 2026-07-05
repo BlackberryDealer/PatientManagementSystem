@@ -128,6 +128,73 @@ fn reassign_day_renders_no_work_plan() {
 }
 
 #[test]
+fn availability_set_form_renders_two_mode_scaffolding() {
+    let tera = build_tera();
+    let mut ctx = Context::new();
+    ctx.insert("user", &json!({ "user_id": 2, "username": "dr.smith", "role": "doctor" }));
+    ctx.insert("title", "Set Availability");
+    let html = tera.render("availability/set.html.tera", &ctx).expect("renders");
+    // Both modes and the multi-day checkboxes the JS toggles between.
+    assert!(html.contains("name=\"mode\" value=\"recurring\""));
+    assert!(html.contains("name=\"mode\" value=\"oneoff\""));
+    for day in ["day_0", "day_1", "day_2", "day_3", "day_4", "day_5", "day_6"] {
+        assert!(html.contains(&format!("name=\"{day}\"")), "missing checkbox {day}");
+    }
+    assert!(html.contains("name=\"specific_date\""));
+    assert!(html.contains("name=\"is_blocked\""));
+}
+
+#[test]
+fn availability_edit_form_renders_both_slot_kinds() {
+    let tera = build_tera();
+    // Recurring slot: day dropdown, no date input.
+    let mut ctx = Context::new();
+    ctx.insert("user", &json!({ "user_id": 2, "username": "dr.smith", "role": "doctor" }));
+    ctx.insert("slot", &json!({
+        "id": 7, "doctor_id": 1, "day_of_week": 1,
+        "start_time": "09:00", "end_time": "17:00",
+        "is_recurring": 1, "specific_date": null, "is_blocked": 0,
+    }));
+    ctx.insert("title", "Edit Availability");
+    let html = tera.render("availability/edit.html.tera", &ctx).expect("renders recurring");
+    assert!(html.contains("action=\"/availability/7/edit\""));
+    assert!(html.contains("name=\"day_of_week\""));
+    assert!(!html.contains("name=\"specific_date\""));
+
+    // One-off slot: date input, no day dropdown.
+    let mut ctx = Context::new();
+    ctx.insert("user", &json!({ "user_id": 2, "username": "dr.smith", "role": "doctor" }));
+    ctx.insert("slot", &json!({
+        "id": 8, "doctor_id": 1, "day_of_week": 1,
+        "start_time": "00:00", "end_time": "23:59",
+        "is_recurring": 0, "specific_date": "2026-08-17", "is_blocked": 1,
+    }));
+    ctx.insert("title", "Edit Availability");
+    let html = tera.render("availability/edit.html.tera", &ctx).expect("renders one-off");
+    assert!(html.contains("name=\"specific_date\""));
+    assert!(html.contains("value=\"2026-08-17\""));
+    assert!(!html.contains("name=\"day_of_week\""));
+}
+
+#[test]
+fn availability_list_renders_actions_per_row() {
+    let tera = build_tera();
+    let mut ctx = Context::new();
+    ctx.insert("user", &json!({ "user_id": 2, "username": "dr.smith", "role": "doctor" }));
+    ctx.insert("slots", &json!([{
+        "id": 3, "doctor_id": 1, "day_of_week": 1,
+        "start_time": "09:00", "end_time": "17:00",
+        "is_recurring": 1, "specific_date": null, "is_blocked": 0,
+        "doctor_name": "Dr. Sarah Smith",
+    }]));
+    ctx.insert("title", "Doctor Availability");
+    let html = tera.render("availability/list.html.tera", &ctx).expect("renders");
+    assert!(html.contains("Dr. Sarah Smith"));
+    assert!(html.contains("/availability/3/edit"));
+    assert!(html.contains("/availability/3/delete"));
+}
+
+#[test]
 fn booking_form_renders_with_live_slots_scaffolding() {
     let tera = build_tera();
     let mut ctx = Context::new();

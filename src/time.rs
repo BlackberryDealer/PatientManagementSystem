@@ -80,8 +80,8 @@ pub fn parse_booking_date(date: &str) -> Result<chrono::NaiveDate, AppError> {
 /// 4. the whole window inside clinic operating hours (08:00–17:00).
 ///
 /// Rule 4 mirrors the booking form's slot grid on the server side, so a
-/// hand-crafted POST cannot book outside clinic hours even for a doctor
-/// with no declared availability windows (whose schedule is otherwise open).
+/// hand-crafted POST cannot book outside clinic hours regardless of how
+/// wide a doctor's declared availability windows are.
 pub fn parse_slot(start: &str, end: &str) -> Result<(i32, i32), AppError> {
     let (s, e) = parse_time_range(start, end)?;
     if s % SLOT_MINUTES != 0 || e % SLOT_MINUTES != 0 {

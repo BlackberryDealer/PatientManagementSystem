@@ -29,6 +29,22 @@ async fn seed_doctor(pool: &SqlitePool, uid: i64, name: &str) {
         .execute(pool).await.unwrap();
     sqlx::query("INSERT INTO doctors (user_id, specialization, license_number) VALUES (?,?,?)")
         .bind(uid).bind("GP").bind("LIC").execute(pool).await.unwrap();
+    // Booking is closed-by-default, so give test doctors a full-week schedule.
+    // Tests about specific availability rules clear these rows first.
+    let did: (i64,) = sqlx::query_as("SELECT id FROM doctors WHERE user_id = ?")
+        .bind(uid).fetch_one(pool).await.unwrap();
+    for day in 0..7 {
+        sqlx::query(
+            "INSERT INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, is_blocked)
+             VALUES (?, ?, '08:00', '17:00', 1, 0)",
+        ).bind(did.0).bind(day).execute(pool).await.unwrap();
+    }
+}
+
+/// Remove the default full-week schedule so a test can declare its own rules.
+async fn clear_availability(pool: &SqlitePool, doctor_id: i64) {
+    sqlx::query("DELETE FROM doctor_availability WHERE doctor_id = ?")
+        .bind(doctor_id).execute(pool).await.unwrap();
 }
 
 // Test fixture: one positional argument per doctor_availability column.
@@ -80,6 +96,7 @@ async fn test_booking_outside_working_hours_rejected() {
     seed_patient(&pool, 1, "avp2").await;
     seed_doctor(&pool, 2, "avd2").await;
     // Doctor only works Monday mornings 09:00–12:00
+    clear_availability(&pool, 1).await;
     seed_availability(&pool, 1, 1, "09:00", "12:00", true, None, false).await;
 
     // Inside the window — accepted
@@ -92,13 +109,17 @@ async fn test_booking_outside_working_hours_rejected() {
 }
 
 #[actix_web::test]
-async fn test_no_availability_rows_means_open_schedule() {
+async fn test_no_availability_rows_means_closed_schedule() {
     let pool = test_db_pool().await;
     seed_patient(&pool, 1, "avp3").await;
     seed_doctor(&pool, 2, "avd3").await;
+    clear_availability(&pool, 1).await;
 
     let result = appt::book_appointment(&pool, 1, &booking(1, MONDAY, "10:00", "10:30")).await;
-    assert!(result.is_ok(), "doctor with no availability rules follows the open default");
+    assert!(
+        result.is_err(),
+        "a doctor with no published working hours must not be bookable"
+    );
 }
 
 #[actix_web::test]

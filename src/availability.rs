@@ -10,6 +10,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         web::scope("/availability")
             .route("", web::get().to(handlers::list_availability))
             .route("/set", web::get().to(handlers::set_availability_form))
-            .route("/set", web::post().to(handlers::set_availability)),
+            .route("/set", web::post().to(handlers::set_availability))
+            .route("/{id}/edit", web::get().to(handlers::edit_availability_form))
+            .route("/{id}/edit", web::post().to(handlers::edit_availability))
+            .route("/{id}/delete", web::post().to(handlers::delete_availability)),
     );
 }

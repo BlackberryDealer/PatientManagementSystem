@@ -149,20 +149,29 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] Shows Dr. Smith's weekly schedule slots
 - [ ] Mon 09:00-17:00 (recurring)
 - [ ] Tue 09:00-17:00 (recurring)
-- [ ] Wed — NOT listed (day off)
+- [ ] Wed — NOT listed (day off; patients get no bookable Wednesday slots — days without published hours are closed)
 - [ ] Thu 09:00-17:00 (recurring)
 - [ ] Fri 09:00-17:00 (recurring)
-- [ ] July 20 shown as blocked (holiday)
+- [ ] Aug 17 shown as blocked (holiday); its Day tag reads Mon, matching the date
+- [ ] Every row has **Edit** (pen) and **Delete** (trash) actions
 - [ ] Click **Set Availability** button
 
 ### 4. Set Availability (`/availability/set`)
-- [ ] Day of week dropdown (0=Sun to 6=Sat)
-- [ ] Start/End time fields
-- [ ] Recurring checkbox
-- [ ] Specific date (optional, for one-offs/blocks)
-- [ ] Blocked checkbox (for leave/holiday)
-- [ ] Submit a new slot → redirects back to list
-- [ ] Verify new slot appears
+- [ ] Slot Type radio: **Recurring weekly** (default) vs **Specific date**
+- [ ] Recurring mode: weekday checkboxes with **Mon–Fri** / **Clear** quick buttons — tick several days, save once, and one weekly rule per day appears in the list
+- [ ] Recurring mode with no day ticked → styled 400 "Select at least one weekday"
+- [ ] Specific date mode: date picker only, no day dropdown; the hint below shows the weekday of the picked date, and the saved row's Day tag always matches it
+- [ ] Past date in specific-date mode → styled 400
+- [ ] A window overlapping an existing one for the same day → styled 400 duplicate message
+- [ ] **Block this time** checkbox (leave/holiday, or a recurring lunch break) works in both modes
+- [ ] Submit → redirects back to list; verify the new slot(s) appear
+
+### 4b. Edit / Delete Availability
+- [ ] **Edit** a recurring slot: prefilled day dropdown + times + blocked checkbox; save → list reflects the change
+- [ ] **Edit** a one-off slot: date picker shown instead of a day dropdown
+- [ ] **Delete** asks for confirmation, then removes the row
+- [ ] Guard: with an upcoming booked appointment inside a window, deleting/narrowing that window (or blocking that date) → styled 400 naming the first affected appointment; widen/covering edits still succeed
+- [ ] A doctor editing/deleting another doctor's slot → 403; admin can manage any slot
 
 ### 5. Medical Records
 - [ ] Can view records for any patient (doctor access)
@@ -302,6 +311,8 @@ All passwords: **`password123`** (login works with username OR email)
 | `/appointments/waitlist/{id}/promote` | POST | ❌ | ✅ | ✅ |
 | `/availability` | GET | ❌ | Own only | ✅ |
 | `/availability/set` | GET/POST | ❌ | ✅ | ✅ |
+| `/availability/{id}/edit` | GET/POST | ❌ | Own only | ✅ |
+| `/availability/{id}/delete` | POST | ❌ | Own only | ✅ |
 | `/records` | GET | ✅ (own) | ✅ (all) | ✅ (all) |
 | `/records/create` | GET/POST | ❌ | ✅ | ✅ |
 | `/records/prescriptions/create` | GET/POST | ❌ | ✅ | ✅ |

@@ -24,6 +24,22 @@ async fn seed_doctor_spec(pool: &SqlitePool, uid: i64, name: &str, spec: &str) {
         .execute(pool).await.unwrap();
     sqlx::query("INSERT INTO doctors (user_id, specialization, license_number) VALUES (?,?,?)")
         .bind(uid).bind(spec).bind("LIC").execute(pool).await.unwrap();
+    // Booking is closed-by-default, so give test doctors a full-week schedule.
+    // Tests about specific availability rules clear these rows first.
+    let did: (i64,) = sqlx::query_as("SELECT id FROM doctors WHERE user_id = ?")
+        .bind(uid).fetch_one(pool).await.unwrap();
+    for day in 0..7 {
+        sqlx::query(
+            "INSERT INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, is_blocked)
+             VALUES (?, ?, '08:00', '17:00', 1, 0)",
+        ).bind(did.0).bind(day).execute(pool).await.unwrap();
+    }
+}
+
+/// Remove the default full-week schedule so a test can declare its own rules.
+async fn clear_availability(pool: &SqlitePool, doctor_id: i64) {
+    sqlx::query("DELETE FROM doctor_availability WHERE doctor_id = ?")
+        .bind(doctor_id).execute(pool).await.unwrap();
 }
 
 #[actix_web::test]
@@ -764,6 +780,7 @@ async fn test_earliest_slot_respects_declared_working_window() {
     let dow = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
     let dow = chrono::Datelike::weekday(&dow).num_days_from_sunday() as i32;
     // Recurring weekly window: this doctor only works 13:00–17:00 that weekday.
+    clear_availability(&pool, 1).await;
     sqlx::query(
         "INSERT INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked)
          VALUES (1, ?, '13:00', '17:00', 1, NULL, 0)",

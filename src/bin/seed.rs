@@ -109,10 +109,12 @@ async fn seed_availability(pool: &SqlitePool) {
         ).bind(day).bind(start).bind(end).execute(pool).await.unwrap();
     }
 
-    // Blocked dates (holidays)
+    // Blocked dates (holidays). day_of_week matches the date's real weekday
+    // (2026-08-17 is a Monday), the same derivation the set-availability
+    // form now performs for every one-off entry.
     sqlx::query(
         "INSERT OR IGNORE INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked)
-         VALUES (1, 0, '00:00', '23:59', 0, '2026-08-17', 1)",
+         VALUES (1, 1, '00:00', '23:59', 0, '2026-08-17', 1)",
     ).execute(pool).await.unwrap();
 
     println!("done (10 slots)");
@@ -131,6 +133,7 @@ async fn seed_room_assignments(pool: &SqlitePool) {
         (2, 2, "2026-08-04"),
         (1, 1, "2026-08-05"),
         (2, 2, "2026-08-05"),
+        (1, 1, "2026-08-06"),
     ];
 
     for (doc, room, date) in &assignments {
@@ -142,7 +145,7 @@ async fn seed_room_assignments(pool: &SqlitePool) {
         .execute(pool).await.unwrap();
     }
 
-    println!("done (6 assignments)");
+    println!("done (7 assignments)");
 }
 
 async fn seed_appointments(pool: &SqlitePool) {
@@ -157,9 +160,13 @@ async fn seed_appointments(pool: &SqlitePool) {
         (1, 1, "2026-08-04", "11:00", "11:30", "scheduled",   2, Some(1), "Chest pain — URGENT"),
         (2, 2, "2026-08-04", "09:00", "09:30", "scheduled",   3, Some(4), "Routine cardiology consult"),
         (3, 1, "2026-08-04", "14:00", "14:30", "cancelled",   3, None,      "Patient cancelled — rescheduled"),
-        (1, 1, "2026-08-05", "09:00", "09:30", "scheduled",   3, Some(1), "Prescription renewal"),
+        // Doctor 1 does not work Wednesdays (2026-08-05), so his rows land on
+        // Thursday 2026-08-06 — seeded data must satisfy the same availability
+        // gate real bookings pass, or schedule edits would trip the
+        // stranded-appointment guard on day one.
+        (1, 1, "2026-08-06", "09:00", "09:30", "scheduled",   3, Some(1), "Prescription renewal"),
         (2, 2, "2026-08-05", "10:00", "10:30", "scheduled",   4, Some(4), "ECG follow-up"),
-        (3, 1, "2026-08-05", "15:00", "15:30", "scheduled",   3, Some(2), "Vaccination"),
+        (3, 1, "2026-08-06", "15:00", "15:30", "scheduled",   3, Some(2), "Vaccination"),
     ];
 
     for (pat, doc, date, start, end, status, pri, room, notes) in &apps {
@@ -282,7 +289,9 @@ async fn seed_waitlist(pool: &SqlitePool) {
     print!("  Creating waitlist entries... ");
 
     let entries = [
-        (3, 1, "2026-08-05", "09:00", "09:30", 1, "Emergency — chest pain follow-up"),
+        // Doctor 1 requests sit on his working Thursday (2026-08-06) — a
+        // waitlist wish for a closed Wednesday could never be promoted.
+        (3, 1, "2026-08-06", "09:00", "09:30", 1, "Emergency — chest pain follow-up"),
         (2, 2, "2026-08-05", "14:00", "14:30", 2, "Urgent ECG review"),
         (1, 1, "2026-08-06", "10:00", "10:30", 3, "Routine blood work"),
     ];

@@ -61,7 +61,7 @@
                         <input class="input" type="date" name="appointment_date" id="appointment_date" required
                                min="2026-01-01" placeholder="YYYY-MM-DD">
                     </div>
-                    <p class="help">Select a future date. Weekend availability depends on the doctor's schedule.</p>
+                    <p class="help">Select a future date. Only days with published working hours for the chosen doctor can be booked.</p>
                 </div>
             </div>
 
@@ -213,6 +213,9 @@
         const warnEl = document.getElementById('override-warning');  // staff only
         if (!form || !dateInput || !startSelect || !endSelect) return;
 
+        // Past dates are rejected server-side; mirror that in the picker.
+        dateInput.min = new Date().toISOString().slice(0, 10);
+
         const selfDoctorId = form.dataset.selfDoctorId || '';
         const isStaff = {% if user.role == "doctor" or user.role == "admin" %}true{% else %}false{% endif %};
         const slotsUrl = isStaff ? '/appointments/all-slots' : '/appointments/availability';
@@ -305,8 +308,8 @@
                     setSingle(startSelect, '-- No slots on this date --');
                     setSingle(endSelect, '-- No slots --');
                     if (statusEl) statusEl.textContent = isStaff
-                        ? 'Doctor is off or the day is outside clinic hours. Try another date.'
-                        : 'Fully booked or unavailable that day. Try another date, or join the waitlist.';
+                        ? 'The doctor has no working hours published for this day. Try another date.'
+                        : 'No bookable times: the doctor is not working that day or is fully booked. Try another date, or join the waitlist.';
                     return;
                 }
 

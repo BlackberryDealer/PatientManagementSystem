@@ -1,0 +1,111 @@
+{% extends "base.html.tera" %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/availability"><i class="fas fa-clock mr-1"></i>Availability</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Edit #{{ slot.id }}</a></li>
+    </ul>
+</nav>
+
+<h1 class="title"><i class="fas fa-pen mr-2"></i>Edit Availability Slot</h1>
+<p class="subtitle is-6 has-text-grey mb-5">
+    {% if slot.is_recurring == 1 %}Recurring weekly slot — it repeats every week on the selected day.
+    {% else %}One-off slot — it applies to the chosen date only; the weekday follows the date automatically.{% endif %}
+</p>
+
+<div class="box fade-in">
+    <form method="POST" action="/availability/{{ slot.id }}/edit">
+        <div class="columns">
+            <div class="column is-6">
+                {% if slot.is_recurring == 1 %}
+                <div class="field">
+                    <label class="label"><i class="fas fa-calendar-day mr-1"></i>Day of Week</label>
+                    <div class="control has-icons-left">
+                        <div class="select is-fullwidth">
+                            <select name="day_of_week" required>
+                                {% set day_labels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] %}
+                                {% for d in [1, 2, 3, 4, 5, 6, 0] %}
+                                <option value="{{ d }}" {% if slot.day_of_week == d %}selected{% endif %}>{{ day_labels[d] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="icon is-small is-left"><i class="fas fa-calendar-day"></i></div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="field">
+                    <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Date</label>
+                    <div class="control">
+                        <input class="input" type="date" name="specific_date" id="specific_date"
+                               value="{{ slot.specific_date | default(value='') }}" required>
+                    </div>
+                    <p class="help">The day of the week is taken from this date automatically.</p>
+                </div>
+                {% endif %}
+
+                <div class="columns">
+                    <div class="column">
+                        <div class="field">
+                            <label class="label"><i class="fas fa-clock mr-1"></i>Start Time</label>
+                            <div class="control">
+                                <input class="input" type="time" name="start_time" value="{{ slot.start_time }}" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="field">
+                            <label class="label"><i class="fas fa-clock mr-1"></i>End Time</label>
+                            <div class="control">
+                                <input class="input" type="time" name="end_time" value="{{ slot.end_time }}" required>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="checkbox">
+                        <input type="checkbox" name="is_blocked" value="on" {% if slot.is_blocked == 1 %}checked{% endif %}>
+                        <strong>Block this time</strong> <span class="has-text-danger">(leave / unavailable)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="column is-6">
+                <div class="notification is-warning is-light">
+                    <p><i class="fas fa-shield-alt mr-1"></i><strong>Booked appointments are protected</strong></p>
+                    <p class="is-size-7 mt-1">
+                        A change that would leave an upcoming appointment outside your working hours is rejected.
+                        Reschedule, reassign, or cancel the affected appointments first, then retry.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <hr>
+
+        <div class="field is-grouped">
+            <div class="control">
+                <button class="button is-primary is-medium" type="submit">
+                    <i class="fas fa-save mr-1"></i>Save Changes
+                </button>
+            </div>
+            <div class="control">
+                <a class="button is-light is-medium" href="/availability">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // One-off availability in the past can never be booked.
+    (function () {
+        const dateInput = document.getElementById('specific_date');
+        if (dateInput) dateInput.min = new Date().toISOString().slice(0, 10);
+    })();
+</script>
+{% endblock %}

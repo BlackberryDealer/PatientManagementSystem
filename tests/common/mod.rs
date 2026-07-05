@@ -44,6 +44,7 @@ pub fn test_tera() -> Tera {
         ("appointments/calendar.html.tera", "<html><body>Calendar: {{ month_name }} {{ year }}</body></html>"),
         ("availability/list.html.tera", "<html><body>Slots: {{ slots | length }}</body></html>"),
         ("availability/set.html.tera", "<html><body>Set avail</body></html>"),
+        ("availability/edit.html.tera", "<html><body>Edit slot #{{ slot.id }}</body></html>"),
         ("records/list.html.tera", "<html><body>Records: {{ records | length }}</body></html>"),
         ("records/create.html.tera", "<html><body>Create record</body></html>"),
         ("records/detail.html.tera", "<html><body>Record #{{ record.id }}</body></html>"),
@@ -167,6 +168,18 @@ macro_rules! seed_and_login {
             "doctor" => {
                 sqlx::query("INSERT INTO doctors (user_id, specialization, license_number) VALUES (?, 'General Practice', 'LIC')")
                     .bind(uid.0).execute(&$pool).await.unwrap();
+                // Booking is closed-by-default: a doctor with no published
+                // hours cannot be booked. Give test doctors a full-week
+                // schedule so booking tests exercise their own concern;
+                // availability-specific tests clear/replace these rows.
+                let did: (i64,) = sqlx::query_as("SELECT id FROM doctors WHERE user_id = ?")
+                    .bind(uid.0).fetch_one(&$pool).await.unwrap();
+                for day in 0..7 {
+                    sqlx::query(
+                        "INSERT INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, is_recurring, is_blocked)
+                         VALUES (?, ?, '08:00', '17:00', 1, 0)",
+                    ).bind(did.0).bind(day).execute(&$pool).await.unwrap();
+                }
             }
             "patient" => {
                 sqlx::query("INSERT INTO patients (user_id) VALUES (?)")

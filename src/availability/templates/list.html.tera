@@ -28,6 +28,7 @@
                 <th>Type</th>
                 <th>Specific Date</th>
                 <th>Status</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -54,6 +55,19 @@
                     {% else %}
                     <span class="tag is-success is-light"><i class="fas fa-check mr-1"></i>Available</span>
                     {% endif %}
+                </td>
+                <td>
+                    <div class="buttons are-small">
+                        <a class="button is-info is-light" href="/availability/{{ s.id }}/edit" title="Edit this slot">
+                            <i class="fas fa-pen"></i>
+                        </a>
+                        <form method="POST" action="/availability/{{ s.id }}/delete"
+                              onsubmit="return confirm('Delete this availability slot? Days left without published hours cannot be booked.');">
+                            <button class="button is-danger is-light" type="submit" title="Delete this slot">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% endfor %}

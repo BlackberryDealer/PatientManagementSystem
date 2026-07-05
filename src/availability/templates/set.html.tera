@@ -9,27 +9,55 @@
 </nav>
 
 <h1 class="title"><i class="fas fa-plus-circle mr-2"></i>Set Availability</h1>
-<p class="subtitle is-6 has-text-grey mb-5">Define when you are available for appointments. Recurring slots apply every week.</p>
+<p class="subtitle is-6 has-text-grey mb-5">Define when you are available for appointments. Patients can only book within your published hours.</p>
 
 <div class="box fade-in">
-    <form method="POST" action="/availability/set">
+    <form method="POST" action="/availability/set" id="availability-form">
         <div class="columns">
             <div class="column is-6">
                 <div class="field">
-                    <label class="label"><i class="fas fa-calendar-day mr-1"></i>Day of Week</label>
-                    <div class="control has-icons-left">
-                        <div class="select is-fullwidth">
-                            <select name="day_of_week" required>
-                                <option value="1">Monday</option>
-                                <option value="2">Tuesday</option>
-                                <option value="3">Wednesday</option>
-                                <option value="4">Thursday</option>
-                                <option value="5">Friday</option>
-                                <option value="6">Saturday</option>
-                                <option value="0">Sunday</option>
-                            </select>
+                    <label class="label"><i class="fas fa-calendar-day mr-1"></i>Slot Type</label>
+                    <div class="control">
+                        <label class="radio">
+                            <input type="radio" name="mode" value="recurring" checked>
+                            <strong>Recurring weekly</strong> <span class="has-text-grey is-size-7">(repeats every week)</span>
+                        </label>
+                        <br>
+                        <label class="radio">
+                            <input type="radio" name="mode" value="oneoff">
+                            <strong>Specific date</strong> <span class="has-text-grey is-size-7">(one day only)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="recurring-fields">
+                    <div class="field">
+                        <label class="label">Days of the Week</label>
+                        <div class="control">
+                            {% set day_fields = ["day_1", "day_2", "day_3", "day_4", "day_5", "day_6", "day_0"] %}
+                            {% set day_labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}
+                            {% for f in day_fields %}
+                            <label class="checkbox mr-4 mb-2" style="display:inline-block;">
+                                <input type="checkbox" class="weekday-box" name="{{ f }}" value="on">
+                                {{ day_labels[loop.index0] }}
+                            </label>
+                            {% endfor %}
                         </div>
-                        <div class="icon is-small is-left"><i class="fas fa-calendar-day"></i></div>
+                        <div class="buttons are-small mt-2">
+                            <button class="button is-light" type="button" id="select-weekdays">Mon–Fri</button>
+                            <button class="button is-light" type="button" id="clear-days">Clear</button>
+                        </div>
+                        <p class="help">Tick every day this weekly slot applies to — one submit covers them all.</p>
+                    </div>
+                </div>
+
+                <div id="oneoff-fields">
+                    <div class="field">
+                        <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Date</label>
+                        <div class="control">
+                            <input class="input" type="date" name="specific_date" id="specific_date">
+                        </div>
+                        <p class="help" id="date-weekday-hint">The day of the week is taken from this date automatically.</p>
                     </div>
                 </div>
             </div>
@@ -37,7 +65,16 @@
             <div class="column is-6">
                 <div class="notification is-info is-light">
                     <p><i class="fas fa-info-circle mr-1"></i><strong>How It Works</strong></p>
-                    <p class="is-size-7 mt-1">Recurring slots repeat every week on the selected day. One-off slots apply only to a specific date. Blocked dates prevent appointments (e.g., holidays or leave).</p>
+                    <p class="is-size-7 mt-1">
+                        <strong>Recurring</strong> slots repeat every week on the ticked days.
+                        <strong>Specific date</strong> slots apply to one day only — use them for extra hours or, combined with
+                        <em>Block</em>, for holidays and leave.
+                        Days without any published hours are <strong>closed</strong>: patients cannot book them.
+                    </p>
+                    <p class="is-size-7 mt-2">
+                        Changes are checked against your booked appointments — a change that would leave an upcoming
+                        appointment outside your hours is rejected until you reschedule, reassign, or cancel it.
+                    </p>
                 </div>
             </div>
         </div>
@@ -65,26 +102,10 @@
 
         <div class="field">
             <label class="checkbox">
-                <input type="checkbox" name="is_recurring" value="on" checked>
-                <strong>Recurring weekly</strong>
-            </label>
-            <p class="help">This slot repeats every week on the selected day. Uncheck for a one-off slot.</p>
-        </div>
-
-        <div class="field">
-            <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Specific Date <span class="has-text-grey">(optional)</span></label>
-            <div class="control">
-                <input class="input" type="date" name="specific_date">
-            </div>
-            <p class="help">Required for one-off slots or blocked dates. Leave empty for recurring slots.</p>
-        </div>
-
-        <div class="field">
-            <label class="checkbox">
                 <input type="checkbox" name="is_blocked" value="on">
-                <strong>Block this slot</strong> <span class="has-text-danger">(leave / unavailable)</span>
+                <strong>Block this time</strong> <span class="has-text-danger">(leave / unavailable)</span>
             </label>
-            <p class="help">Use this to mark holidays, personal leave, or days you cannot work.</p>
+            <p class="help">Use this for holidays, personal leave, or a recurring break (e.g. lunch) inside your working hours.</p>
         </div>
 
         <hr>
@@ -103,4 +124,57 @@
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Progressive enhancement: show only the fields for the chosen mode and
+    // preview the weekday of a picked date. Without JS both sections stay
+    // visible and the server still validates everything.
+    (function () {
+        const form = document.getElementById('availability-form');
+        const recurringFields = document.getElementById('recurring-fields');
+        const oneoffFields = document.getElementById('oneoff-fields');
+        const dateInput = document.getElementById('specific_date');
+        const hint = document.getElementById('date-weekday-hint');
+        if (!form) return;
+
+        // One-off availability in the past can never be booked.
+        if (dateInput) dateInput.min = new Date().toISOString().slice(0, 10);
+
+        function currentMode() {
+            const checked = form.querySelector('input[name="mode"]:checked');
+            return checked ? checked.value : 'recurring';
+        }
+
+        function applyMode() {
+            const recurring = currentMode() === 'recurring';
+            recurringFields.style.display = recurring ? '' : 'none';
+            oneoffFields.style.display = recurring ? 'none' : '';
+        }
+
+        form.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener('change', applyMode));
+        applyMode();
+
+        // Live weekday preview so there is never a "which day is this date?" doubt.
+        if (dateInput && hint) {
+            dateInput.addEventListener('change', () => {
+                if (!dateInput.value) {
+                    hint.textContent = 'The day of the week is taken from this date automatically.';
+                    return;
+                }
+                const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const d = new Date(dateInput.value + 'T00:00:00');
+                hint.textContent = dateInput.value + ' is a ' + names[d.getDay()] + '.';
+            });
+        }
+
+        const weekdayBoxes = () => form.querySelectorAll('.weekday-box');
+        const setDays = (days) => weekdayBoxes().forEach((b) => { b.checked = days.includes(b.name); });
+        const btnWeek = document.getElementById('select-weekdays');
+        const btnClear = document.getElementById('clear-days');
+        if (btnWeek) btnWeek.addEventListener('click', () => setDays(['day_1', 'day_2', 'day_3', 'day_4', 'day_5']));
+        if (btnClear) btnClear.addEventListener('click', () => setDays([]));
+    })();
+</script>
 {% endblock %}
