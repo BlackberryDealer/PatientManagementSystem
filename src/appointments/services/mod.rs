@@ -18,7 +18,8 @@ pub use queries::{
     get_all_appointments,
     get_appointment_by_id, get_appointment_by_id_checked,
     get_appointment_counts_for_doctor, get_appointment_counts_for_patient,
-    get_appointments_for_doctor, get_appointments_for_patient,
+    get_appointment_options_for_patient,
+    get_appointments_for_doctor, get_appointments_for_patient, get_appointments_for_patient_id,
     reschedule_appointment, reschedule_appointment_checked,
     set_priority,
 };

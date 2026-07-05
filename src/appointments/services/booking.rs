@@ -4,11 +4,13 @@ use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
 use crate::time::{minutes_to_time, parse_slot};
-use crate::traits::Priority;
 use sqlx::SqlitePool;
 
 use super::algorithms::check_conflict;
-use super::helpers::{bump_conflict, insert_appointment, insert_appointment_in_tx, NewAppointment};
+use super::helpers::{
+    all_outranked, bump_all_conflicts, fetch_scheduled_conflicts, insert_appointment,
+    insert_appointment_in_tx, NewAppointment,
+};
 use super::rooms::resolve_room;
 use super::waitlist::try_rebook_bumped;
 
@@ -176,17 +178,9 @@ pub async fn book_with_priority(
         return Ok((appt, Vec::new()));
     }
 
-    let conflicts = sqlx::query_as::<_, (i64, i32, String, String, String)>(
-        "SELECT id, priority, start_time, end_time, notes FROM appointments
-         WHERE doctor_id = ? AND appointment_date = ? AND status = 'scheduled'
-           AND start_time < ? AND end_time > ?",
-    )
-    .bind(form.doctor_id)
-    .bind(&form.appointment_date)
-    .bind(&end)
-    .bind(&start)
-    .fetch_all(pool)
-    .await?;
+    let conflicts =
+        fetch_scheduled_conflicts(pool, form.doctor_id, room_id, &form.appointment_date, &start, &end)
+            .await?;
 
     if conflicts.is_empty() {
         return Err(AppError::BadRequest(
@@ -196,11 +190,7 @@ pub async fn book_with_priority(
         ));
     }
 
-    let can_bump = conflicts
-        .iter()
-        .all(|(_, pri, _, _, _)| new_priority.outranks(Priority::from_i32(*pri)));
-
-    if !can_bump {
+    if !all_outranked(new_priority, &conflicts) {
         return Err(AppError::BadRequest(
             "This time slot is occupied by an appointment with equal or higher priority.\
              \nUse the suggestion feature to find an available slot, or join the waitlist."
@@ -210,10 +200,7 @@ pub async fn book_with_priority(
 
     let mut tx = pool.begin().await?;
 
-    let mut bumped_waitlist_ids = Vec::new();
-    for (conflict_id, _, _, _, c_notes) in &conflicts {
-        bumped_waitlist_ids.push(bump_conflict(&mut tx, *conflict_id, c_notes).await?);
-    }
+    let bumped_waitlist_ids = bump_all_conflicts(&mut tx, &conflicts).await?;
 
     let appointment = insert_appointment_in_tx(
         &mut tx,

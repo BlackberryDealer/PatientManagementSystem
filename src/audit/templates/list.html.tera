@@ -38,7 +38,7 @@
                 <td class="is-size-7 has-text-grey">{{ e.created_at }}</td>
                 <td>
                     <span class="has-text-weight-semibold">{{ e.username }}</span>
-                    <span class="tag is-light is-small ml-1" style="text-transform: capitalize;">{{ e.role }}</span>
+                    <span class="tag is-light is-small ml-1 is-capitalized">{{ e.role }}</span>
                 </td>
                 <td><span class="tag {{ e.badge_class }} is-light">{{ e.action }}</span></td>
                 <td class="is-size-7">

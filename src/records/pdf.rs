@@ -32,6 +32,11 @@ const SIZE_LABEL: f32 = 8.5; // section headings ("PATIENT", "DIAGNOSIS"…)
 const SIZE_VALUE: f32 = 12.0; // emphasised values (names)
 const SIZE_SMALL: f32 = 8.5; // secondary detail lines
 const SIZE_BODY: f32 = 10.5; // wrapped paragraph text
+const SIZE_RULE: f32 = 9.0; // horizontal-rule underscores
+
+// --- Shared spacing rules (mm), used by section() ---
+const GAP_AFTER_LABEL: f32 = 0.8;
+const GAP_AFTER_SECTION: f32 = 2.5;
 
 // 1 typographic point = 0.352778 mm. Helvetica's average glyph advance is
 // roughly half its point size, which is accurate enough to drive word-wrap and
@@ -168,19 +173,19 @@ impl ReportPdf {
     /// A small bold heading followed by a wrapped body paragraph.
     fn section(&mut self, label: &str, body: &str) {
         self.line(label, SIZE_LABEL, MARGIN_L, true, false);
-        self.gap(0.8);
+        self.gap(GAP_AFTER_LABEL);
         self.paragraph(body, SIZE_BODY, MARGIN_L);
-        self.gap(2.5);
+        self.gap(GAP_AFTER_SECTION);
     }
 
     /// A full-width horizontal rule, drawn as a row of underscores so the whole
     /// generator stays on the stable `use_text` path (no vector-shape calls).
     fn rule(&mut self) {
-        let count = (CONTENT_W / avg_char_mm(9.0)).floor() as usize;
+        let count = (CONTENT_W / avg_char_mm(SIZE_RULE)).floor() as usize;
         let bar = "_".repeat(count);
-        self.ensure_space(line_h(9.0));
-        self.layer.use_text(bar, 9.0, Mm(MARGIN_L), Mm(self.y), &self.regular);
-        self.y -= line_h(9.0) * 0.5;
+        self.ensure_space(line_h(SIZE_RULE));
+        self.layer.use_text(bar, SIZE_RULE, Mm(MARGIN_L), Mm(self.y), &self.regular);
+        self.y -= line_h(SIZE_RULE) * 0.5;
     }
 
     /// Drop the cursor by `mm` without drawing anything (vertical whitespace).

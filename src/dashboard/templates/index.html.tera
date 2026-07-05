@@ -11,26 +11,26 @@
 </div>
 
 <!-- People & scheduling -->
-<div class="columns is-multiline fade-in">
-    <div class="column is-3">
+<div class="columns is-mobile is-multiline fade-in">
+    <div class="column is-6-mobile is-3-tablet">
         <div class="box has-text-centered">
             <p class="heading has-text-grey">Patients</p>
             <p class="title has-text-success"><i class="fas fa-users mr-2"></i>{{ stats.total_patients }}</p>
         </div>
     </div>
-    <div class="column is-3">
+    <div class="column is-6-mobile is-3-tablet">
         <div class="box has-text-centered">
             <p class="heading has-text-grey">Doctors</p>
             <p class="title has-text-info"><i class="fas fa-user-md mr-2"></i>{{ stats.total_doctors }}</p>
         </div>
     </div>
-    <div class="column is-3">
+    <div class="column is-6-mobile is-3-tablet">
         <div class="box has-text-centered">
             <p class="heading has-text-grey">Appointments Today</p>
             <p class="title has-text-link"><i class="fas fa-calendar-day mr-2"></i>{{ stats.appointments_today }}</p>
         </div>
     </div>
-    <div class="column is-3">
+    <div class="column is-6-mobile is-3-tablet">
         <div class="box has-text-centered">
             <p class="heading has-text-grey">Next 7 Days</p>
             <p class="title"><i class="fas fa-calendar-week mr-2"></i>{{ stats.appointments_this_week }}</p>
@@ -39,27 +39,27 @@
 </div>
 
 <!-- Appointment lifecycle + waitlist -->
-<div class="columns is-multiline fade-in">
-    <div class="column is-3">
+<div class="columns is-mobile is-multiline fade-in">
+    <div class="column is-6-mobile is-3-tablet">
         <div class="box has-text-centered">
             <p class="heading has-text-grey">Scheduled</p>
             <p class="title is-4 has-text-primary">{{ stats.scheduled_count }}</p>
         </div>
     </div>
-    <div class="column is-3">
+    <div class="column is-6-mobile is-3-tablet">
         <div class="box has-text-centered">
             <p class="heading has-text-grey">Completed</p>
             <p class="title is-4 has-text-success">{{ stats.completed_count }}</p>
         </div>
     </div>
-    <div class="column is-3">
+    <div class="column is-6-mobile is-3-tablet">
         <div class="box has-text-centered">
             <p class="heading has-text-grey">Cancelled</p>
             <p class="title is-4 has-text-danger">{{ stats.cancelled_count }}</p>
             <p class="is-size-7 has-text-grey">{{ cancellation_rate }}% cancellation rate</p>
         </div>
     </div>
-    <div class="column is-3">
+    <div class="column is-6-mobile is-3-tablet">
         <div class="box has-text-centered">
             <p class="heading has-text-grey">Waitlist</p>
             <p class="title is-4 has-text-warning-dark">{{ stats.waitlist_waiting }}</p>
@@ -79,15 +79,15 @@
                 <div class="columns is-mobile has-text-centered">
                     <div class="column">
                         <p class="heading has-text-grey">Billed</p>
-                        <p class="title is-5">£{{ stats.billed_total | round(precision=2) }}</p>
+                        <p class="title is-5">${{ stats.billed_total | round(precision=2) }}</p>
                     </div>
                     <div class="column">
                         <p class="heading has-text-grey">Collected</p>
-                        <p class="title is-5 has-text-success">£{{ stats.collected_total | round(precision=2) }}</p>
+                        <p class="title is-5 has-text-success">${{ stats.collected_total | round(precision=2) }}</p>
                     </div>
                     <div class="column">
                         <p class="heading has-text-grey">Outstanding</p>
-                        <p class="title is-5 has-text-danger">£{{ outstanding_amount }}</p>
+                        <p class="title is-5 has-text-danger">${{ outstanding_amount }}</p>
                     </div>
                 </div>
                 <progress class="progress is-success" value="{{ collection_rate }}" max="100">{{ collection_rate }}%</progress>

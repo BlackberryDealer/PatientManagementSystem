@@ -100,11 +100,11 @@
                 </progress>
                 <div class="is-flex is-justify-content-space-between">
                     <span>
-                        <span class="has-text-weight-bold has-text-info">£{{ total_paid | round(precision=2) | abs }}</span>
-                        <span class="has-text-grey is-size-7"> / £{{ invoice.total_amount | round(precision=2) }}</span>
+                        <span class="has-text-weight-bold has-text-info">${{ total_paid | round(precision=2) | abs }}</span>
+                        <span class="has-text-grey is-size-7"> / ${{ invoice.total_amount | round(precision=2) }}</span>
                     </span>
                     <span class="has-text-weight-bold {% if remaining > 0 %}has-text-danger{% else %}has-text-success{% endif %}">
-                        {% if remaining > 0 %}£{{ remaining | round(precision=2) }}{% else %}£0.00{% endif %}
+                        {% if remaining > 0 %}${{ remaining | round(precision=2) }}{% else %}$0.00{% endif %}
                     </span>
                 </div>
             </div>

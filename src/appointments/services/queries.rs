@@ -59,6 +59,50 @@ pub async fn get_appointments_for_doctor(
     .await?)
 }
 
+/// Every appointment for a patient, keyed by the `patients` table row id
+/// rather than `users.id` (unlike `get_appointments_for_patient`), and
+/// returning the bare `Appointment` row rather than the name-joined
+/// `AppointmentView`. Used by the cross-entity patient history timeline
+/// (`records::services::build_patient_timeline`), which already has
+/// `patient_id` on hand and merges appointments alongside records,
+/// prescriptions, and invoices via each type's own `Reportable` summary, so a
+/// narrower shape than `AppointmentView` is all it needs.
+pub async fn get_appointments_for_patient_id(
+    pool: &SqlitePool,
+    patient_id: i64,
+) -> Result<Vec<Appointment>, AppError> {
+    Ok(sqlx::query_as::<_, Appointment>(
+        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
+                status, notes, created_at, room_id, priority
+         FROM appointments WHERE patient_id = ?",
+    )
+    .bind(patient_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// A patient's appointments as (id, date, start_time, status, doctor_name)
+/// rows, newest first, keyed by `patients.id`. Backs the create-record and
+/// prescription forms' appointment pick-list
+/// (`records::services::get_patient_appointment_options`), which only needs
+/// this narrow shape to build its dropdown labels.
+pub async fn get_appointment_options_for_patient(
+    pool: &SqlitePool,
+    patient_id: i64,
+) -> Result<Vec<(i64, chrono::NaiveDate, String, String, String)>, AppError> {
+    Ok(sqlx::query_as::<_, (i64, chrono::NaiveDate, String, String, String)>(
+        "SELECT a.id, a.appointment_date, a.start_time, a.status, u.full_name
+         FROM appointments a
+         JOIN doctors d ON a.doctor_id = d.id
+         JOIN users u ON d.user_id = u.id
+         WHERE a.patient_id = ?
+         ORDER BY a.appointment_date DESC, a.start_time DESC",
+    )
+    .bind(patient_id)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Fetch every appointment in the system (admin view).
 pub async fn get_all_appointments(pool: &SqlitePool) -> Result<Vec<AppointmentView>, AppError> {
     Ok(sqlx::query_as::<_, AppointmentView>(&format!(

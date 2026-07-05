@@ -43,6 +43,8 @@ pub fn test_tera() -> Tera {
         ("appointments/suggest.html.tera", "<html><body>Suggest: {{ suggested_slot }}</body></html>"),
         ("appointments/waitlist.html.tera", "<html><body>Waitlist: {{ waitlist | length }}</body></html>"),
         ("appointments/calendar.html.tera", "<html><body>Calendar: {{ month_name }} {{ year }}</body></html>"),
+        ("appointments/reassign_day.html.tera", "<html><body>Reassign day{% if plan %}: plan present{% endif %}</body></html>"),
+        ("appointments/reschedule.html.tera", "<html><body>Reschedule Appt #{{ appointment.id }}</body></html>"),
         ("availability/list.html.tera", "<html><body>Slots: {{ slots | length }}</body></html>"),
         ("availability/set.html.tera", "<html><body>Set avail</body></html>"),
         ("availability/edit.html.tera", "<html><body>Edit slot #{{ slot.id }}</body></html>"),

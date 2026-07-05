@@ -3,12 +3,27 @@ use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
 use crate::time::{minutes_to_time, parse_slot, time_to_minutes};
-use crate::traits::{Prioritized, Priority, StatusManaged, TimeSlotted};
+use crate::traits::{Prioritized, StatusManaged, TimeSlotted};
 use sqlx::SqlitePool;
 
 use super::algorithms::{build_priority_queue, check_conflict, find_earliest_slot};
-use super::helpers::{bump_conflict, insert_appointment, insert_appointment_in_tx, NewAppointment};
+use super::helpers::{
+    all_outranked, bump_all_conflicts, fetch_scheduled_conflicts, insert_appointment,
+    insert_appointment_in_tx, NewAppointment,
+};
 use super::rooms::resolve_room;
+
+/// Shared SELECT for the joined waitlist view. Each query appends its own
+/// `WHERE` / `ORDER BY`. Only static SQL is interpolated; all user values are
+/// bound as parameters.
+const WAITLIST_VIEW_SELECT: &str = "\
+    SELECT w.*, COALESCE(pu.full_name, 'Patient #' || w.patient_id) AS patient_name,
+           COALESCE(du.full_name, 'Doctor #' || w.doctor_id) AS doctor_name
+    FROM waitlist w
+    JOIN patients p ON w.patient_id = p.id
+    JOIN users pu ON p.user_id = pu.id
+    JOIN doctors d ON w.doctor_id = d.id
+    JOIN users du ON d.user_id = du.id";
 
 /// Outcome of a staff-initiated waitlist promotion.
 ///
@@ -67,17 +82,10 @@ pub async fn get_waitlist_for_doctor(
     doctor_user_id: i64,
 ) -> Result<Vec<WaitlistEntry>, AppError> {
     let doctor_id = crate::db::get_doctor_id(pool, doctor_user_id).await?;
-    Ok(sqlx::query_as::<_, WaitlistEntry>(
-        "SELECT w.*, COALESCE(pu.full_name, 'Patient #' || w.patient_id) AS patient_name,
-                COALESCE(du.full_name, 'Doctor #' || w.doctor_id) AS doctor_name
-         FROM waitlist w
-         JOIN patients p ON w.patient_id = p.id
-         JOIN users pu ON p.user_id = pu.id
-         JOIN doctors d ON w.doctor_id = d.id
-         JOIN users du ON d.user_id = du.id
-         WHERE w.doctor_id = ? AND w.status = 'waiting'
-         ORDER BY w.priority ASC, w.created_at ASC",
-    )
+    Ok(sqlx::query_as::<_, WaitlistEntry>(&format!(
+        "{WAITLIST_VIEW_SELECT} WHERE w.doctor_id = ? AND w.status = 'waiting'
+         ORDER BY w.priority ASC, w.created_at ASC"
+    ))
     .bind(doctor_id)
     .fetch_all(pool)
     .await?)
@@ -88,17 +96,10 @@ pub async fn get_waitlist_for_patient(
     pool: &SqlitePool,
     patient_user_id: i64,
 ) -> Result<Vec<WaitlistEntry>, AppError> {
-    Ok(sqlx::query_as::<_, WaitlistEntry>(
-        "SELECT w.*, COALESCE(pu.full_name, 'Patient #' || w.patient_id) AS patient_name,
-                COALESCE(du.full_name, 'Doctor #' || w.doctor_id) AS doctor_name
-         FROM waitlist w
-         JOIN patients p ON w.patient_id = p.id
-         JOIN users pu ON p.user_id = pu.id
-         JOIN doctors d ON w.doctor_id = d.id
-         JOIN users du ON d.user_id = du.id
-         WHERE p.user_id = ? AND w.status IN ('waiting', 'expired')
-         ORDER BY w.priority ASC, w.created_at ASC",
-    )
+    Ok(sqlx::query_as::<_, WaitlistEntry>(&format!(
+        "{WAITLIST_VIEW_SELECT} WHERE p.user_id = ? AND w.status IN ('waiting', 'expired')
+         ORDER BY w.priority ASC, w.created_at ASC"
+    ))
     .bind(patient_user_id)
     .fetch_all(pool)
     .await?)
@@ -130,17 +131,10 @@ pub async fn expire_stale_waitlist(pool: &SqlitePool) -> Result<u64, AppError> {
 
 /// Get all pending waitlist entries (admin view).
 pub async fn get_all_waitlist(pool: &SqlitePool) -> Result<Vec<WaitlistEntry>, AppError> {
-    Ok(sqlx::query_as::<_, WaitlistEntry>(
-        "SELECT w.*, COALESCE(pu.full_name, 'Patient #' || w.patient_id) AS patient_name,
-                COALESCE(du.full_name, 'Doctor #' || w.doctor_id) AS doctor_name
-         FROM waitlist w
-         JOIN patients p ON w.patient_id = p.id
-         JOIN users pu ON p.user_id = pu.id
-         JOIN doctors d ON w.doctor_id = d.id
-         JOIN users du ON d.user_id = du.id
-         WHERE w.status = 'waiting'
-         ORDER BY w.priority ASC, w.created_at ASC",
-    )
+    Ok(sqlx::query_as::<_, WaitlistEntry>(&format!(
+        "{WAITLIST_VIEW_SELECT} WHERE w.status = 'waiting'
+         ORDER BY w.priority ASC, w.created_at ASC"
+    ))
     .fetch_all(pool)
     .await?)
 }
@@ -297,16 +291,9 @@ pub async fn promote_from_waitlist(
     // under the same triage rule as book_with_priority.
     let new_priority = entry.priority();
 
-    let conflicts = sqlx::query_as::<_, (i64, i32, String, String, String)>(
-        "SELECT id, priority, start_time, end_time, notes FROM appointments
-         WHERE doctor_id = ? AND appointment_date = ? AND status = 'scheduled'
-           AND start_time < ? AND end_time > ?",
+    let conflicts = fetch_scheduled_conflicts(
+        pool, entry.doctor_id, room_id, &date_str, &entry.requested_start, &entry.requested_end,
     )
-    .bind(entry.doctor_id)
-    .bind(&date_str)
-    .bind(&entry.requested_end)
-    .bind(&entry.requested_start)
-    .fetch_all(pool)
     .await?;
 
     // Occupied, but not by any *scheduled* appointment, a completed visit holds
@@ -319,11 +306,7 @@ pub async fn promote_from_waitlist(
         ));
     }
 
-    let can_bump = conflicts
-        .iter()
-        .all(|(_, pri, _, _, _)| new_priority.outranks(Priority::from_i32(*pri)));
-
-    if !can_bump {
+    if !all_outranked(new_priority, &conflicts) {
         return Ok(PromotionOutcome::Blocked(
             "Could not promote: the slot is held by an appointment of equal or \
              higher priority. Reschedule the current holder, or choose another slot."
@@ -335,10 +318,7 @@ pub async fn promote_from_waitlist(
     let (start_mins, end_mins) = parse_slot(&entry.requested_start, &entry.requested_end)?;
     let mut tx = pool.begin().await?;
 
-    let mut bumped_waitlist_ids = Vec::new();
-    for (conflict_id, _, _, _, c_notes) in &conflicts {
-        bumped_waitlist_ids.push(bump_conflict(&mut tx, *conflict_id, c_notes).await?);
-    }
+    let bumped_waitlist_ids = bump_all_conflicts(&mut tx, &conflicts).await?;
 
     let appt = insert_appointment_in_tx(
         &mut tx,

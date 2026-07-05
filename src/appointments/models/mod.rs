@@ -16,7 +16,7 @@ mod scheduling;
 mod waitlist;
 
 pub use appointment::{Appointment, AppointmentStatus, AppointmentView};
-pub use assignment::{CostMatrix, ReassignPlan, ReassignRow};
+pub use assignment::{build_cost_matrix, Candidate, CostMatrix, ReassignPlan, ReassignRow, SourceAppointment};
 pub use calendar::{CalendarDay, CalendarMonth};
 pub use forms::{
     AllSlotsResponse, AssignRoomForm, BookAppointmentForm, BookRequestForm, FreeSlotsResponse,

@@ -1,3 +1,4 @@
+{% import "shared/macros.html.tera" as macros %}
 <!DOCTYPE html>
 <html lang="en" class="has-navbar-fixed-top">
 <head>
@@ -9,11 +10,19 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         .hero-pattern { background: linear-gradient(135deg, #00d1b2 0%, #3273dc 100%); }
+        .hero-rounded { border-radius: 12px; }
         .card-equal-height { display: flex; flex-direction: column; height: 100%; }
         .card-equal-height .card-content { flex-grow: 1; }
         .table-container { overflow-x: auto; }
         .fade-in { animation: fadeIn 0.3s ease-in; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Layout helpers shared across templates, kept here so no page repeats
+           the same inline style= attribute. */
+        .content-section { min-height: 70vh; }
+        .inline-form { display: inline; }
+        .action-row { gap: 0.75rem; }
+        .full-width { width: 100%; }
     </style>
     {% block head_extra %}{% endblock %}
 </head>
@@ -31,10 +40,10 @@
     {% endif %}
     {% endblock %}
 
-    <section class="section" style="min-height: 70vh;">
+    <section class="section content-section">
         <div class="container">
             {% block content %}
-            <div class="hero is-medium hero-pattern" style="border-radius: 12px;">
+            <div class="hero is-medium hero-pattern hero-rounded">
                 <div class="hero-body has-text-centered has-text-white">
                     <h1 class="title has-text-white">
                         <i class="fas fa-hospital-alt mr-3"></i>Patient Management System

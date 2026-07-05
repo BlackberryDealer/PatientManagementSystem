@@ -4,7 +4,93 @@
 // service layer builds the cost numbers and the solver just does the maths,
 // which is why the tests below can check it against a brute-force optimum.
 
+use crate::availability::models::DoctorAvailability;
+use crate::availability::services::slot_allowed_by_rules;
 use serde::Serialize;
+use std::collections::HashMap;
+
+/// Cost of a pairing the schedule forbids (colleague unavailable or already
+/// booked over the slot). Far above any feasible cost, so the optimiser only
+/// ever chooses it when literally nothing else is free, and even then prefers
+/// an "unassigned" column, which is cheaper.
+const INFEASIBLE_COST: i64 = 1_000_000;
+/// Cost of leaving an appointment unplaced. Below `INFEASIBLE_COST` (so it is
+/// always preferred over an impossible pairing) but far above any real
+/// assignment (so a feasible colleague always wins when one exists).
+const UNASSIGNED_COST: i64 = 10_000;
+/// Penalty added when a colleague has a different specialisation to the leaving
+/// doctor. Outweighs a moderate load difference, so continuity of care is
+/// preferred until the load gap becomes large.
+const SPECIALIZATION_PENALTY: i64 = 200;
+/// Marginal cost per appointment already on a colleague's plate (and per extra
+/// one taken today). The convex term that spreads the load.
+const LOAD_WEIGHT: i64 = 10;
+
+/// One of the leaving doctor's appointments, with its slot pre-parsed to
+/// minutes so the feasibility scan does not re-parse per candidate.
+pub struct SourceAppointment {
+    pub id: i64,
+    pub patient_name: String,
+    pub start: String,
+    pub end: String,
+    pub start_min: i32,
+    pub end_min: i32,
+}
+
+/// A colleague who might absorb some appointments, with the day's context the
+/// cost function needs.
+pub struct Candidate {
+    pub doctor_id: i64,
+    pub name: String,
+    pub specialization: String,
+    pub load: i64, // scheduled appointments already on this date
+}
+
+/// Does `[start, end)` (minutes) overlap any of a doctor's busy intervals?
+fn overlaps_any(intervals: Option<&Vec<(i32, i32)>>, start: i32, end: i32) -> bool {
+    intervals.is_some_and(|v| v.iter().any(|&(bs, be)| start < be && end > bs))
+}
+
+/// Build the Algorithm 5 cost matrix from already-fetched scheduling data.
+///
+/// Column layout: for each colleague `c`, `n` capacity copies at columns
+/// `[c*n, c*n + n)`; then `n` "unassigned" fallback columns (`unassigned_base
+/// = candidates.len() * appts.len()`, recomputed by the caller to translate a
+/// chosen column back into a doctor or "unplaced").
+///
+/// Pure function, no database access, same split as `DaySchedule` for
+/// Algorithm 2: the service layer fetches rows, this does the maths, which is
+/// what keeps it unit-testable without a pool.
+pub fn build_cost_matrix(
+    appts: &[SourceAppointment],
+    candidates: &[Candidate],
+    source_spec: &str,
+    busy: &HashMap<i64, Vec<(i32, i32)>>,
+    rules_by_doctor: &HashMap<i64, Vec<DoctorAvailability>>,
+) -> CostMatrix {
+    let n = appts.len();
+    let m = candidates.len();
+    let cols = m * n + n;
+    let mut data = vec![vec![UNASSIGNED_COST; cols]; n];
+
+    for (i, appt) in appts.iter().enumerate() {
+        for (c, cand) in candidates.iter().enumerate() {
+            let spec_penalty = if cand.specialization == source_spec { 0 } else { SPECIALIZATION_PENALTY };
+            let feasible = slot_allowed_by_rules(&rules_by_doctor[&cand.doctor_id], &appt.start, &appt.end)
+                && !overlaps_any(busy.get(&cand.doctor_id), appt.start_min, appt.end_min);
+            for k in 0..n {
+                data[i][c * n + k] = if feasible {
+                    spec_penalty + LOAD_WEIGHT * (cand.load + k as i64)
+                } else {
+                    INFEASIBLE_COST
+                };
+            }
+        }
+        // Unassigned columns already hold UNASSIGNED_COST from initialisation.
+    }
+
+    CostMatrix::new(data)
+}
 
 /// A rectangular cost matrix for the classic assignment problem.
 ///
@@ -153,7 +239,9 @@ pub struct ReassignPlan {
 
 #[cfg(test)]
 mod tests {
-    use super::CostMatrix;
+    use super::{build_cost_matrix, Candidate, CostMatrix, SourceAppointment};
+    use crate::availability::models::DoctorAvailability;
+    use std::collections::HashMap;
 
     /// Sum the chosen cells of an assignment.
     fn total(data: &[Vec<i64>], assign: &[usize]) -> i64 {
@@ -255,5 +343,76 @@ mod tests {
                 "Hungarian total must equal the exhaustive optimum for {data:?}"
             );
         }
+    }
+
+    // --- build_cost_matrix ---
+
+    fn appt(id: i64, start: &str, end: &str, start_min: i32, end_min: i32) -> SourceAppointment {
+        SourceAppointment {
+            id,
+            patient_name: format!("Patient {id}"),
+            start: start.to_string(),
+            end: end.to_string(),
+            start_min,
+            end_min,
+        }
+    }
+
+    fn candidate(doctor_id: i64, specialization: &str, load: i64) -> Candidate {
+        Candidate { doctor_id, name: format!("Dr {doctor_id}"), specialization: specialization.into(), load }
+    }
+
+    fn working_hours(doctor_id: i64) -> Vec<DoctorAvailability> {
+        vec![DoctorAvailability::draft(doctor_id, 0, "08:00", "17:00", true, None, false)]
+    }
+
+    #[test]
+    fn build_cost_matrix_prefers_same_specialization() {
+        let appts = vec![appt(1, "09:00", "09:30", 540, 570)];
+        let candidates = vec![candidate(2, "Cardiology", 0), candidate(3, "Dermatology", 0)];
+        let busy = HashMap::new();
+        let rules = HashMap::from([(2, working_hours(2)), (3, working_hours(3))]);
+
+        let matrix = build_cost_matrix(&appts, &candidates, "Cardiology", &busy, &rules);
+        let assignment = matrix.assign_min_cost();
+
+        // Column 0 is colleague 2's (same specialisation) single capacity slot.
+        assert_eq!(assignment[0], 0);
+    }
+
+    #[test]
+    fn build_cost_matrix_marks_busy_colleague_infeasible() {
+        let appts = vec![appt(1, "09:00", "09:30", 540, 570)];
+        let candidates = vec![candidate(2, "Cardiology", 0)];
+        let busy = HashMap::from([(2, vec![(540, 570)])]); // colleague 2 already booked over this slot
+        let rules = HashMap::from([(2, working_hours(2))]);
+
+        let matrix = build_cost_matrix(&appts, &candidates, "Cardiology", &busy, &rules);
+        let assignment = matrix.assign_min_cost();
+
+        // Only feasible choice is the "unassigned" fallback column (index 1).
+        assert_eq!(assignment[0], 1);
+    }
+
+    #[test]
+    fn build_cost_matrix_spreads_load_across_capacity_copies() {
+        // Two appointments, one colleague: the second copy costs more (LOAD_WEIGHT
+        // per extra pickup), so the optimiser should still place both rather than
+        // stack them for free.
+        let appts = vec![
+            appt(1, "09:00", "09:30", 540, 570),
+            appt(2, "10:00", "10:30", 600, 630),
+        ];
+        let candidates = vec![candidate(2, "Cardiology", 0)];
+        let busy = HashMap::new();
+        let rules = HashMap::from([(2, working_hours(2))]);
+
+        let matrix = build_cost_matrix(&appts, &candidates, "Cardiology", &busy, &rules);
+        let assignment = matrix.assign_min_cost();
+
+        // Both capacity columns (0 and 1) for the sole colleague get used, one per row.
+        let mut cols = assignment.clone();
+        cols.sort_unstable();
+        assert_eq!(cols, vec![0, 1]);
     }
 }

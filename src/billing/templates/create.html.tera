@@ -1,5 +1,15 @@
 {% extends "base.html.tera" %}
 
+{% block head_extra %}
+<style>
+    /* Fixed column widths for the line-items table below, page-specific so
+       they live here rather than in the shared base stylesheet. */
+    .col-qty { width: 7rem; }
+    .col-price { width: 10rem; }
+    .col-action { width: 3rem; }
+</style>
+{% endblock %}
+
 {% block content %}
 <nav class="breadcrumb" aria-label="breadcrumbs">
     <ul>
@@ -52,10 +62,10 @@
                 <thead>
                     <tr>
                         <th>Description</th>
-                        <th class="has-text-right" style="width:7rem">Qty</th>
-                        <th class="has-text-right" style="width:10rem">Unit Price</th>
-                        <th class="has-text-right" style="width:10rem">Line Total</th>
-                        <th style="width:3rem"></th>
+                        <th class="has-text-right col-qty">Qty</th>
+                        <th class="has-text-right col-price">Unit Price</th>
+                        <th class="has-text-right col-price">Line Total</th>
+                        <th class="col-action"></th>
                     </tr>
                 </thead>
                 <tbody id="items-body"><!-- rows injected by JS --></tbody>

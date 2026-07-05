@@ -1,5 +1,24 @@
 {% extends "base.html.tera" %}
 
+{% block head_extra %}
+<style>
+    /* Calendar grid cell sizing, page-specific so it lives here rather than
+       in the shared base stylesheet. The fixed 80px/14.28% grid is legible
+       on tablet and up; below 480px it shrinks so a week still fits the
+       screen width instead of forcing horizontal scroll. */
+    .cal-cell { height: 80px; width: 14.28%; vertical-align: top; padding: 6px; }
+    .cal-cell.is-other-month { opacity: 0.3; }
+    .cal-cell.is-today-cell { background-color: #e8f4fd; }
+    .cal-day-link { text-decoration: none; font-weight: normal; color: inherit; }
+    .cal-day-link.is-today-link { font-weight: bold; color: #3273dc; }
+
+    @media (max-width: 480px) {
+        .cal-cell { height: 44px; padding: 2px; font-size: 0.75rem; }
+        .cal-day-link { font-size: 0.85rem; }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="level">
     <div class="level-left">
@@ -21,6 +40,7 @@
 </div>
 
 <div class="box fade-in">
+    <div class="table-container">
     <table class="table is-fullwidth is-bordered">
         <thead>
             <tr>
@@ -37,13 +57,12 @@
             {% for week in weeks %}
             <tr>
                 {% for day in week %}
-                <td class="has-text-centered" style="height: 80px; width: 14.28%; vertical-align: top; padding: 6px;
-                    {% if not day.is_current_month %}opacity: 0.3;{% endif %}
-                    {% if day.is_today %}background-color: #e8f4fd;{% endif %}">
+                <td class="has-text-centered cal-cell
+                    {% if not day.is_current_month %}is-other-month{% endif %}
+                    {% if day.is_today %}is-today-cell{% endif %}">
                     {% if day.day > 0 %}
                     <a href="/appointments?date={{ day.date }}"
-                       style="text-decoration: none; font-weight: {% if day.is_today %}bold{% else %}normal{% endif %};
-                              color: {% if day.is_today %}#3273dc{% else %}inherit{% endif %};">
+                       class="cal-day-link {% if day.is_today %}is-today-link{% endif %}">
                         {{ day.day }}
                     </a>
                     {% if day.count > 0 %}
@@ -59,6 +78,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 <div class="has-text-centered">

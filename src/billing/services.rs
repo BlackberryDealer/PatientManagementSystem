@@ -97,6 +97,23 @@ pub async fn get_invoices_for_patient(
     .await?)
 }
 
+/// Every invoice for a patient, keyed by the `patients` table row id rather
+/// than `users.id` (unlike `get_invoices_for_patient`), and returning the
+/// bare `Invoice` row rather than the name-joined `InvoiceView`. Used by the
+/// cross-entity patient history timeline
+/// (`records::services::build_patient_timeline`), which already has
+/// `patient_id` on hand and only needs each invoice's own `Reportable`
+/// summary, not a patient-name join it would immediately discard.
+pub async fn get_invoices_for_patient_id(
+    pool: &SqlitePool,
+    patient_id: i64,
+) -> Result<Vec<Invoice>, AppError> {
+    Ok(sqlx::query_as::<_, Invoice>("SELECT * FROM invoices WHERE patient_id = ?")
+        .bind(patient_id)
+        .fetch_all(pool)
+        .await?)
+}
+
 /// Get a single invoice by ID.
 pub async fn get_invoice_by_id(pool: &SqlitePool, invoice_id: i64) -> Result<Invoice, AppError> {
     sqlx::query_as::<_, Invoice>("SELECT * FROM invoices WHERE id = ?")

@@ -75,6 +75,12 @@ impl LineItem {
     }
 }
 
+/// Upper bound on a single line item's quantity. Guards against fat-fingered
+/// or malicious input (e.g. a stray extra digit) producing an invoice total
+/// that overflows sane display/PDF rendering; no real clinic line item comes
+/// close to this.
+const MAX_LINE_ITEM_QUANTITY: i32 = 10_000;
+
 impl CreateInvoiceForm {
     /// Parse and validate the submitted line items.
     /// Malformed lines are skipped; at least one valid line is required,
@@ -95,7 +101,13 @@ impl CreateInvoiceForm {
                 let description = parts[0].trim().to_string();
                 let quantity: i32 = parts[1].trim().parse().ok()?;
                 let unit_price: f64 = parts[2].trim().parse().ok()?;
-                if description.is_empty() || quantity <= 0 || unit_price < 0.0 { return None; }
+                if description.is_empty()
+                    || quantity <= 0
+                    || quantity > MAX_LINE_ITEM_QUANTITY
+                    || unit_price < 0.0
+                {
+                    return None;
+                }
                 Some(LineItem { description, quantity, unit_price })
             })
             .collect();
@@ -189,13 +201,19 @@ impl StatusManaged for Invoice {
 impl Reportable for Invoice {
     fn generate_summary(&self) -> String {
         format!(
-            "Invoice #{} | Due: {} | Total: £{:.2} | Status: {}",
+            "Invoice #{} | Due: {} | Total: ${:.2} | Status: {}",
             self.id, self.due_date, self.total_amount, self.current_status()
         )
     }
 }
 
 impl Invoice {
+    /// Tolerance for comparing accumulated payments against the invoice total.
+    /// Money is stored as `f64`, so summing several payments can land a
+    /// fraction of a cent short of the total through binary rounding alone;
+    /// half a cent is comfortably smaller than any real underpayment.
+    const SETTLEMENT_EPSILON: f64 = 0.005;
+
     /// Only a pending invoice can accept payments, paid and cancelled
     /// invoices are closed.
     pub fn can_accept_payment(&self) -> bool {
@@ -203,8 +221,13 @@ impl Invoice {
     }
 
     /// Does the given total of recorded payments settle this invoice?
+    ///
+    /// Compares with a half-a-cent tolerance rather than raw `>=`, so summing
+    /// several payments (e.g. three payments of 33.33 against a 100.00 total)
+    /// can't leave an invoice stuck "pending" over a floating-point rounding
+    /// error a fraction of a cent wide.
     pub fn is_settled_by(&self, total_paid: f64) -> bool {
-        total_paid >= self.total_amount
+        total_paid + Self::SETTLEMENT_EPSILON >= self.total_amount
     }
 
     /// State transition to `paid`. Mutates internal state (&mut self);
@@ -254,7 +277,7 @@ pub struct InvoiceView {
 
 #[cfg(test)]
 mod tests {
-    use super::InvoiceStatus;
+    use super::{CreateInvoiceForm, Invoice, InvoiceStatus};
 
     // The billing templates compare `invoice.status == 'paid'` / `'pending'`,
     // so the serde representation must stay lowercase and equal `as_str()`.
@@ -264,5 +287,70 @@ mod tests {
         assert_eq!(serde_json::to_string(&InvoiceStatus::Paid).unwrap(), "\"paid\"");
         assert_eq!(serde_json::to_string(&InvoiceStatus::Cancelled).unwrap(), "\"cancelled\"");
         assert_eq!(InvoiceStatus::Paid.as_str(), "paid");
+    }
+
+    fn pending_invoice(total_amount: f64) -> Invoice {
+        Invoice {
+            id: 1,
+            patient_id: 1,
+            invoice_date: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            due_date: chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap(),
+            total_amount,
+            status: InvoiceStatus::Pending,
+            created_at: chrono::NaiveDateTime::default(),
+        }
+    }
+
+    // --- Invoice::is_settled_by ---
+
+    #[test]
+    fn is_settled_by_exact_amount() {
+        assert!(pending_invoice(100.0).is_settled_by(100.0));
+    }
+
+    #[test]
+    fn is_settled_by_rejects_real_underpayment() {
+        assert!(!pending_invoice(100.0).is_settled_by(90.0));
+    }
+
+    #[test]
+    fn is_settled_by_tolerates_floating_point_rounding() {
+        // Three payments that sum to 100.0 in decimal but land a hair short in
+        // binary floating point; a raw `>=` would leave this invoice stuck
+        // "pending" forever despite being fully paid.
+        let total_paid = 33.33 + 33.33 + 33.34;
+        assert!(pending_invoice(100.0).is_settled_by(total_paid));
+    }
+
+    #[test]
+    fn is_settled_by_accepts_overpayment() {
+        assert!(pending_invoice(100.0).is_settled_by(150.0));
+    }
+
+    // --- CreateInvoiceForm::parse_line_items quantity bounds ---
+
+    fn form_with_item(item_line: &str) -> CreateInvoiceForm {
+        CreateInvoiceForm {
+            patient_id: 1,
+            due_date: "2026-01-31".into(),
+            items: item_line.to_string(),
+        }
+    }
+
+    #[test]
+    fn parse_line_items_rejects_zero_quantity() {
+        assert!(form_with_item("Consultation|0|80.00").parse_line_items().is_err());
+    }
+
+    #[test]
+    fn parse_line_items_rejects_absurd_quantity() {
+        assert!(form_with_item("Consultation|1000000|80.00").parse_line_items().is_err());
+    }
+
+    #[test]
+    fn parse_line_items_accepts_reasonable_quantity() {
+        let items = form_with_item("Consultation|5|80.00").parse_line_items().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].quantity, 5);
     }
 }

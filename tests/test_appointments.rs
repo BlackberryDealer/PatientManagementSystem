@@ -903,6 +903,65 @@ async fn test_promote_past_dated_entry_is_blocked() {
     });
 }
 
+// ============================================================
+// HTTP: batch reassignment (Algorithm 5) and single reschedule forms
+// ============================================================
+
+#[actix_web::test]
+async fn test_reassign_day_form_requires_staff() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let pcookie = register_and_login!(app, "reassignpat", "patient");
+        let req = auth_get("/appointments/reassign-day", &pcookie).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 403, "a patient must not see the reassign-day form");
+
+        let dcookie = seed_and_login!(app, pool, "reassigndoc", "doctor");
+        let req = auth_get("/appointments/reassign-day", &dcookie).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "a doctor must be able to open the reassign-day form");
+    });
+}
+
+#[actix_web::test]
+async fn test_reassign_day_preview_http() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let dcookie = seed_and_login!(app, pool, "reassignprevdoc", "doctor");
+        let req = auth_post("/appointments/reassign-day", &dcookie, serde_json::json!({
+            "doctor_id": 1,
+            "appointment_date": "2027-06-15",
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "the Algorithm 5 preview should render");
+    });
+}
+
+#[actix_web::test]
+async fn test_reschedule_form_loads() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _dcookie = seed_and_login!(app, pool, "reschedformdoc", "doctor");
+        let owner = register_and_login!(app, "reschedowner", "patient");
+        let other = register_and_login!(app, "reschedother", "patient");
+
+        let req = auth_post("/appointments/book", &owner, serde_json::json!({
+            "doctor_id": 1, "appointment_date": "2027-06-15",
+            "start_time": "10:00", "end_time": "10:30", "priority": 3,
+        })).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_redirection());
+
+        let req = auth_get("/appointments/1/reschedule", &owner).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "the owner must be able to open the reschedule form");
+
+        let req = auth_get("/appointments/1/reschedule", &other).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 403, "another patient must not open this reschedule form");
+    });
+}
+
 #[actix_web::test]
 async fn test_cancel_still_restores_bumped_patient_when_day_was_full() {
     // Regression: when a bumped patient could not be auto-rescheduled (day

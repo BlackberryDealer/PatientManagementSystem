@@ -9,6 +9,20 @@
    role, the calling template wraps the macro call itself in `{% if %}` /
    `{% elif %}` rather than branching inside the macro. #}
 
+{# Dismissible inline error notification for auth-adjacent forms (login,
+   register, change password) that re-render the form with a server-side
+   validation/auth failure message instead of redirecting to the generic
+   error page. #}
+{% macro inline_error(error) %}
+<div class="notification is-danger is-dark p-3 mb-4 fade-in">
+    <button class="delete" onclick="this.parentElement.style.display='none'"></button>
+    <div class="is-flex is-align-items-center">
+        <span class="icon mr-2"><i class="fas fa-exclamation-circle"></i></span>
+        <p class="is-size-6 has-text-weight-semibold">{{ error }}</p>
+    </div>
+</div>
+{% endmacro inline_error %}
+
 {% macro empty_state(icon, title, subtitle, action_href="", action_label="", action_icon="fa-plus") %}
 <div class="hero is-medium has-text-centered has-text-grey fade-in">
     <div class="hero-body">
@@ -38,7 +52,7 @@
         {% if status == 'scheduled' %}fa-hourglass-half
         {% elif status == 'completed' %}fa-check-circle
         {% else %}fa-times-circle{% endif %} mr-1"></i>
-    {% if capitalize %}<span style="text-transform: capitalize;">{{ status }}</span>{% else %}{{ status }}{% endif %}
+    {% if capitalize %}<span class="is-capitalized">{{ status }}</span>{% else %}{{ status }}{% endif %}
 </span>
 {% endmacro appointment_status_tag %}
 
@@ -63,7 +77,7 @@
         {% if status == 'paid' %}fa-check-circle
         {% elif status == 'pending' %}fa-clock
         {% else %}fa-ban{% endif %} mr-1"></i>
-    <span style="text-transform: capitalize;">{{ status }}</span>
+    <span class="is-capitalized">{{ status }}</span>
 </span>
 {% endmacro invoice_status_tag_header %}
 
@@ -77,3 +91,45 @@
     {% elif status == 'accepted' %}is-success
     {% else %}is-light{% endif %}">{{ status }}</span>
 {% endmacro waitlist_status_tag %}
+
+{# Triage priority badge — mirrors the `Priority` enum's `css_class()`/`label()`
+   in src/traits.rs (1=Emergency=is-danger, 2=Urgent=is-warning,
+   3=Normal=is-info, 4=Follow-up=is-success), the single source of truth for
+   this mapping on the Rust side. Used on the appointments list, detail, and
+   waitlist pages so the three no longer hand-roll their own copy of the
+   1/2/3/4 branching (and had drifted to three different icon sets before
+   this macro existed). #}
+{% macro priority_tag(priority, size="") %}
+<span class="tag {{ size }}
+    {% if priority == 1 %}is-danger
+    {% elif priority == 2 %}is-warning
+    {% elif priority == 4 %}is-success
+    {% else %}is-info{% endif %} is-light">
+    <i class="fas
+        {% if priority == 1 %}fa-ambulance
+        {% elif priority == 2 %}fa-exclamation-triangle
+        {% elif priority == 4 %}fa-rotate-right
+        {% else %}fa-flag{% endif %} mr-1"></i>
+    {% if priority == 1 %}Emergency
+    {% elif priority == 2 %}Urgent
+    {% elif priority == 4 %}Follow-up
+    {% else %}Normal{% endif %}
+</span>
+{% endmacro priority_tag %}
+
+{# Account-role badge — used on the users list, profile header, and navbar.
+   Color mapping (admin=danger, doctor=info, patient=success) is the one
+   convention already followed consistently across the app for role
+   indicators. `icon=false` drops the leading icon for tight spaces (navbar). #}
+{% macro user_role_tag(role, size="", icon=true) %}
+<span class="tag {{ size }}
+    {% if role == 'admin' %}is-danger
+    {% elif role == 'doctor' %}is-info
+    {% else %}is-success{% endif %} is-light is-capitalized">
+    {% if icon %}<i class="fas
+        {% if role == 'admin' %}fa-shield-alt
+        {% elif role == 'doctor' %}fa-stethoscope
+        {% else %}fa-user{% endif %} mr-1"></i>{% endif %}
+    {{ role }}
+</span>
+{% endmacro user_role_tag %}

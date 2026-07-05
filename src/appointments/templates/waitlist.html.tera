@@ -50,17 +50,7 @@
                 </td>
                 <td>{{ w.appointment_date }}</td>
                 <td>{{ w.requested_start }} – {{ w.requested_end }}</td>
-                <td>
-                    {% if w.priority == 1 %}
-                    <span class="tag is-danger is-light"><i class="fas fa-ambulance mr-1"></i>Emergency</span>
-                    {% elif w.priority == 2 %}
-                    <span class="tag is-warning is-light"><i class="fas fa-exclamation-triangle mr-1"></i>Urgent</span>
-                    {% elif w.priority == 4 %}
-                    <span class="tag is-success is-light"><i class="fas fa-redo mr-1"></i>Follow-up</span>
-                    {% else %}
-                    <span class="tag is-info is-light"><i class="fas fa-clock mr-1"></i>Normal</span>
-                    {% endif %}
-                </td>
+                <td>{{ macros::priority_tag(priority=w.priority) }}</td>
                 <td>
                     {{ macros::waitlist_status_tag(status=w.status) }}
                     {% if w.status == "expired" %}
@@ -71,7 +61,7 @@
                     {# Promotion is a staff decision — patients see their
                        queue position but cannot promote themselves. #}
                     {% if w.status == "waiting" and (user.role == "doctor" or user.role == "admin") %}
-                    <form method="POST" action="/appointments/waitlist/{{ w.id }}/promote" style="display:inline;">
+                    <form method="POST" action="/appointments/waitlist/{{ w.id }}/promote" class="inline-form">
                         <button class="button is-small is-success is-light" type="submit"
                                 title="Book this patient into the slot. If it is taken by a lower-priority appointment, that one is bumped to the waitlist.">
                             <i class="fas fa-arrow-up mr-1"></i>Promote

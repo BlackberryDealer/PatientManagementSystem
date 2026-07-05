@@ -117,13 +117,17 @@ pub async fn get_record_detail_checked(
     role: Role,
 ) -> Result<RecordDetail, AppError> {
     let record = get_record_checked(pool, record_id, user_id, role).await?;
-    // Names fall back to "#id" rather than erroring (matching the previous
-    // inline handler behaviour), so a record pointing at a removed patient or
-    // doctor row still renders.
+    // Both lookups fall back to "#id" rather than erroring here, applied the
+    // same way for patient and doctor, so a record still renders even if one
+    // side's row is ever missing. `get_patient_name`/`get_doctor_name` stay
+    // strict (they error on a missing row) because their other caller,
+    // the timeline handler, needs a real 404 on a bad `patient_id`.
     let patient_name = get_patient_name(pool, record.patient_id)
         .await
         .unwrap_or_else(|_| format!("Patient #{}", record.patient_id));
-    let doctor_name = get_doctor_name(pool, record.doctor_id).await?;
+    let doctor_name = get_doctor_name(pool, record.doctor_id)
+        .await
+        .unwrap_or_else(|_| format!("Doctor #{}", record.doctor_id));
     Ok(RecordDetail { record, patient_name, doctor_name })
 }
 
@@ -199,17 +203,8 @@ pub async fn get_patient_appointment_options(
     pool: &SqlitePool,
     patient_id: i64,
 ) -> Result<Vec<PatientAppointmentOption>, AppError> {
-    let rows = sqlx::query_as::<_, (i64, chrono::NaiveDate, String, String, String)>(
-        "SELECT a.id, a.appointment_date, a.start_time, a.status, u.full_name
-         FROM appointments a
-         JOIN doctors d ON a.doctor_id = d.id
-         JOIN users u ON d.user_id = u.id
-         WHERE a.patient_id = ?
-         ORDER BY a.appointment_date DESC, a.start_time DESC",
-    )
-    .bind(patient_id)
-    .fetch_all(pool)
-    .await?;
+    let rows = crate::appointments::services::get_appointment_options_for_patient(pool, patient_id)
+        .await?;
 
     Ok(rows
         .into_iter()
@@ -237,17 +232,18 @@ pub async fn get_patient_name(pool: &SqlitePool, patient_id: i64) -> Result<Stri
 }
 
 /// Display name for a doctor by their doctors-table row ID (sibling of
-/// `get_patient_name`). Falls back to "Doctor #N" rather than erroring, so a
-/// record pointing at a since-removed doctor still renders.
+/// `get_patient_name`, same strict "error if missing" contract). Callers that
+/// want resilience against a missing row (e.g. `get_record_detail_checked`)
+/// apply their own fallback at the call site instead of baking one in here.
 pub async fn get_doctor_name(pool: &SqlitePool, doctor_id: i64) -> Result<String, AppError> {
-    Ok(sqlx::query_as::<_, (String,)>(
+    sqlx::query_as::<_, (String,)>(
         "SELECT u.full_name FROM doctors d JOIN users u ON d.user_id = u.id WHERE d.id = ?",
     )
     .bind(doctor_id)
     .fetch_optional(pool)
     .await?
     .map(|(name,)| name)
-    .unwrap_or_else(|| format!("Doctor #{doctor_id}")))
+    .ok_or_else(|| AppError::NotFound("Doctor not found".into()))
 }
 
 /// Build a patient's full chronological history: appointments, medical
@@ -255,12 +251,11 @@ pub async fn get_doctor_name(pool: &SqlitePool, doctor_id: i64) -> Result<String
 /// first. Each entity contributes its own summary via the Reportable
 /// trait, the polymorphism the timeline is built on.
 ///
-/// Reads `appointments`/`invoices` directly rather than through their own
-/// modules' service functions: this is a read-only, cross-entity merge by
-/// definition (that's the feature), and the row shape it needs (id, dates,
-/// a `Reportable` summary) is narrower than what those modules' own query
-/// functions return, so reusing them would mean fetching full rows and
-/// discarding most of each one.
+/// Appointments and invoices are fetched through
+/// `appointments::services::get_appointments_for_patient_id` and
+/// `billing::services::get_invoices_for_patient_id`, narrow read functions
+/// that live in their owning modules rather than duplicating those tables'
+/// SQL here.
 pub async fn build_patient_timeline(
     pool: &SqlitePool,
     patient_id: i64,
@@ -278,14 +273,8 @@ pub async fn build_patient_timeline(
         .collect();
 
     // 1. Appointments
-    let appointments = sqlx::query_as::<_, crate::appointments::models::Appointment>(
-        "SELECT id, patient_id, doctor_id, appointment_date, start_time, end_time,
-                status, notes, created_at, room_id, priority
-         FROM appointments WHERE patient_id = ?",
-    )
-    .bind(patient_id)
-    .fetch_all(pool)
-    .await?;
+    let appointments =
+        crate::appointments::services::get_appointments_for_patient_id(pool, patient_id).await?;
 
     for appt in appointments {
         let doctor = doctor_names
@@ -341,12 +330,7 @@ pub async fn build_patient_timeline(
     }
 
     // 4. Invoices
-    let invoices = sqlx::query_as::<_, crate::billing::models::Invoice>(
-        "SELECT * FROM invoices WHERE patient_id = ?",
-    )
-    .bind(patient_id)
-    .fetch_all(pool)
-    .await?;
+    let invoices = crate::billing::services::get_invoices_for_patient_id(pool, patient_id).await?;
 
     for invoice in invoices {
         events.push(TimelineEvent::new(

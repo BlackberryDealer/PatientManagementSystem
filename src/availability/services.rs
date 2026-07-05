@@ -31,7 +31,7 @@ pub async fn ensure_doctor_available(
     start_time: &str,
     end_time: &str,
 ) -> Result<(), AppError> {
-    let rules = fetch_rules_for_day(pool, doctor_id, appointment_date).await?;
+    let rules = get_rules_for_day(pool, doctor_id, appointment_date).await?;
 
     // Rule 1: any overlapping blocked entry rejects the booking. The requested
     // window is lifted into the TimeSlotted world (`TimeWindow`) so the shared
@@ -76,7 +76,7 @@ pub async fn ensure_doctor_available(
 /// so callers that check many slots for the same day (the free-slot API and
 /// the batch-reassignment feasibility matrix) fetch the rules once and then
 /// evaluate them in memory with `slot_allowed_by_rules`.
-pub async fn fetch_rules_for_day(
+pub async fn get_rules_for_day(
     pool: &SqlitePool,
     doctor_id: i64,
     appointment_date: &str,

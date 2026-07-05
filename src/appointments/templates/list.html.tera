@@ -70,17 +70,7 @@
                     <span class="tag is-warning is-light"><i class="fas fa-hourglass-half mr-1"></i>Pending Room Location</span>
                     {% endif %}
                 </td>
-                <td>
-                    {% if a.priority == 1 %}
-                    <span class="tag is-danger is-light"><i class="fas fa-ambulance mr-1"></i>Emergency</span>
-                    {% elif a.priority == 2 %}
-                    <span class="tag is-warning is-light"><i class="fas fa-exclamation-triangle mr-1"></i>Urgent</span>
-                    {% elif a.priority == 4 %}
-                    <span class="tag is-success is-light">Follow-up</span>
-                    {% else %}
-                    <span class="tag is-info is-light">Normal</span>
-                    {% endif %}
-                </td>
+                <td>{{ macros::priority_tag(priority=a.priority) }}</td>
                 <td>{{ macros::appointment_status_tag(status=a.status) }}</td>
                 <td>
                     <div class="buttons are-small">
@@ -88,7 +78,7 @@
                             <i class="fas fa-eye mr-1"></i>View
                         </a>
                         {% if a.status == "scheduled" %}
-                        <form method="POST" action="/appointments/{{ a.id }}/cancel" style="display:inline;">
+                        <form method="POST" action="/appointments/{{ a.id }}/cancel" class="inline-form">
                             <button class="button is-danger is-light" type="submit" onclick="return confirm('Cancel appointment #{{ a.id }}? This cannot be undone.')">
                                 <i class="fas fa-ban mr-1"></i>Cancel
                             </button>

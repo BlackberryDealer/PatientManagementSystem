@@ -66,13 +66,7 @@
                     <span class="mr-3 has-text-weight-semibold has-text-white">
                         <i class="fas fa-user-circle mr-1"></i>{{ user.username }}
                     </span>
-                    <span class="tag
-                        {% if user.role == 'admin' %}is-danger
-                        {% elif user.role == 'doctor' %}is-info
-                        {% else %}is-success{% endif %}
-                        is-light mr-2" style="text-transform: capitalize;">
-                        {{ user.role }}
-                    </span>
+                    {{ macros::user_role_tag(role=user.role, icon=false, size="mr-2") }}
                     <a class="button is-light is-small mr-1" href="/users/{{ user.user_id }}">
                         <i class="fas fa-id-card mr-1"></i>Profile
                     </a>

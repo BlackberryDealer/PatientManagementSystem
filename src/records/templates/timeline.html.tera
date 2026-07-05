@@ -1,6 +1,17 @@
 {% extends "base.html.tera" %}
 {% import "shared/macros.html.tera" as macros %}
 
+{% block head_extra %}
+<style>
+    /* The vertical connecting line and marker offset for the timeline layout
+       below, page-specific so they live here rather than in the shared
+       base stylesheet. */
+    .timeline-rail { border-left: 3px solid #dbdbdb; margin-left: 1rem; padding-left: 0; }
+    .timeline-entry { margin-left: -1.05rem; }
+    .timeline-card { flex: 1; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="level">
     <div class="level-left">
@@ -18,15 +29,15 @@
 </div>
 
 {% if events %}
-<div class="fade-in" style="border-left: 3px solid #dbdbdb; margin-left: 1rem; padding-left: 0;">
+<div class="fade-in timeline-rail">
     {% for e in events %}
-    <div class="is-flex mb-4" style="margin-left: -1.05rem;">
+    <div class="is-flex mb-4 timeline-entry">
         <div class="mr-4">
             <span class="icon is-medium has-text-{{ e.color }} has-background-white">
                 <i class="fas {{ e.icon }} fa-lg"></i>
             </span>
         </div>
-        <div class="box py-3 px-4" style="flex: 1;">
+        <div class="box py-3 px-4 timeline-card">
             <div class="is-flex is-justify-content-space-between is-align-items-center mb-1">
                 <p class="has-text-weight-semibold">{{ e.title }}</p>
                 <span class="tag is-light is-size-7"><i class="fas fa-clock mr-1"></i>{{ e.when }}</span>

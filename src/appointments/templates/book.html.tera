@@ -18,7 +18,7 @@
 <div class="box fade-in">
     <form method="POST" action="/appointments/book" id="book-form" data-self-doctor-id="{{ self_doctor_id | default(value='') }}">
         <div class="columns">
-            <div class="column is-6">
+            <div class="column is-full-mobile is-6-tablet">
                 {% if user.role == "doctor" or user.role == "admin" %}
                 <div class="field">
                     <label class="label"><i class="fas fa-user mr-1"></i>Select Patient</label>
@@ -65,7 +65,7 @@
                 </div>
             </div>
 
-            <div class="column is-6">
+            <div class="column is-full-mobile is-6-tablet">
                 <div class="notification is-info is-light">
                     <p><i class="fas fa-info-circle mr-1"></i><strong>Live Availability</strong></p>
                     {% if user.role == "doctor" or user.role == "admin" %}
@@ -84,7 +84,7 @@
         </div>
 
         <div class="columns">
-            <div class="column is-6">
+            <div class="column is-full-mobile is-6-tablet">
                 <div class="field">
                     <label class="label"><i class="fas fa-clock mr-1"></i>Start Time</label>
                     <div class="control has-icons-left">
@@ -101,7 +101,7 @@
                     <p class="help" id="slot-status"></p>
                 </div>
             </div>
-            <div class="column is-6">
+            <div class="column is-full-mobile is-6-tablet">
                 <div class="field">
                     <label class="label"><i class="fas fa-clock mr-1"></i>End Time</label>
                     <div class="control has-icons-left">
@@ -123,7 +123,7 @@
         {# Revealed by the availability script when the chosen window covers an
            already-booked slot — a doctor/admin-only priority override. #}
         {% if user.role == "doctor" or user.role == "admin" %}
-        <div class="notification is-warning is-light" id="override-warning" style="display:none;">
+        <div class="notification is-warning is-light is-hidden" id="override-warning">
             <i class="fas fa-exclamation-triangle mr-1"></i><strong>Priority override.</strong>
             This time is already booked. To take it, set <strong>Priority</strong> below to
             Emergency or Urgent — the current lower-priority appointment is moved to the waitlist.
@@ -145,7 +145,7 @@
         <hr>
 
         <div class="columns">
-            <div class="column is-6">
+            <div class="column is-full-mobile is-6-tablet">
                 <div class="field">
                     <label class="label"><i class="fas fa-flag mr-1"></i>Priority</label>
                     <div class="control">
@@ -278,13 +278,13 @@
             } else if (start && !freeSet.has(start)) {
                 spansOccupied = true;
             }
-            warnEl.style.display = spansOccupied ? '' : 'none';
+            warnEl.classList.toggle('is-hidden', !spansOccupied);
         }
 
         async function refreshSlots() {
             const doctorId = currentDoctorId();
             const date = dateInput.value;
-            if (warnEl) warnEl.style.display = 'none';
+            if (warnEl) warnEl.classList.add('is-hidden');
             if (!doctorId || !date) {
                 setSingle(startSelect, waitingPrompt);
                 setSingle(endSelect, '-- Select start first --');

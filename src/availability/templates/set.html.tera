@@ -37,7 +37,7 @@
                             {% set day_fields = ["day_1", "day_2", "day_3", "day_4", "day_5", "day_6", "day_0"] %}
                             {% set day_labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}
                             {% for f in day_fields %}
-                            <label class="checkbox mr-4 mb-2" style="display:inline-block;">
+                            <label class="checkbox mr-4 mb-2 is-inline-block">
                                 <input type="checkbox" class="weekday-box" name="{{ f }}" value="on">
                                 {{ day_labels[loop.index0] }}
                             </label>

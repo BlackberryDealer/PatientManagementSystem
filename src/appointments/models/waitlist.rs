@@ -1,7 +1,7 @@
 // The waitlist entity: a patient queued for a slot to open up, its lifecycle
 // status enum, and the form patients submit to join.
 
-use crate::traits::{Prioritized, Priority, StatusManaged, TimeSlotted};
+use crate::traits::{Prioritized, Priority, Reportable, StatusManaged, TimeSlotted};
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle status of a waitlist entry.
@@ -108,6 +108,16 @@ impl StatusManaged for WaitlistEntry {
 impl Prioritized for WaitlistEntry {
     // Same as Appointment: the trait defaults handle label/badge mapping.
     fn priority_level(&self) -> i32 { self.priority }
+}
+
+impl Reportable for WaitlistEntry {
+    fn generate_summary(&self) -> String {
+        format!(
+            "Waitlist #{} | Requested {} {}-{} | Status: {} | Priority: {}",
+            self.id, self.appointment_date, self.requested_start, self.requested_end,
+            self.current_status(), self.priority_label()
+        )
+    }
 }
 
 /// Form to add a patient to the waitlist.

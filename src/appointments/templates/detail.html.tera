@@ -66,17 +66,7 @@
                     </div>
                     <div class="mb-4">
                         <p class="is-size-7 has-text-grey mb-1">PRIORITY</p>
-                        <p class="is-size-5">
-                            {% if appointment.priority == 1 %}
-                            <span class="tag is-danger is-medium"><i class="fas fa-exclamation-triangle mr-1"></i>Emergency</span>
-                            {% elif appointment.priority == 2 %}
-                            <span class="tag is-warning is-medium"><i class="fas fa-exclamation-circle mr-1"></i>Urgent</span>
-                            {% elif appointment.priority == 4 %}
-                            <span class="tag is-success is-medium"><i class="fas fa-rotate-right mr-1"></i>Follow-up</span>
-                            {% else %}
-                            <span class="tag is-info is-medium"><i class="fas fa-flag mr-1"></i>Normal</span>
-                            {% endif %}
-                        </p>
+                        <p class="is-size-5">{{ macros::priority_tag(priority=appointment.priority, size="is-medium") }}</p>
                         {% if appointment.status == "scheduled" and (user.role == "doctor" or user.role == "admin") %}
                         <form method="POST" action="/appointments/{{ appointment.id }}/priority" class="mt-2">
                             <div class="field has-addons">
@@ -144,7 +134,7 @@
         </div>
     </div>
 
-    <div class="mt-5 is-flex is-align-items-center" style="gap: 0.75rem;">
+    <div class="mt-5 is-flex is-align-items-center action-row">
         <a class="button is-light" href="/appointments">
             <i class="fas fa-arrow-left mr-1"></i>Back to Appointments
         </a>
@@ -152,18 +142,18 @@
         <a class="button is-info is-light" href="/appointments/{{ appointment.id }}/reschedule">
             <i class="fas fa-clock-rotate-left mr-1"></i>Reschedule
         </a>
-        <form method="POST" action="/appointments/{{ appointment.id }}/cancel" style="display:inline;">
+        <form method="POST" action="/appointments/{{ appointment.id }}/cancel" class="inline-form">
             <button class="button is-danger is-light" type="submit" onclick="return confirm('Cancel appointment #{{ appointment.id }}? This cannot be undone.')">
                 <i class="fas fa-ban mr-1"></i>Cancel Appointment
             </button>
         </form>
         {% if user.role == "doctor" or user.role == "admin" %}
-        <form method="POST" action="/appointments/{{ appointment.id }}/complete" style="display:inline;">
+        <form method="POST" action="/appointments/{{ appointment.id }}/complete" class="inline-form">
             <button class="button is-success" type="submit" onclick="return confirm('Mark appointment #{{ appointment.id }} as completed?')">
                 <i class="fas fa-check mr-1"></i>Mark Completed
             </button>
         </form>
-        <form method="POST" action="/appointments/{{ appointment.id }}/reassign" style="display:inline;">
+        <form method="POST" action="/appointments/{{ appointment.id }}/reassign" class="inline-form">
             <button class="button is-warning is-light" type="submit" onclick="return confirm('Reassign appointment #{{ appointment.id }} to the best available doctor?')">
                 <i class="fas fa-exchange-alt mr-1"></i>Reassign Doctor
             </button>

@@ -62,7 +62,7 @@ pub async fn create_invoice(
     let invoice = services::create_invoice(pool.get_ref(), &form).await?;
     crate::audit::services::record(
         pool.get_ref(), &user, "invoice.created", "invoice", Some(invoice.id),
-        &format!("£{:.2} due {}", invoice.total_amount, invoice.due_date),
+        &format!("${:.2} due {}", invoice.total_amount, invoice.due_date),
     ).await;
 
     Ok(HttpResponse::SeeOther()
@@ -130,7 +130,7 @@ pub async fn record_payment(
     let payment = services::record_payment(pool.get_ref(), invoice_id, &form).await?;
     crate::audit::services::record(
         pool.get_ref(), &user, "payment.recorded", "invoice", Some(invoice_id),
-        &format!("£{:.2} via {}", payment.amount, payment.payment_method),
+        &format!("${:.2} via {}", payment.amount, payment.payment_method),
     ).await;
 
     Ok(HttpResponse::SeeOther()

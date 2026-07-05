@@ -52,7 +52,7 @@ impl DoctorAvailability {
 
     /// Does this rule apply on the given calendar date? Recurring rules match
     /// by weekday; one-off rules match by exact date. This is the in-memory
-    /// twin of the SQL predicate in `fetch_rules_for_day`, used when a caller
+    /// twin of the SQL predicate in `get_rules_for_day`, used when a caller
     /// already holds the doctor's full rule set.
     pub fn applies_on(&self, date: chrono::NaiveDate) -> bool {
         use chrono::Datelike;

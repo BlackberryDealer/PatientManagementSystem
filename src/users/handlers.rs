@@ -29,9 +29,36 @@ pub async fn register_form(
 pub async fn register(
     pool: web::Data<sqlx::SqlitePool>,
     session: Session,
+    tera: web::Data<tera::Tera>,
     form: web::Form<RegisterForm>,
 ) -> Result<HttpResponse, AppError> {
-    let user = services::register_user(pool.get_ref(), &form).await?;
+    let user = match services::register_user(pool.get_ref(), &form).await {
+        Ok(user) => user,
+        // A bad submission (weak password, taken username/email, ...) re-renders
+        // the form with the message instead of falling through to the generic
+        // error page, and keeps the non-sensitive fields filled in so the user
+        // does not have to retype them, the same pattern `login` uses for a
+        // failed sign-in.
+        Err(AppError::BadRequest(msg)) => {
+            let mut ctx = Context::new();
+            ctx.insert("user", &Option::<crate::auth::AuthUser>::None);
+            ctx.insert("error", &msg);
+            ctx.insert("full_name", &form.full_name);
+            ctx.insert("username", &form.username);
+            ctx.insert("email", &form.email);
+            ctx.insert("title", "Register");
+            let rendered = tera.render("users/register.html.tera", &ctx)?;
+            // The app's 400 ErrorHandlers middleware only passes through
+            // responses already marked `text/html` (see `render_error_page` in
+            // main.rs); otherwise it discards this body and substitutes a
+            // generic message, the same reason `AppError`'s own 400 page sets
+            // this explicitly.
+            return Ok(HttpResponse::BadRequest()
+                .content_type("text/html; charset=utf-8")
+                .body(rendered));
+        }
+        Err(e) => return Err(e),
+    };
     crate::audit::services::record_raw(
         pool.get_ref(),
         crate::audit::services::NewAuditEntry {

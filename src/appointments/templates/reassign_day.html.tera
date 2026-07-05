@@ -42,7 +42,7 @@
                 </div>
             </div>
             <div class="column is-3 is-flex is-align-items-flex-end">
-                <div class="field" style="width: 100%;">
+                <div class="field full-width">
                     <div class="control">
                         <button class="button is-primary is-fullwidth" type="submit">
                             <i class="fas fa-wand-magic-sparkles mr-1"></i>Compute Plan
@@ -130,7 +130,7 @@
     {% endif %}
 
     <hr>
-    <div class="is-flex is-align-items-center" style="gap: 0.75rem;">
+    <div class="is-flex is-align-items-center action-row">
         <form method="POST" action="/appointments/reassign-day/apply">
             <input type="hidden" name="doctor_id" value="{{ form_doctor_id }}">
             <input type="hidden" name="appointment_date" value="{{ form_date }}">

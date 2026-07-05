@@ -1,7 +1,7 @@
 use crate::appointments::models::Appointment;
 use crate::errors::AppError;
 use crate::time::{minutes_to_time, parse_slot, SLOT_MINUTES};
-use crate::traits::StatusManaged;
+use crate::traits::{Priority, StatusManaged};
 use sqlx::SqlitePool;
 
 /// The full column list for loading an `Appointment` row. Every mutation
@@ -104,6 +104,63 @@ pub(super) async fn bump_conflict(
         .execute(&mut **tx)
         .await?;
     Ok(waitlist_id)
+}
+
+/// Fetch every *scheduled* appointment occupying `doctor_id`'s or `room_id`'s
+/// calendar that overlaps `[start, end)` on `date`, the same doctor-OR-room
+/// criteria `check_conflict` uses. A priority override can only bump what is
+/// actually holding the slot, so this must see every resource the new booking
+/// would collide with, not just the doctor's own calendar (a doctor-only
+/// filter would miss a same-room, different-doctor occupant and let two
+/// appointments land in the same room). Shared by `book_with_priority` and
+/// `promote_from_waitlist`.
+pub(super) async fn fetch_scheduled_conflicts(
+    pool: &SqlitePool,
+    doctor_id: i64,
+    room_id: i64,
+    date: &str,
+    start: &str,
+    end: &str,
+) -> Result<Vec<(i64, i32, String, String, String)>, AppError> {
+    Ok(sqlx::query_as::<_, (i64, i32, String, String, String)>(
+        "SELECT id, priority, start_time, end_time, notes FROM appointments
+         WHERE (doctor_id = ? OR room_id = ?) AND appointment_date = ? AND status = 'scheduled'
+           AND start_time < ? AND end_time > ?",
+    )
+    .bind(doctor_id)
+    .bind(room_id)
+    .bind(date)
+    .bind(end)
+    .bind(start)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Does `new_priority` strictly outrank every occupant in `conflicts`? Only
+/// then may a priority override bump them; a tie or a higher-priority
+/// occupant blocks the override entirely. Shared by `book_with_priority` and
+/// `promote_from_waitlist`.
+pub(super) fn all_outranked(
+    new_priority: Priority,
+    conflicts: &[(i64, i32, String, String, String)],
+) -> bool {
+    conflicts
+        .iter()
+        .all(|(_, pri, _, _, _)| new_priority.outranks(Priority::from_i32(*pri)))
+}
+
+/// Bump every conflicting occupant onto the waitlist inside `tx`, returning
+/// their new waitlist ids for the caller's post-commit rebook attempt. Shared
+/// by both priority-override booking paths.
+pub(super) async fn bump_all_conflicts(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    conflicts: &[(i64, i32, String, String, String)],
+) -> Result<Vec<i64>, AppError> {
+    let mut bumped_waitlist_ids = Vec::new();
+    for (conflict_id, _, _, _, c_notes) in conflicts {
+        bumped_waitlist_ids.push(bump_conflict(tx, *conflict_id, c_notes).await?);
+    }
+    Ok(bumped_waitlist_ids)
 }
 
 /// Write one occupancy row per 30-minute slot in `[start_mins, end_mins)`

@@ -19,10 +19,10 @@ All passwords: **`password123`** (login works with username OR email)
 | Account | Role | Key Facts |
 |---------|------|-----------|
 | `admin` | Admin | Full system access |
-| `dr.smith` | Doctor | General Practice, Mon/Tue/Thu/Fri 9-5, Wed off, July 20 blocked |
+| `dr.smith` | Doctor | General Practice, Mon/Tue/Thu/Fri 9-5, Wed off, Aug 17 2026 blocked |
 | `dr.jones` | Doctor | Cardiology, varied schedule |
-| `john.doe` | Patient | O+, born 1990-03-15, 3 appointments, 2 records, 2 prescriptions, 1 paid invoice |
-| `jane.doe` | Patient | A+, born 1985-07-22, 2 appointments, 1 record, 1 prescription, 1 pending invoice |
+| `john.doe` | Patient | O+, born 1990-03-15, 4 appointments, 2 records, 2 prescriptions, 1 paid invoice |
+| `jane.doe` | Patient | A+, born 1985-07-22, 3 appointments, 1 record, 1 prescription, 1 pending invoice |
 | `bob.wilson` | Patient | B+, born 1978-11-08, 3 appointments, 1 record, 1 prescription, 1 pending invoice, waitlisted |
 
 ---
@@ -48,7 +48,7 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] **NOT visible**: Availability, Users, Dashboard, Audit (patient-restricted)
 
 ### 3. Appointments List (`/appointments`)
-- [ ] Table shows John Doe's appointments (3 total: 1 completed, 1 scheduled, 1 cancelled)
+- [ ] Table shows John Doe's appointments (4 total: 1 completed, 3 scheduled)
 - [ ] Columns: Date, Doctor, Time, Room, Priority badge, Status badge, Actions
 - [ ] Doctor names show as real names (not IDs)
 - [ ] Priority badges coloured: Emergency=red, Urgent=orange, Normal=blue, Follow-up=green
@@ -107,12 +107,12 @@ All passwords: **`password123`** (login works with username OR email)
 - [ ] Payment section shows payment record (Credit Card, TXN-001)
 - [ ] **Try to access another patient's invoice**: go to `/billing/2` → should be FORBIDDEN
 
-### 10. My Profile (`/users/1`)
+### 10. My Profile (`/users/4`)
 - [ ] Shows username, email, full name, role badge
 - [ ] Patient section: DOB, phone, address, blood group (O+), emergency contact
 - [ ] **Edit Profile** button → click it
 
-### 11. Edit Profile (`/users/1/edit`)
+### 11. Edit Profile (`/users/4/edit`)
 - [ ] Form pre-filled with current data
 - [ ] Change full name to "John Doe Updated"
 - [ ] Change phone to "555-9999"
@@ -303,8 +303,16 @@ All passwords: **`password123`** (login works with username OR email)
 | `/appointments/book` | GET/POST | ✅ (self, Normal priority) | ✅ (for a patient, own schedule) | ✅ (for a patient, any doctor) |
 | `/appointments/suggest` | GET/POST | ✅ | ✅ | ✅ |
 | `/appointments/calendar` | GET | ✅ | ✅ | ✅ |
+| `/appointments/availability` (JSON) | GET | ✅ | ✅ | ✅ |
+| `/appointments/all-slots` (JSON) | GET | ❌ | ✅ | ✅ |
+| `/appointments/reassign-day` | GET/POST | ❌ | ✅ | ✅ |
+| `/appointments/reassign-day/apply` | POST | ❌ | ✅ | ✅ |
 | `/appointments/{id}` | GET | Own only | ✅ | ✅ |
+| `/appointments/{id}/reschedule` | GET/POST | Own only | ✅ | ✅ |
 | `/appointments/{id}/cancel` | POST | Own only | ✅ | ✅ |
+| `/appointments/{id}/complete` | POST | ❌ | ✅ | ✅ |
+| `/appointments/{id}/assign-room` | POST | ❌ | ✅ | ✅ |
+| `/appointments/{id}/priority` | POST | ❌ | ✅ | ✅ |
 | `/appointments/{id}/reassign` | POST | ❌ | ✅ | ✅ |
 | `/appointments/waitlist` | GET | ✅ (own) | ✅ (own) | ✅ (all) |
 | `/appointments/waitlist/join` | POST | ✅ (filed as Normal) | ❌ | ❌ |
@@ -314,15 +322,20 @@ All passwords: **`password123`** (login works with username OR email)
 | `/availability/{id}/edit` | GET/POST | ❌ | Own only | ✅ |
 | `/availability/{id}/delete` | POST | ❌ | Own only | ✅ |
 | `/records` | GET | ✅ (own) | ✅ (all) | ✅ (all) |
-| `/records/create` | GET/POST | ❌ | ✅ | ✅ |
-| `/records/prescriptions/create` | GET/POST | ❌ | ✅ | ✅ |
+| `/records/create` | GET/POST | ❌ | ✅ (doctor only, not admin) | ❌ |
+| `/records/patient-appointments` (JSON) | GET | ❌ | ✅ (doctor only, not admin) | ❌ |
+| `/records/prescriptions/create` | GET/POST | ❌ | ✅ (doctor only, not admin) | ❌ |
 | `/records/timeline` | GET | ✅ (own) | ✅ | ✅ |
 | `/records/{id}` | GET | Own only | ✅ | ✅ |
 | `/records/{id}/report` | GET | Own only | ✅ | ✅ |
+| `/records/{id}/report.pdf` | GET | Own only | ✅ | ✅ |
 | `/billing` | GET | ✅ (own) | ❌ | ✅ (all) |
 | `/billing/create` | GET/POST | ❌ | ❌ | ✅ |
 | `/billing/{id}` | GET | Own only | ❌ | ✅ |
 | `/billing/{id}/pay` | POST | ❌ | ❌ | ✅ |
+| `/billing/{id}/cancel` | POST | ❌ | ❌ | ✅ |
+| `/users/{id}/change-password` | GET/POST | Self only | Self only | Self or any user |
+| `/users/{id}/delete` | POST | ❌ | ❌ | ✅ (not self) |
 | `/dashboard` | GET | ❌ | ❌ | ✅ |
 | `/audit` | GET | ❌ | ❌ | ✅ |
 

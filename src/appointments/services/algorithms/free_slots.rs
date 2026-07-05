@@ -4,7 +4,7 @@
 // gate to answer "which 30-minute starts are actually open?".
 
 use crate::appointments::models::{DaySchedule, SlotAvailability};
-use crate::availability::services::{fetch_rules_for_day, slot_allowed_by_rules};
+use crate::availability::services::{get_rules_for_day, slot_allowed_by_rules};
 use crate::errors::AppError;
 use crate::time::{
     minutes_to_time, time_to_minutes, CLINIC_CLOSE_MINUTES, CLINIC_OPEN_MINUTES, SLOT_MINUTES,
@@ -54,7 +54,7 @@ pub async fn all_slots(
         .collect();
     let schedule = DaySchedule::new(busy);
 
-    let rules = fetch_rules_for_day(pool, doctor_id, date).await?;
+    let rules = get_rules_for_day(pool, doctor_id, date).await?;
 
     let mut slots = Vec::new();
     let mut s = CLINIC_OPEN_MINUTES;

@@ -26,9 +26,9 @@
 // The solver itself is CostMatrix in appointments::models, kept free of any
 // database code and unit-tested against a brute-force optimum.
 
-use crate::appointments::models::{CostMatrix, ReassignPlan, ReassignRow};
+use crate::appointments::models::{build_cost_matrix, Candidate, ReassignPlan, ReassignRow, SourceAppointment};
 use crate::availability::models::DoctorAvailability;
-use crate::availability::services::{fetch_rules_for_day, slot_allowed_by_rules};
+use crate::availability::services::get_rules_for_day;
 use crate::errors::AppError;
 use crate::time::{parse_slot, time_to_minutes};
 use sqlx::SqlitePool;
@@ -36,48 +36,6 @@ use std::collections::HashMap;
 
 use super::super::helpers::{insert_slots, load_appointment};
 use super::super::rooms::resolve_room;
-
-/// Cost of a pairing the schedule forbids (colleague unavailable or already
-/// booked over the slot). Far above any feasible cost, so the optimiser only
-/// ever chooses it when literally nothing else is free, and even then prefers
-/// an "unassigned" column, which is cheaper.
-const INFEASIBLE_COST: i64 = 1_000_000;
-/// Cost of leaving an appointment unplaced. Below `INFEASIBLE_COST` (so it is
-/// always preferred over an impossible pairing) but far above any real
-/// assignment (so a feasible colleague always wins when one exists).
-const UNASSIGNED_COST: i64 = 10_000;
-/// Penalty added when a colleague has a different specialisation to the leaving
-/// doctor. Outweighs a moderate load difference, so continuity of care is
-/// preferred until the load gap becomes large.
-const SPECIALIZATION_PENALTY: i64 = 200;
-/// Marginal cost per appointment already on a colleague's plate (and per extra
-/// one taken today). The convex term that spreads the load.
-const LOAD_WEIGHT: i64 = 10;
-
-/// One of the leaving doctor's appointments, with its slot pre-parsed to
-/// minutes so the feasibility scan does not re-parse per candidate.
-struct SourceAppointment {
-    id: i64,
-    patient_name: String,
-    start: String,
-    end: String,
-    start_min: i32,
-    end_min: i32,
-}
-
-/// A colleague who might absorb some appointments, with the day's context the
-/// cost function needs.
-struct Candidate {
-    doctor_id: i64,
-    name: String,
-    specialization: String,
-    load: i64, // scheduled appointments already on this date
-}
-
-/// Does `[start, end)` (minutes) overlap any of a doctor's busy intervals?
-fn overlaps_any(intervals: Option<&Vec<(i32, i32)>>, start: i32, end: i32) -> bool {
-    intervals.is_some_and(|v| v.iter().any(|&(bs, be)| start < be && end > bs))
-}
 
 /// Build a fresh reassignment plan for `source_doctor_id` on `date` without
 /// changing anything. This is the preview staff review before applying it.
@@ -179,7 +137,7 @@ pub async fn plan_day_reassignment(
     // Each colleague's availability rules for the day (leave / working windows).
     let mut rules_by_doctor: HashMap<i64, Vec<DoctorAvailability>> = HashMap::new();
     for cand in &candidates {
-        let rules = fetch_rules_for_day(pool, cand.doctor_id, date).await?;
+        let rules = get_rules_for_day(pool, cand.doctor_id, date).await?;
         rules_by_doctor.insert(cand.doctor_id, rules);
     }
 
@@ -187,26 +145,7 @@ pub async fn plan_day_reassignment(
     // [c*n, c*n + n); then `n` "unassigned" fallback columns. Width guarantees
     // rows (n) <= cols (n*(m+1)), which the solver requires.
     let unassigned_base = m * n;
-    let cols = unassigned_base + n;
-    let mut data = vec![vec![UNASSIGNED_COST; cols]; n];
-
-    for (i, appt) in appts.iter().enumerate() {
-        for (c, cand) in candidates.iter().enumerate() {
-            let spec_penalty = if cand.specialization == source_spec { 0 } else { SPECIALIZATION_PENALTY };
-            let feasible = slot_allowed_by_rules(&rules_by_doctor[&cand.doctor_id], &appt.start, &appt.end)
-                && !overlaps_any(busy.get(&cand.doctor_id), appt.start_min, appt.end_min);
-            for k in 0..n {
-                data[i][c * n + k] = if feasible {
-                    spec_penalty + LOAD_WEIGHT * (cand.load + k as i64)
-                } else {
-                    INFEASIBLE_COST
-                };
-            }
-        }
-        // Unassigned columns already hold UNASSIGNED_COST from initialisation.
-    }
-
-    let matrix = CostMatrix::new(data);
+    let matrix = build_cost_matrix(&appts, &candidates, &source_spec, &busy, &rules_by_doctor);
     let assignment = matrix.assign_min_cost();
 
     let mut rows = Vec::with_capacity(n);

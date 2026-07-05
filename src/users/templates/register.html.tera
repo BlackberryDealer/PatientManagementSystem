@@ -1,4 +1,5 @@
 {% extends "base.html.tera" %}
+{% import "shared/macros.html.tera" as macros %}
 
 {% block content %}
 <div class="columns is-centered mt-5">
@@ -12,11 +13,13 @@
                 <p class="subtitle is-6 has-text-grey">Join the Patient Management System</p>
             </div>
 
+            {% if error %}{{ macros::inline_error(error=error) }}{% endif %}
+
             <form method="POST" action="/users/register">
                 <div class="field">
                     <label class="label"><i class="fas fa-id-badge mr-1"></i>Full Name</label>
                     <div class="control has-icons-left">
-                        <input class="input" type="text" name="full_name" placeholder="John Doe" required>
+                        <input class="input" type="text" name="full_name" placeholder="John Doe" value="{{ full_name | default(value='') }}" required>
                         <span class="icon is-small is-left"><i class="fas fa-id-badge"></i></span>
                     </div>
                 </div>
@@ -24,7 +27,7 @@
                 <div class="field">
                     <label class="label"><i class="fas fa-user mr-1"></i>Username</label>
                     <div class="control has-icons-left">
-                        <input class="input" type="text" name="username" placeholder="johndoe" required>
+                        <input class="input" type="text" name="username" placeholder="johndoe" value="{{ username | default(value='') }}" required>
                         <span class="icon is-small is-left"><i class="fas fa-at"></i></span>
                     </div>
                 </div>
@@ -32,7 +35,7 @@
                 <div class="field">
                     <label class="label"><i class="fas fa-envelope mr-1"></i>Email</label>
                     <div class="control has-icons-left">
-                        <input class="input" type="email" name="email" placeholder="john@example.com" required>
+                        <input class="input" type="email" name="email" placeholder="john@example.com" value="{{ email | default(value='') }}" required>
                         <span class="icon is-small is-left"><i class="fas fa-envelope"></i></span>
                     </div>
                 </div>

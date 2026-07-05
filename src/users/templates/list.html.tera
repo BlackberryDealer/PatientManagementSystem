@@ -35,18 +35,7 @@
                 <td><strong>{{ u.username }}</strong></td>
                 <td>{{ u.full_name }}</td>
                 <td class="is-size-7">{{ u.email }}</td>
-                <td>
-                    <span class="tag
-                        {% if u.role == 'admin' %}is-danger
-                        {% elif u.role == 'doctor' %}is-info
-                        {% else %}is-success{% endif %} is-light" style="text-transform: capitalize;">
-                        <i class="fas
-                            {% if u.role == 'admin' %}fa-shield-alt
-                            {% elif u.role == 'doctor' %}fa-stethoscope
-                            {% else %}fa-user{% endif %} mr-1"></i>
-                        {{ u.role }}
-                    </span>
-                </td>
+                <td>{{ macros::user_role_tag(role=u.role) }}</td>
                 <td class="is-size-7 has-text-grey">{{ u.created_at }}</td>
                 <td>
                     <div class="buttons are-small">
