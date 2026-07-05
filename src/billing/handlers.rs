@@ -86,11 +86,23 @@ pub async fn invoice_detail(
     let items = services::get_invoice_items(pool.get_ref(), invoice_id).await?;
     let payments = services::get_invoice_payments(pool.get_ref(), invoice_id).await?;
 
+    // Calculate payment progress for the summary bar
+    let total_paid: f64 = payments.iter().map(|p| p.amount).sum();
+    let remaining = (invoice.total_amount - total_paid).max(0.0);
+    let pct_paid = if invoice.total_amount > 0.0 {
+        ((total_paid / invoice.total_amount) * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
     let mut ctx = Context::new();
     ctx.insert("user", &user);
     ctx.insert("invoice", &invoice);
     ctx.insert("items", &items);
     ctx.insert("payments", &payments);
+    ctx.insert("total_paid", &total_paid);
+    ctx.insert("remaining", &remaining);
+    ctx.insert("pct_paid", &pct_paid);
     ctx.insert("title", &format!("Invoice #{}", invoice.id));
     let rendered = tera.render("billing/detail.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))

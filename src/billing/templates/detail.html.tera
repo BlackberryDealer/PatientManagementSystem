@@ -95,6 +95,30 @@
             </p>
         </header>
         <div class="card-content">
+            <!-- Payment progress summary -->
+            <div class="mb-5">
+                <div class="is-flex is-justify-content-space-between mb-2">
+                    <span class="is-size-7 has-text-grey">PAID</span>
+                    <span class="is-size-7 has-text-grey">REMAINING</span>
+                </div>
+                <progress class="progress is-medium
+                    {% if invoice.status == 'paid' %}is-success
+                    {% elif total_paid > 0 %}is-info
+                    {% else %}is-warning{% endif %}"
+                    value="{{ pct_paid | round }}" max="100">
+                    {{ pct_paid | round }}%
+                </progress>
+                <div class="is-flex is-justify-content-space-between">
+                    <span>
+                        <span class="has-text-weight-bold has-text-info">£{{ total_paid | round(precision=2) | abs }}</span>
+                        <span class="has-text-grey is-size-7"> / £{{ invoice.total_amount | round(precision=2) }}</span>
+                    </span>
+                    <span class="has-text-weight-bold {% if remaining > 0 %}has-text-danger{% else %}has-text-success{% endif %}">
+                        {% if remaining > 0 %}£{{ remaining | round(precision=2) }}{% else %}£0.00{% endif %}
+                    </span>
+                </div>
+            </div>
+
             {% if payments %}
             <table class="table is-fullwidth is-striped">
                 <thead>
