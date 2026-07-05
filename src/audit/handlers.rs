@@ -6,7 +6,7 @@ use crate::audit::services;
 use crate::auth::{require_admin, AuthUser};
 use crate::errors::AppError;
 
-/// GET /audit — view the audit trail (admin only)
+/// GET /audit: view the audit trail (admin only)
 pub async fn list_audit_log(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,

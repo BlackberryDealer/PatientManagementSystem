@@ -4,11 +4,10 @@ use crate::availability::services::ensure_doctor_available;
 use crate::db;
 use crate::errors::AppError;
 use crate::time::{minutes_to_time, parse_slot};
-use crate::traits::StatusManaged;
 use sqlx::SqlitePool;
 
 use super::algorithms::check_conflict;
-use super::helpers::{insert_slots, load_appointment};
+use super::helpers::{insert_slots, load_appointment, persist_status};
 use super::rooms::resolve_room;
 use super::waitlist::auto_promote_waitlist;
 
@@ -177,11 +176,7 @@ pub async fn cancel_appointment(pool: &SqlitePool, appointment_id: i64) -> Resul
     appt.cancel()?;
 
     let mut tx = pool.begin().await?;
-    sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
-        .bind(appt.current_status())
-        .bind(appt.id)
-        .execute(&mut *tx)
-        .await?;
+    persist_status(&mut *tx, &appt).await?;
     sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
         .bind(appt.id)
         .execute(&mut *tx)
@@ -224,7 +219,7 @@ pub async fn cancel_appointment_checked(
 ///
 /// The occupancy slots are deliberately kept: the time was used, and both
 /// `check_conflict` and the slot ledger treat completed visits as occupying
-/// their window — freeing the rows would let the two disagree.
+/// their window, freeing the rows would let the two disagree.
 pub async fn complete_appointment(
     pool: &SqlitePool,
     appointment_id: i64,
@@ -233,11 +228,7 @@ pub async fn complete_appointment(
 
     appt.complete()?;
 
-    sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
-        .bind(appt.current_status())
-        .bind(appt.id)
-        .execute(pool)
-        .await?;
+    persist_status(pool, &appt).await?;
 
     Ok(appt)
 }
@@ -253,7 +244,7 @@ pub async fn reschedule_appointment(
 
     // Canonical zero-padded "HH:MM" strings. The form's dropdowns always send
     // padded values, but a hand-crafted "9:00" parses fine while breaking the
-    // lexical time comparisons below — so every comparison and write uses the
+    // lexical time comparisons below, so every comparison and write uses the
     // re-rendered canonical form instead of the raw input.
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
     let (start, end) = (minutes_to_time(start_mins), minutes_to_time(end_mins));

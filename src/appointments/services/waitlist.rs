@@ -35,7 +35,7 @@ pub async fn add_to_waitlist(
     form: &WaitlistForm,
 ) -> Result<WaitlistEntry, AppError> {
     form.validate()?;
-    // Store the canonical zero-padded "HH:MM" form, not the raw input —
+    // Store the canonical zero-padded "HH:MM" form, not the raw input:
     // promotion later compares and re-books these strings verbatim.
     let (start_mins, end_mins) = crate::time::parse_slot(&form.requested_start, &form.requested_end)?;
 
@@ -215,13 +215,13 @@ pub async fn auto_promote_waitlist(
 /// Promote a waitlist entry into a real appointment (staff-initiated).
 ///
 /// Two cases:
-/// * **Slot free** — book it directly (the original behaviour, also used when a
+/// * **Slot free**, book it directly (the original behaviour, also used when a
 ///   cancellation just opened the slot up).
-/// * **Slot occupied** — apply the same triage rule as `book_with_priority`:
+/// * **Slot occupied**, apply the same triage rule as `book_with_priority`:
 ///   if the waiting entry strictly outranks *every* appointment holding the
 ///   slot, bump those lower-priority occupants to the waitlist and book the
 ///   promoted entry in their place, all inside one transaction. Otherwise the
-///   promotion is `Blocked` with a reason the caller surfaces to the user —
+///   promotion is `Blocked` with a reason the caller surfaces to the user,
 ///   never a silent no-op.
 pub async fn promote_from_waitlist(
     pool: &SqlitePool,
@@ -277,7 +277,7 @@ pub async fn promote_from_waitlist(
         room_id, None,
     ).await?;
 
-    // Slot is free — the simple path: book it as-is.
+    // Slot is free, the simple path: book it as-is.
     if !conflict {
         let appt = insert_appointment(pool, &NewAppointment {
             patient_id: entry.patient_id,
@@ -293,7 +293,7 @@ pub async fn promote_from_waitlist(
         return Ok(PromotionOutcome::Promoted(appt, Vec::new()));
     }
 
-    // Slot is occupied — a promotion may still proceed as a priority override,
+    // Slot is occupied, a promotion may still proceed as a priority override,
     // under the same triage rule as book_with_priority.
     let new_priority = entry.priority();
 
@@ -309,7 +309,7 @@ pub async fn promote_from_waitlist(
     .fetch_all(pool)
     .await?;
 
-    // Occupied, but not by any *scheduled* appointment — a completed visit holds
+    // Occupied, but not by any *scheduled* appointment, a completed visit holds
     // the slot and completed appointments are immutable history, so no override.
     if conflicts.is_empty() {
         return Ok(PromotionOutcome::Blocked(
@@ -379,7 +379,7 @@ pub async fn promote_from_waitlist(
 /// Try to rebook a just-bumped waitlist entry into the doctor's earliest free
 /// same-duration gap on the same day. On success the entry is booked and
 /// marked accepted; the caller (which has the acting AuthUser) is responsible
-/// for the audit record. Returns `None` when the day is full — the entry then
+/// for the audit record. Returns `None` when the day is full, the entry then
 /// simply stays on the waitlist, the existing fallback behaviour.
 ///
 /// Reuses Algorithm 2 (`find_earliest_slot`, which already walks
@@ -422,7 +422,10 @@ pub async fn try_rebook_bumped(
         return Ok(None);
     };
 
-    let new_end = minutes_to_time(time_to_minutes(&new_start).unwrap() + duration);
+    let new_start_mins = time_to_minutes(&new_start).ok_or_else(|| {
+        AppError::Internal(format!("find_earliest_slot returned an unparseable time: {new_start}"))
+    })?;
+    let new_end = minutes_to_time(new_start_mins + duration);
     let room_id = match entry.room_id {
         Some(rid) => rid,
         None => resolve_room(pool, entry.doctor_id, &date_str).await?,
@@ -432,7 +435,7 @@ pub async fn try_rebook_bumped(
         entry
             .notes
             .as_deref()
-            .map(|n| format!("{n} — "))
+            .map(|n| format!("{n}, "))
             .unwrap_or_default(),
         entry.requested_start,
     ));
@@ -457,7 +460,7 @@ pub async fn try_rebook_bumped(
             Ok(Some(appt))
         }
         // Another booking grabbed it between find_earliest_slot's check and
-        // this insert (a real race, not a bug) — leave the entry waiting.
+        // this insert (a real race, not a bug), leave the entry waiting.
         Err(AppError::BadRequest(msg)) if msg.contains("just been taken") => Ok(None),
         Err(e) => Err(e),
     }

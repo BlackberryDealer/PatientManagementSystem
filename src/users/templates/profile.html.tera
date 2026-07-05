@@ -116,6 +116,9 @@
         <a class="button is-warning" href="/users/{{ profile_user.id }}/edit">
             <i class="fas fa-edit mr-2"></i>Edit Profile
         </a>
+        <a class="button is-link is-light" href="/users/{{ profile_user.id }}/change-password">
+            <i class="fas fa-key mr-2"></i>Change Password
+        </a>
         {% endif %}
     </div>
 </div>

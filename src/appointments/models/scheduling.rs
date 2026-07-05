@@ -1,10 +1,7 @@
-//! `DaySchedule` — the pure earliest-gap finder behind Algorithm 2.
-//!
-//! Holds the scheduling maths for a single day so the service layer only fetches
-//! rows and maps the result, and so the gap-finding logic is unit-testable
-//! without a database. This mirrors how interval-overlap detection lives on the
-//! `TimeSlotted` trait — the scheduling algorithms sit on domain objects, not
-//! inline in services.
+// DaySchedule: the pure earliest-gap finder behind Algorithm 2. Holds the
+// maths for a single day so the service layer just fetches rows and maps the
+// result, and the gap-finding stays unit-testable without a database (same
+// idea as putting overlap detection on the TimeSlotted trait).
 
 /// A doctor's booked intervals for a single day, as `(start, end)` pairs in
 /// minutes since midnight.
@@ -44,12 +41,10 @@ impl DaySchedule {
     }
 
     /// Is the window `[start, start + duration)` free of every booked interval?
-    ///
-    /// The per-slot counterpart of `earliest_gap`: `earliest_gap` finds the
-    /// first open gap of a given length, while this answers "is *this specific*
-    /// slot open?" — exactly what the live booking dropdown needs when it tests
-    /// each 30-minute start in turn. Uses the same half-open overlap condition
-    /// as `check_conflict` (`start < busy_end AND end > busy_start`).
+    /// Where `earliest_gap` finds the first open gap of a given length, this
+    /// checks one specific slot, which is what the live booking dropdown needs
+    /// when it tests each 30-minute start in turn. Same half-open overlap
+    /// condition as `check_conflict` (`start < busy_end AND end > busy_start`).
     pub fn is_free(&self, start: i32, duration: i32) -> bool {
         let end = start + duration;
         !self.busy.iter().any(|&(bs, be)| start < be && end > bs)
@@ -110,7 +105,7 @@ mod tests {
 
     #[test]
     fn remaining_gap_too_short_returns_none() {
-        // Only 15 minutes left before close — a 30-min slot cannot fit.
+        // Only 15 minutes left before close, a 30-min slot cannot fit.
         let day = DaySchedule::new(vec![(OPEN, CLOSE - 15)]);
         assert_eq!(day.earliest_gap(30, OPEN, CLOSE), None);
     }

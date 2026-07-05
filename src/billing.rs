@@ -12,6 +12,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/create", web::get().to(handlers::create_invoice_form))
             .route("/create", web::post().to(handlers::create_invoice))
             .route("/{id}", web::get().to(handlers::invoice_detail))
-            .route("/{id}/pay", web::post().to(handlers::record_payment)),
+            .route("/{id}/pay", web::post().to(handlers::record_payment))
+            .route("/{id}/cancel", web::post().to(handlers::cancel_invoice)),
     );
 }

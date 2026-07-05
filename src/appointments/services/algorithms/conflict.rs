@@ -1,4 +1,4 @@
-//! Algorithm 1: Time Interval Overlap Detection.
+// Algorithm 1: Time Interval Overlap Detection.
 
 use crate::errors::AppError;
 use sqlx::SqlitePool;
@@ -13,11 +13,8 @@ use sqlx::SqlitePool;
 /// clauses coincide; the OR only diverges when a caller checks a doctor
 /// against another doctor's room (reassignment) or vice versa.
 ///
-/// ## Overlap logic
-/// Two intervals [A_start, A_end) and [B_start, B_end) overlap iff:
-///   A_start < B_end AND A_end > B_start
-///
-/// Returns `true` if a conflict exists.
+/// Two intervals [A_start, A_end) and [B_start, B_end) overlap when
+/// `A_start < B_end AND A_end > B_start`. Returns `true` if a conflict exists.
 pub async fn check_conflict(
     pool: &SqlitePool,
     doctor_id: i64,

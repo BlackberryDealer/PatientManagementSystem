@@ -6,7 +6,7 @@ use crate::billing::models::{CreateInvoiceForm, RecordPaymentForm};
 use crate::billing::services;
 use crate::errors::AppError;
 
-/// GET /billing — list invoices filtered by role
+/// GET /billing: list invoices filtered by role
 pub async fn list_invoices(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -33,7 +33,7 @@ pub async fn list_invoices(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// GET /billing/create — show create invoice form (admin only)
+/// GET /billing/create: show create invoice form (admin only)
 pub async fn create_invoice_form(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -51,7 +51,7 @@ pub async fn create_invoice_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /billing/create — create a new invoice (admin only)
+/// POST /billing/create: create a new invoice (admin only)
 pub async fn create_invoice(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,
@@ -70,7 +70,7 @@ pub async fn create_invoice(
         .finish())
 }
 
-/// GET /billing/{id} — view invoice detail with items and payments
+/// GET /billing/{id}: view invoice detail with items and payments
 pub async fn invoice_detail(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -108,7 +108,7 @@ pub async fn invoice_detail(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /billing/{id}/pay — record a payment against an invoice.
+/// POST /billing/{id}/pay: record a payment against an invoice.
 /// Admins can record payments for any invoice.
 /// Patients may pay their own invoices only.
 pub async fn record_payment(
@@ -131,6 +131,25 @@ pub async fn record_payment(
     crate::audit::services::record(
         pool.get_ref(), &user, "payment.recorded", "invoice", Some(invoice_id),
         &format!("£{:.2} via {}", payment.amount, payment.payment_method),
+    ).await;
+
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", format!("/billing/{}", invoice_id)))
+        .finish())
+}
+
+/// POST /billing/{id}/cancel: void a pending invoice (admin only)
+pub async fn cancel_invoice(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    require_admin(&user)?;
+    let invoice_id = path.into_inner();
+
+    services::cancel_invoice(pool.get_ref(), invoice_id).await?;
+    crate::audit::services::record(
+        pool.get_ref(), &user, "invoice.cancelled", "invoice", Some(invoice_id), "",
     ).await;
 
     Ok(HttpResponse::SeeOther()

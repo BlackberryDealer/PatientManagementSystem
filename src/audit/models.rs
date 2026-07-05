@@ -16,7 +16,7 @@ pub struct AuditEntry {
 
 impl AuditEntry {
     /// Bulma badge colour for the action category (presentation hint,
-    /// derived from data — keeps the template free of business rules).
+    /// derived from data, keeps the template free of business rules).
     pub fn action_badge_class(&self) -> &'static str {
         if self.action.starts_with("user.") {
             "is-link"

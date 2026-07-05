@@ -1,7 +1,7 @@
-//! Single-appointment lifecycle actions: complete, cancel, reschedule (form +
-//! submit), single-doctor reassignment (Algorithm 4), room override, and
-//! re-triage. Every state change is a guarded method on the `Appointment`
-//! struct in the service layer; these handlers add auth, audit, and redirects.
+// Single-appointment lifecycle actions: complete, cancel, reschedule (form +
+// submit), single-doctor reassignment (Algorithm 4), room override, and
+// re-triage. Every state change is a guarded method on the Appointment
+// struct in the service layer; these handlers just add auth, audit, redirects.
 
 use actix_web::{web, HttpResponse};
 use tera::Context;
@@ -12,8 +12,8 @@ use crate::audit::services as audit;
 use crate::auth::{require_doctor, AuthUser};
 use crate::errors::AppError;
 
-/// POST /appointments/{id}/complete — mark a scheduled appointment as completed.
-/// Staff only — completion is a clinical action, like creating the medical
+/// POST /appointments/{id}/complete: mark a scheduled appointment as completed.
+/// Staff only, completion is a clinical action, like creating the medical
 /// record it usually accompanies. Occupancy slots are kept: the time was
 /// genuinely used (see `services::complete_appointment`).
 pub async fn complete_appointment(
@@ -34,7 +34,7 @@ pub async fn complete_appointment(
         .finish())
 }
 
-/// POST /appointments/{id}/assign-room — assign (or change) the consultation
+/// POST /appointments/{id}/assign-room: assign (or change) the consultation
 /// room for an appointment. Staff only: rooms are auto-assigned at booking, so
 /// this is the manual override for moving one appointment elsewhere (e.g. into
 /// the procedure room).
@@ -56,7 +56,7 @@ pub async fn assign_room(
         .finish())
 }
 
-/// POST /appointments/{id}/priority — re-triage an appointment.
+/// POST /appointments/{id}/priority: re-triage an appointment.
 /// Staff-only: priority is a clinical decision, so patients never reach this.
 pub async fn update_priority(
     pool: web::Data<sqlx::SqlitePool>,
@@ -76,7 +76,7 @@ pub async fn update_priority(
         .finish())
 }
 
-/// POST /appointments/{id}/cancel — cancel a scheduled appointment.
+/// POST /appointments/{id}/cancel: cancel a scheduled appointment.
 /// Ownership is checked: patients may only cancel their own.
 /// After cancellation, auto-promotion attempts to fill the freed
 /// slot from the waitlist (Algorithm 3).
@@ -97,7 +97,7 @@ pub async fn cancel_appointment(
         .finish())
 }
 
-/// GET /appointments/{id}/reschedule — show the reschedule form, prefilled with
+/// GET /appointments/{id}/reschedule: show the reschedule form, prefilled with
 /// the appointment's current date/time. Reuses `get_appointment_by_id_checked`
 /// so the same ownership rule that governs viewing also gates who may open the
 /// form (patients: own only).
@@ -124,7 +124,7 @@ pub async fn reschedule_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /appointments/{id}/reschedule — move an appointment to a new slot.
+/// POST /appointments/{id}/reschedule: move an appointment to a new slot.
 /// Ownership is enforced in the service (patients may only reschedule their
 /// own), mirroring the cancel path.
 pub async fn reschedule_appointment(
@@ -147,8 +147,8 @@ pub async fn reschedule_appointment(
         .finish())
 }
 
-/// POST /appointments/{id}/reassign — Doctor Reassignment (Algorithm 4): move a
-/// scheduled appointment to the best alternative doctor — same specialization
+/// POST /appointments/{id}/reassign: Doctor Reassignment (Algorithm 4): move a
+/// scheduled appointment to the best alternative doctor, same specialization
 /// preferred, lightest daily load first. Staff only.
 pub async fn reassign_appointment(
     pool: web::Data<sqlx::SqlitePool>,

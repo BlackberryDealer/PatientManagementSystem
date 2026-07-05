@@ -358,3 +358,193 @@ async fn test_admin_can_edit_any_profile() {
         assert!(resp.status().is_redirection(), "admin profile update should redirect");
     });
 }
+
+// ============================================================
+// Delete user (admin only)
+// ============================================================
+
+#[actix_web::test]
+async fn test_admin_can_delete_user_with_no_history() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pat = register_and_login!(app, "delpat1", "patient"); // id 1
+        let admin = seed_and_login!(app, pool, "deladm1", "admin");
+
+        let resp = test::call_service(
+            &app, auth_post("/users/1/delete", &admin, serde_json::json!({})).to_request(),
+        ).await;
+        assert!(resp.status().is_redirection(), "deleting a history-free account should redirect");
+
+        let profile = test::call_service(&app, auth_get("/users/1", &admin).to_request()).await;
+        assert_eq!(profile.status().as_u16(), 404, "deleted user should no longer be found");
+    });
+}
+
+#[actix_web::test]
+async fn test_admin_cannot_delete_own_account() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let admin = seed_and_login!(app, pool, "deladm2", "admin"); // id 1
+
+        let resp = test::call_service(
+            &app, auth_post("/users/1/delete", &admin, serde_json::json!({})).to_request(),
+        ).await;
+        assert!(resp.status().is_client_error(), "admin cannot delete their own account");
+    });
+}
+
+#[actix_web::test]
+async fn test_non_admin_cannot_delete_user() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pat1 = register_and_login!(app, "delpat2", "patient"); // id 1
+        let pat2 = register_and_login!(app, "delpat3", "patient"); // id 2
+
+        let resp = test::call_service(
+            &app, auth_post("/users/1/delete", &pat2, serde_json::json!({})).to_request(),
+        ).await;
+        assert!(resp.status().is_client_error(), "a patient cannot delete another account");
+    });
+}
+
+#[actix_web::test]
+async fn test_cannot_delete_user_with_appointment_history() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pat = register_and_login!(app, "delpat4", "patient"); // id 1
+        let admin = seed_and_login!(app, pool, "deladm3", "admin");
+        let _doc = seed_and_login!(app, pool, "deldoc1", "doctor");
+
+        let patient_row: (i64,) = sqlx::query_as("SELECT id FROM patients WHERE user_id = 1")
+            .fetch_one(&pool).await.unwrap();
+        let doctor_row: (i64,) = sqlx::query_as("SELECT id FROM doctors WHERE user_id = 3")
+            .fetch_one(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO appointments (patient_id, doctor_id, appointment_date, start_time, end_time)
+             VALUES (?, ?, '2030-01-01', '09:00', '09:30')",
+        )
+        .bind(patient_row.0).bind(doctor_row.0)
+        .execute(&pool).await.unwrap();
+
+        // Deletion is refused with a clear message instead of an opaque 500,
+        // and the account (and its clinical history) survives untouched.
+        let resp = test::call_service(
+            &app, auth_post("/users/1/delete", &admin, serde_json::json!({})).to_request(),
+        ).await;
+        assert_eq!(resp.status().as_u16(), 400, "a patient with appointment history cannot be deleted");
+
+        let profile = test::call_service(&app, auth_get("/users/1", &admin).to_request()).await;
+        assert!(profile.status().is_success(), "the account must still exist");
+    });
+}
+
+// ============================================================
+// Change password
+// ============================================================
+
+#[actix_web::test]
+async fn test_change_own_password() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let cookie = register_and_login!(app, "pwuser1", "patient");
+
+        let form = test::call_service(&app, auth_get("/users/1/change-password", &cookie).to_request()).await;
+        assert!(form.status().is_success(), "own change-password form should load");
+
+        let update = auth_post("/users/1/change-password", &cookie, serde_json::json!({
+            "current_password": "password123",
+            "new_password": "newpassword456",
+            "confirm_password": "newpassword456",
+        })).to_request();
+        let resp = test::call_service(&app, update).await;
+        assert!(resp.status().is_redirection(), "a correct password change should redirect");
+
+        // The old password no longer works.
+        let old_login = test::TestRequest::post().uri("/users/login")
+            .set_form(serde_json::json!({"login": "pwuser1", "password": "password123"})).to_request();
+        assert!(test::call_service(&app, old_login).await.status().is_client_error(),
+            "the old password must stop working");
+
+        // The new password logs in.
+        let new_login = test::TestRequest::post().uri("/users/login")
+            .set_form(serde_json::json!({"login": "pwuser1", "password": "newpassword456"})).to_request();
+        assert!(test::call_service(&app, new_login).await.status().is_redirection(),
+            "the new password must work");
+    });
+}
+
+#[actix_web::test]
+async fn test_change_password_wrong_current_rejected() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let cookie = register_and_login!(app, "pwuser2", "patient");
+
+        let update = auth_post("/users/1/change-password", &cookie, serde_json::json!({
+            "current_password": "wrongpassword",
+            "new_password": "newpassword456",
+            "confirm_password": "newpassword456",
+        })).to_request();
+        let resp = test::call_service(&app, update).await;
+        assert_eq!(resp.status().as_u16(), 401, "a wrong current password must be rejected");
+    });
+}
+
+#[actix_web::test]
+async fn test_change_password_mismatched_confirmation_rejected() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let cookie = register_and_login!(app, "pwuser3", "patient");
+
+        let update = auth_post("/users/1/change-password", &cookie, serde_json::json!({
+            "current_password": "password123",
+            "new_password": "newpassword456",
+            "confirm_password": "somethingelse",
+        })).to_request();
+        let resp = test::call_service(&app, update).await;
+        assert_eq!(resp.status().as_u16(), 400, "a mismatched confirmation must be rejected");
+    });
+}
+
+#[actix_web::test]
+async fn test_cannot_change_other_patients_password() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pat1 = register_and_login!(app, "pwuser4", "patient"); // id 1
+        let pat2 = register_and_login!(app, "pwuser5", "patient"); // id 2
+
+        let resp = test::call_service(
+            &app,
+            auth_post("/users/1/change-password", &pat2, serde_json::json!({
+                "current_password": "password123",
+                "new_password": "newpassword456",
+                "confirm_password": "newpassword456",
+            })).to_request(),
+        ).await;
+        assert!(resp.status().is_client_error(), "a patient cannot change another patient's password");
+    });
+}
+
+#[actix_web::test]
+async fn test_admin_can_reset_another_users_password_without_current() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pat = register_and_login!(app, "pwuser6", "patient"); // id 1
+        let admin = seed_and_login!(app, pool, "pwadmin1", "admin");
+
+        // Admin resets the patient's password without knowing the current one.
+        let resp = test::call_service(
+            &app,
+            auth_post("/users/1/change-password", &admin, serde_json::json!({
+                "current_password": "",
+                "new_password": "resetbyadmin1",
+                "confirm_password": "resetbyadmin1",
+            })).to_request(),
+        ).await;
+        assert!(resp.status().is_redirection(), "an admin reset should succeed without the current password");
+
+        let login = test::TestRequest::post().uri("/users/login")
+            .set_form(serde_json::json!({"login": "pwuser6", "password": "resetbyadmin1"})).to_request();
+        assert!(test::call_service(&app, login).await.status().is_redirection(),
+            "the reset password must work");
+    });
+}

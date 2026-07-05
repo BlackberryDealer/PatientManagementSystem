@@ -1,7 +1,8 @@
 use crate::auth::Role;
 use crate::errors::AppError;
 use crate::users::models::{
-    CreateStaffForm, Doctor, EditProfileForm, LoginForm, Patient, RegisterForm, User,
+    ChangePasswordForm, CreateStaffForm, Doctor, EditProfileForm, LoginForm, Patient, RegisterForm,
+    User,
 };
 use sqlx::SqlitePool;
 
@@ -21,12 +22,12 @@ pub async fn register_user(
     pool: &SqlitePool,
     form: &RegisterForm,
 ) -> Result<User, AppError> {
-    // Validation first — nothing is hashed or persisted until this passes
+    // Validation first, nothing is hashed or persisted until this passes
     form.validate()?;
 
     let password_hash = bcrypt::hash(&form.password, BCRYPT_COST)?;
 
-    // The user row and its role profile row must be created together — a user
+    // The user row and its role profile row must be created together, a user
     // with no matching patient/doctor row is an orphan that breaks later
     // id-lookups. Both inserts commit atomically (like invoice header + items).
     let mut tx = pool.begin().await?;
@@ -48,15 +49,17 @@ pub async fn register_user(
         AppError::bad_request_on_unique(e, "That username or email is already taken.")
     })?;
 
-    // Create corresponding profile row
-    match form.role.as_str() {
-        "patient" => {
+    // Create corresponding profile row. Matched on the typed `Role` (via the
+    // just-inserted row's own accessor) rather than the raw form string, so
+    // the exhaustive match, not a string literal, decides the profile shape.
+    match user.role() {
+        Role::Patient => {
             sqlx::query("INSERT INTO patients (user_id) VALUES (?)")
                 .bind(user.id)
                 .execute(&mut *tx)
                 .await?;
         }
-        "doctor" => {
+        Role::Doctor => {
             sqlx::query(
                 "INSERT INTO doctors (user_id, specialization, license_number) VALUES (?, ?, ?)",
             )
@@ -66,7 +69,7 @@ pub async fn register_user(
             .execute(&mut *tx)
             .await?;
         }
-        _ => { /* admin has no extra profile table */ }
+        Role::Admin => { /* admin has no extra profile table */ }
     }
 
     tx.commit().await?;
@@ -103,7 +106,7 @@ pub async fn create_staff_user(
     .await
     .map_err(|e| AppError::bad_request_on_unique(e, "That username or email is already taken."))?;
 
-    if form.role == "doctor" {
+    if user.role() == Role::Doctor {
         let specialization = form
             .specialization
             .as_deref()
@@ -134,7 +137,7 @@ pub async fn authenticate_user(
     pool: &SqlitePool,
     form: &LoginForm,
 ) -> Result<User, AppError> {
-    // Validation first — empty credentials never reach the database
+    // Validation first, empty credentials never reach the database
     form.validate()?;
 
     let user = sqlx::query_as::<_, User>(
@@ -230,6 +233,52 @@ pub async fn get_doctor_by_user_id(
 }
 
 // ============================================================
+// Deletion (admin only)
+// ============================================================
+
+/// Delete a user account. `patients`/`doctors` profile rows cascade
+/// automatically (FK `ON DELETE CASCADE`, migration 001); audit_log rows are
+/// preserved with `user_id` set to NULL (migration 007) since they already
+/// carry their own `username`/`role` snapshot.
+///
+/// A patient/doctor with real history (appointments, medical records,
+/// prescriptions, invoices, waitlist entries) cannot be deleted this way:
+/// those tables reference `patients`/`doctors` without cascade on purpose, so
+/// removing an account can never silently erase clinical or billing history.
+/// The caller gets a clear 400 pointing at the reason instead of an opaque
+/// database error.
+pub async fn delete_user(
+    pool: &SqlitePool,
+    requesting_admin_id: i64,
+    target_user_id: i64,
+) -> Result<User, AppError> {
+    // Blocking self-deletion also guarantees the system can never reach zero
+    // admins through this path: an admin can only ever delete a *different*
+    // account, so the deleter themselves always remains.
+    if requesting_admin_id == target_user_id {
+        return Err(AppError::BadRequest(
+            "You cannot delete your own account while logged in.".into(),
+        ));
+    }
+
+    let target = get_user_by_id(pool, target_user_id).await?;
+
+    sqlx::query("DELETE FROM users WHERE id = ?")
+        .bind(target_user_id)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            AppError::bad_request_on_fk_violation(
+                e,
+                "This account still has associated appointments, records, invoices, or waitlist \
+                 entries and cannot be deleted. Reassign or resolve that history first.",
+            )
+        })?;
+
+    Ok(target)
+}
+
+// ============================================================
 // Profile editing
 // ============================================================
 
@@ -273,7 +322,8 @@ pub async fn update_user(
     .bind(&form.email)
     .bind(user_id)
     .fetch_optional(pool)
-    .await?
+    .await
+    .map_err(|e| AppError::bad_request_on_unique(e, "That email is already taken by another account."))?
     .ok_or_else(|| AppError::NotFound("User not found".into()))
 }
 
@@ -289,17 +339,24 @@ fn non_empty(value: &Option<String>) -> Option<String> {
         .map(str::to_string)
 }
 
+/// True if `SELECT id FROM <table> WHERE user_id = ?` finds a row. Shared by
+/// `update_patient`/`update_doctor` so the upsert exists-check is written
+/// once instead of duplicated per entity.
+async fn row_exists(pool: &SqlitePool, exists_query: &str, user_id: i64) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar::<_, i64>(exists_query)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .is_some())
+}
+
 /// Update or insert patient-specific fields.
 pub async fn update_patient(
     pool: &SqlitePool,
     user_id: i64,
     form: &EditProfileForm,
 ) -> Result<Patient, AppError> {
-    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM patients WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?
-        .is_some();
+    let exists = row_exists(pool, "SELECT id FROM patients WHERE user_id = ?", user_id).await?;
 
     let date_of_birth = non_empty(&form.date_of_birth);
     let phone = non_empty(&form.phone);
@@ -335,11 +392,7 @@ pub async fn update_doctor(
     user_id: i64,
     form: &EditProfileForm,
 ) -> Result<Doctor, AppError> {
-    let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM doctors WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?
-        .is_some();
+    let exists = row_exists(pool, "SELECT id FROM doctors WHERE user_id = ?", user_id).await?;
 
     // Reuse the shared `non_empty` helper (trim + drop blanks) like
     // `update_patient` and `create_staff_user`, falling back to the defaults
@@ -369,4 +422,39 @@ pub async fn update_doctor(
         .fetch_one(pool).await
         .map_err(|e| e.into())
     }
+}
+
+// ============================================================
+// Password change
+// ============================================================
+
+/// Change a user's password. `is_self` distinguishes the two ways this can
+/// happen: a user changing their own password must prove they know the
+/// current one, while an admin resetting someone else's account can't be
+/// expected to know it, so that check is skipped for them.
+pub async fn change_password(
+    pool: &SqlitePool,
+    target_user_id: i64,
+    is_self: bool,
+    form: &ChangePasswordForm,
+) -> Result<(), AppError> {
+    form.validate()?;
+
+    if is_self {
+        let user = get_user_by_id(pool, target_user_id).await?;
+        if !user.verify_password(&form.current_password)? {
+            return Err(AppError::Unauthorized(
+                "Current password is incorrect".into(),
+            ));
+        }
+    }
+
+    let password_hash = bcrypt::hash(&form.new_password, BCRYPT_COST)?;
+    sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        .bind(&password_hash)
+        .bind(target_user_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
 }

@@ -1,4 +1,4 @@
-//! Algorithm 2: Earliest Available Slot.
+// Algorithm 2: Earliest Available Slot.
 
 use crate::appointments::models::{DaySchedule, SuggestSlotForm};
 use crate::availability::services::ensure_doctor_available;
@@ -8,16 +8,12 @@ use crate::time::{
 };
 use sqlx::SqlitePool;
 
-/// Given a doctor, date, and desired duration, find the earliest
-/// available start time. Returns `None` if the day is fully booked.
-///
-/// ## Steps:
-/// 1. Fetch all existing appointments for the doctor on that date
-/// 2. Sort by start_time
-/// 3. Walk through the gaps; for each gap ≥ duration, check the doctor's
-///    availability rules (leave, blocked breaks, declared working windows —
-///    the same 3-rule gate booking enforces)
-/// 4. Return the first gap that passes both; `None` if nothing fits
+/// Given a doctor, date, and desired duration, find the earliest available
+/// start time. Fetches the doctor's existing appointments for the date,
+/// walks the gaps between them looking for one at least `duration` minutes
+/// wide, and checks each candidate against the doctor's availability rules
+/// (leave, blocked breaks, declared working windows, the same gate booking
+/// enforces) before accepting it. Returns `None` if nothing fits.
 ///
 /// Consulting `ensure_doctor_available` here keeps the suggestion feature
 /// consistent with booking: a suggested slot is always one the booking
@@ -56,8 +52,8 @@ pub async fn find_earliest_slot(
         if available {
             return Ok(Some(minutes_to_time(start)));
         }
-        // Doctor is blocked or outside their declared hours at this gap —
-        // resume the search from the next grid-aligned start time.
+        // Doctor is blocked or outside their declared hours at this gap.
+        // Resume the search from the next grid-aligned start time.
         open = start + SLOT_MINUTES;
     }
     Ok(None)

@@ -6,7 +6,7 @@ use crate::availability::models::{EditAvailabilityForm, SetAvailabilityForm};
 use crate::availability::services;
 use crate::errors::AppError;
 
-/// GET /availability — list availability (doctors see theirs; admin sees all)
+/// GET /availability: list availability (doctors see theirs; admin sees all)
 pub async fn list_availability(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -30,7 +30,7 @@ pub async fn list_availability(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// GET /availability/set — show form to set availability (doctor only)
+/// GET /availability/set: show form to set availability (doctor only)
 pub async fn set_availability_form(
     tera: web::Data<tera::Tera>,
     user: AuthUser,
@@ -44,7 +44,7 @@ pub async fn set_availability_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /availability/set — add availability (doctor only). A recurring
+/// POST /availability/set: add availability (doctor only). A recurring
 /// submit may create several weekly rules in one go.
 pub async fn set_availability(
     pool: web::Data<sqlx::SqlitePool>,
@@ -60,7 +60,7 @@ pub async fn set_availability(
         .finish())
 }
 
-/// GET /availability/{id}/edit — form to edit one slot (owner or admin)
+/// GET /availability/{id}/edit: form to edit one slot (owner or admin)
 pub async fn edit_availability_form(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -78,7 +78,7 @@ pub async fn edit_availability_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /availability/{id}/edit — update one slot (owner or admin)
+/// POST /availability/{id}/edit: update one slot (owner or admin)
 pub async fn edit_availability(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,
@@ -93,7 +93,7 @@ pub async fn edit_availability(
         .finish())
 }
 
-/// POST /availability/{id}/delete — remove one slot (owner or admin)
+/// POST /availability/{id}/delete: remove one slot (owner or admin)
 pub async fn delete_availability(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,

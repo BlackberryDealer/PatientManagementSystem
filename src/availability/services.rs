@@ -9,7 +9,7 @@ use chrono::Datelike;
 use sqlx::SqlitePool;
 
 // ============================================================
-// Availability enforcement — integrates this module into the
+// Availability enforcement, integrates this module into the
 // appointment-booking workflow (scheduling + conflict resolution)
 // ============================================================
 
@@ -20,7 +20,7 @@ use sqlx::SqlitePool;
 ///    exact date, or a recurring weekly block like a lunch break) overlaps
 ///    the requested window, the booking is rejected.
 /// 2. **Closed by default.** A day with no declared working windows
-///    (recurring weekly, or a one-off date entry) is not bookable at all —
+///    (recurring weekly, or a one-off date entry) is not bookable at all:
 ///    a doctor who never published hours cannot receive appointments.
 /// 3. **Defined windows constrain.** Where windows exist, the requested
 ///    slot must fall entirely inside one of them.
@@ -45,7 +45,7 @@ pub async fn ensure_doctor_available(
         ));
     }
 
-    // Rule 2: closed by default — no declared working windows for this day
+    // Rule 2: closed by default, no declared working windows for this day
     // means the day is simply not bookable, no matter the requested time.
     let windows: Vec<&DoctorAvailability> = rules.iter().filter(|r| !r.blocked()).collect();
     if windows.is_empty() {
@@ -202,7 +202,7 @@ pub async fn get_owned_slot(
     }
 }
 
-/// Every availability rule a doctor has, recurring and one-off alike — the
+/// Every availability rule a doctor has, recurring and one-off alike, the
 /// full rule set the mutation guards below evaluate hypothetical changes
 /// against.
 async fn get_rules_for_doctor(
@@ -220,7 +220,7 @@ async fn get_rules_for_doctor(
 /// Reject a new/edited window that overlaps an existing entry of the same
 /// kind: recurring vs. recurring on the same weekday, or one-off vs. one-off
 /// on the same date, with the same blocked flag. (A blocked entry *may*
-/// overlap an available one — that is exactly how a lunch break inside a
+/// overlap an available one, that is exactly how a lunch break inside a
 /// working window is expressed.)
 fn ensure_no_duplicate_window(
     existing: &[DoctorAvailability],
@@ -257,6 +257,12 @@ fn ensure_no_duplicate_window(
 /// as it *would* look after the change, verify that no upcoming scheduled
 /// appointment falls outside it. Without this, narrowing hours, deleting a
 /// window, or adding leave would silently strand already-booked patients.
+///
+/// Reads `appointments` directly instead of calling into
+/// `appointments::services`: this guard needs the live (date, start, end)
+/// tuples for one doctor to replay against a hypothetical rule set, not any
+/// entity-level operation that module exposes, and it must run inside the
+/// same availability-mutation request as the write it is guarding.
 async fn ensure_no_stranded_appointments(
     pool: &SqlitePool,
     doctor_id: i64,
@@ -315,7 +321,7 @@ pub async fn add_availability(
     doctor_user_id: i64,
     form: &SetAvailabilityForm,
 ) -> Result<Vec<DoctorAvailability>, AppError> {
-    // Validation — nothing touches the database before this passes
+    // Validation, nothing touches the database before this passes
     let entries = form.entries()?;
     // Store the canonical zero-padded "HH:MM" form: the availability gate
     // compares these strings lexically against requested booking windows.
@@ -366,7 +372,7 @@ pub async fn add_availability(
 }
 
 /// Update one availability slot (times, blocked flag, and its weekday or
-/// date — the slot keeps its recurring/one-off kind). Guarded the same way
+/// date, the slot keeps its recurring/one-off kind). Guarded the same way
 /// as adding: no duplicate window, and no upcoming appointment may be left
 /// outside the resulting schedule.
 pub async fn update_availability(

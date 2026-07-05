@@ -1,6 +1,6 @@
-//! Batch Doctor Reassignment (Algorithm 5) — the "cover a doctor's leave" UI.
-//! Staff pick the doctor who is out and the date, preview the optimal plan
-//! (no changes yet), then apply it atomically.
+// Batch Doctor Reassignment (Algorithm 5): the "cover a doctor's leave" UI.
+// Staff pick the doctor who is out and the date, preview the optimal plan
+// (no changes yet), then apply it atomically.
 
 use actix_web::{web, HttpResponse};
 use tera::Context;
@@ -11,7 +11,7 @@ use crate::audit::services as audit;
 use crate::auth::{require_doctor, AuthUser};
 use crate::errors::AppError;
 
-/// GET /appointments/reassign-day — show the "cover a doctor's leave" form.
+/// GET /appointments/reassign-day: show the "cover a doctor's leave" form.
 /// Staff pick the doctor who is out and the date; the optimal redistribution
 /// is computed on submit. Staff only.
 pub async fn reassign_day_form(
@@ -31,7 +31,7 @@ pub async fn reassign_day_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /appointments/reassign-day — preview the optimal plan (no changes yet).
+/// POST /appointments/reassign-day: preview the optimal plan (no changes yet).
 /// Runs the Hungarian assignment (Algorithm 5) and renders the proposed moves
 /// with an Apply button. Staff only.
 pub async fn reassign_day_preview(
@@ -57,7 +57,7 @@ pub async fn reassign_day_preview(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /appointments/reassign-day/apply — apply the optimal plan atomically.
+/// POST /appointments/reassign-day/apply: apply the optimal plan atomically.
 /// The plan is recomputed against the live schedule and every move commits in
 /// one transaction. Staff only.
 pub async fn reassign_day_apply(

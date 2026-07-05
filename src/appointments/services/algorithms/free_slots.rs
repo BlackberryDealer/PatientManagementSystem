@@ -1,8 +1,7 @@
-//! Live free-slot lookup that drives the booking form's time dropdowns.
-//!
-//! Not one of the five numbered scheduling algorithms, but the same family:
-//! it reuses `DaySchedule` (the pure gap-finder behind Algorithm 2) and the
-//! availability gate to answer "which 30-minute starts are actually open?".
+// Live free-slot lookup that drives the booking form's time dropdowns. Not
+// one of the five numbered scheduling algorithms, but the same family: it
+// reuses DaySchedule (the gap-finder behind Algorithm 2) and the availability
+// gate to answer "which 30-minute starts are actually open?".
 
 use crate::appointments::models::{DaySchedule, SlotAvailability};
 use crate::availability::services::{fetch_rules_for_day, slot_allowed_by_rules};
@@ -16,7 +15,7 @@ use sqlx::SqlitePool;
 /// within clinic hours, each marked free (unoccupied) or occupied.
 ///
 /// A slot appears here only when it is allowed by the doctor's availability
-/// rules — the same gate booking enforces via `ensure_doctor_available` — so a
+/// rules, the same gate booking enforces via `ensure_doctor_available`, so a
 /// slot outside those rules is never shown, because no priority can book it.
 /// Among the allowed slots, `free` reports whether an existing appointment
 /// already holds it; occupied slots are still returned so a doctor/admin can
@@ -38,8 +37,8 @@ pub async fn all_slots(
     // Reject past/invalid dates the same way booking does.
     crate::time::parse_booking_date(date)?;
 
-    // The doctor's booked (scheduled or completed) intervals for the day —
-    // cancelled appointments free their time, so they are excluded.
+    // The doctor's booked (scheduled or completed) intervals for the day.
+    // Cancelled appointments free their time, so they are excluded.
     let existing = sqlx::query_as::<_, (String, String)>(
         "SELECT start_time, end_time FROM appointments
          WHERE doctor_id = ? AND appointment_date = ? AND status != 'cancelled'",

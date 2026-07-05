@@ -1,8 +1,7 @@
-//! Shared time-of-day helpers used by every module that handles
-//! "HH:MM" time windows (appointments, waitlist, availability).
-//!
-//! Centralised here so the validation layer is identical on every
-//! write path — no module can accept a time string the others reject.
+// Shared time-of-day helpers used by every module that handles "HH:MM" time
+// windows (appointments, waitlist, availability). Centralised here so the
+// validation is identical on every write path, no module can accept a time
+// string the others would reject.
 
 use crate::errors::AppError;
 
@@ -15,7 +14,7 @@ pub const SLOT_MINUTES: i32 = 30;
 /// Clinic operating hours (business rule): appointments are bookable from
 /// 08:00 to 17:00. Centralised here next to `SLOT_MINUTES` so the working-day
 /// bounds have a single source of truth across the earliest-slot algorithm and
-/// the slot-dropdown generators — change the clinic hours in one place only.
+/// the slot-dropdown generators, change the clinic hours in one place only.
 pub const CLINIC_OPEN_MINUTES: i32 = 8 * 60; // 08:00
 pub const CLINIC_CLOSE_MINUTES: i32 = 17 * 60; // 17:00
 
@@ -56,7 +55,7 @@ pub fn parse_time_range(start: &str, end: &str) -> Result<(i32, i32), AppError> 
 
 /// Parse a booking date and enforce the domain rule that appointments
 /// cannot be requested for a date in the past. (Internal flows that
-/// re-book stored requests — e.g. waitlist promotion — bypass this on
+/// re-book stored requests, e.g. waitlist promotion, bypass this on
 /// purpose; it guards user-submitted input only.)
 pub fn parse_booking_date(date: &str) -> Result<chrono::NaiveDate, AppError> {
     let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| {
@@ -120,7 +119,7 @@ mod tests {
 
     #[test]
     fn parse_slot_rejects_before_opening() {
-        // Grid-aligned but before 08:00 — must be rejected server-side.
+        // Grid-aligned but before 08:00, must be rejected server-side.
         assert!(parse_slot("07:00", "07:30").is_err());
     }
 
@@ -148,7 +147,7 @@ mod tests {
     #[test]
     fn parse_time_range_allows_non_clinic_hours() {
         // Availability windows (e.g. an on-call block) are NOT bound to
-        // clinic hours — only bookable slots are.
+        // clinic hours, only bookable slots are.
         assert_eq!(parse_time_range("00:00", "23:59").unwrap(), (0, 1439));
     }
 }

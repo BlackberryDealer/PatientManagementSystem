@@ -1,7 +1,6 @@
-//! `CalendarMonth` — the business object behind the monthly calendar view.
-//!
-//! Owns all calendar arithmetic (days-in-month, weekday offset, previous/next
-//! month) so the route handler only extracts inputs and renders the result.
+// CalendarMonth: the business object behind the monthly calendar view. Owns
+// all the date arithmetic (days in month, weekday offset, prev/next month)
+// so the route handler just extracts inputs and renders the grid.
 
 use serde::Serialize;
 

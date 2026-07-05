@@ -3,7 +3,7 @@ use actix_web::{dev::Payload, FromRequest, HttpRequest};
 use std::future::{ready, Ready};
 
 // ============================================================
-// Role — the three user roles as a single typed source of truth
+// Role, the three user roles as a single typed source of truth
 // ============================================================
 
 /// User role. Replaces stringly-typed role comparisons throughout the app:
@@ -22,7 +22,7 @@ pub enum Role {
 }
 
 impl Role {
-    /// Canonical lowercase string — matches the DB CHECK values and templates.
+    /// Canonical lowercase string, matches the DB CHECK values and templates.
     pub fn as_str(&self) -> &'static str {
         match self {
             Role::Patient => "patient",
@@ -38,13 +38,20 @@ impl Role {
         match s {
             "admin" => Role::Admin,
             "doctor" => Role::Doctor,
-            _ => Role::Patient,
+            "patient" => Role::Patient,
+            other => {
+                // Genuinely unrecognised (not just the common "patient" case),
+                // worth a log line since it means a tampered cookie or a
+                // corrupted `role` column silently fell back to least privilege.
+                log::warn!("Unrecognised role '{}', falling back to Patient (least privilege)", other);
+                Role::Patient
+            }
         }
     }
 }
 
 // ============================================================
-// AuthUser — extractor that requires an active session
+// AuthUser, extractor that requires an active session
 // ============================================================
 
 /// Extracts the authenticated user from the session cookie.
@@ -102,7 +109,7 @@ impl FromRequest for AuthUser {
 }
 
 // ============================================================
-// OptionalAuthUser — extractor that does NOT require a session
+// OptionalAuthUser, extractor that does NOT require a session
 // ============================================================
 
 /// Extracts the authenticated user if a session exists, otherwise returns `None`.

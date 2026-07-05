@@ -1,6 +1,6 @@
-//! Booking flow: the role-aware booking form, the POST that creates the
-//! appointment, the live free-slot JSON API that drives the form's dropdowns,
-//! and the earliest-slot suggestion feature.
+// Booking flow: the role-aware booking form, the POST that creates the
+// appointment, the live free-slot JSON API that drives the form's dropdowns,
+// and the earliest-slot suggestion feature.
 
 use actix_web::{web, HttpResponse};
 use tera::Context;
@@ -14,7 +14,7 @@ use crate::auth::{require_doctor, AuthUser, Role};
 use crate::db;
 use crate::errors::AppError;
 
-/// GET /appointments/book — show the role-aware booking form.
+/// GET /appointments/book: show the role-aware booking form.
 /// Patients pick a doctor; doctors pick a patient (the appointment lands in
 /// their own schedule); admins pick both. 30-min time-slot dropdowns and a
 /// staff-only priority selector round out the form.
@@ -54,7 +54,7 @@ pub async fn book_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// GET /appointments/availability?doctor_id=&date= — JSON list of the doctor's
+/// GET /appointments/availability?doctor_id=&date=: JSON list of the doctor's
 /// free 30-minute start slots for a date. Drives the booking form's live slot
 /// dropdown. Any logged-in user may call it (it exposes only free/busy times,
 /// no patient data). Invalid or missing inputs yield an empty list rather than
@@ -77,7 +77,7 @@ pub async fn available_slots_api(
     Ok(HttpResponse::Ok().json(FreeSlotsResponse { slots }))
 }
 
-/// GET /appointments/all-slots?doctor_id=&date= — JSON list of every 30-minute
+/// GET /appointments/all-slots?doctor_id=&date=: JSON list of every 30-minute
 /// start slot for a doctor on a date, each marked free or occupied. Drives the
 /// staff booking form, where a doctor/admin may deliberately select an occupied
 /// slot to trigger a priority override (which bumps the lower-priority occupant
@@ -104,7 +104,7 @@ pub async fn all_slots_api(
     Ok(HttpResponse::Ok().json(AllSlotsResponse { slots }))
 }
 
-/// POST /appointments/book — process a booking for any role.
+/// POST /appointments/book: process a booking for any role.
 /// `resolve_booking_target` applies the role rules (who the appointment is
 /// for/with, and that patients always book at Normal priority). Staff
 /// bookings at Emergency/Urgent go through the priority path, which bumps
@@ -145,7 +145,7 @@ pub async fn book_appointment(
         .finish())
 }
 
-/// GET /appointments/suggest — show the slot suggestion form.
+/// GET /appointments/suggest: show the slot suggestion form.
 /// The user picks a doctor, date, and desired duration.
 pub async fn suggest_slot_form(
     pool: web::Data<sqlx::SqlitePool>,
@@ -163,7 +163,7 @@ pub async fn suggest_slot_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /appointments/suggest — run the earliest-slot algorithm.
+/// POST /appointments/suggest: run the earliest-slot algorithm.
 /// Scans the doctor's schedule for the given date and returns the first
 /// available gap that fits the requested duration (Algorithm 2).
 pub async fn suggest_slot(

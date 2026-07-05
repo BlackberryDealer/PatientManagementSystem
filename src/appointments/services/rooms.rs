@@ -3,7 +3,7 @@ use crate::errors::AppError;
 use sqlx::SqlitePool;
 
 /// Upper bound on claim retries. Each retry means another request claimed
-/// our candidate room between the SELECT and the INSERT — with 6 seeded
+/// our candidate room between the SELECT and the INSERT, with 6 seeded
 /// rooms this can only happen a handful of times before every room is
 /// taken and the sharing fallback applies anyway.
 const MAX_ROOM_CLAIM_ATTEMPTS: usize = 8;
@@ -16,7 +16,7 @@ const MAX_ROOM_CLAIM_ATTEMPTS: usize = 8;
 /// The first booking of the day triggers lazy auto-assignment.
 ///
 /// Race-safe: the claim is a plain INSERT guarded by two UNIQUE indexes
-/// (one room per doctor per day, one doctor per room per day — migrations
+/// (one room per doctor per day, one doctor per room per day, migrations
 /// 005/006). Losing a race surfaces as a unique violation, and the loop
 /// simply retries with the next free room instead of double-assigning.
 pub(super) async fn resolve_room(
@@ -26,7 +26,7 @@ pub(super) async fn resolve_room(
 ) -> Result<i64, AppError> {
     for _ in 0..MAX_ROOM_CLAIM_ATTEMPTS {
         // 1. Already assigned for this date? (Also covers losing a race to a
-        //    concurrent request for the SAME doctor — retry lands here.)
+        //    concurrent request for the SAME doctor, retry lands here.)
         if let Some((room_id,)) = sqlx::query_as::<_, (i64,)>(
             "SELECT room_id FROM doctor_room_assignments
              WHERE doctor_id = ? AND assignment_date = ?",
@@ -54,11 +54,11 @@ pub(super) async fn resolve_room(
         .await?;
 
         let Some((room_id,)) = free_room else {
-            break; // every room is assigned today — fall through to sharing
+            break; // every room is assigned today, fall through to sharing
         };
 
         // 3. Claim it. A unique violation on either index means a concurrent
-        //    request won the race — loop and re-resolve.
+        //    request won the race, loop and re-resolve.
         let claim = sqlx::query(
             "INSERT INTO doctor_room_assignments (doctor_id, room_id, assignment_date)
              VALUES (?, ?, ?)",

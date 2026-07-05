@@ -1,0 +1,79 @@
+{# Shared Tera macros — the reusable-component layer referenced throughout
+   the templates. Import with `{% import "shared/macros.html.tera" as macros %}`
+   at the top of any page template, then call e.g. `{{ macros::empty_state(...) }}`.
+
+   Tera macros have no block-content/slot mechanism (unlike Jinja's
+   `{% macro %}...{{ caller() }}...{% endmacro %}`), so every value a macro
+   needs — including a role-conditional subtitle — must be passed as a
+   parameter. Where a page's empty-state subtitle or action button varies by
+   role, the calling template wraps the macro call itself in `{% if %}` /
+   `{% elif %}` rather than branching inside the macro. #}
+
+{% macro empty_state(icon, title, subtitle, action_href="", action_label="", action_icon="fa-plus") %}
+<div class="hero is-medium has-text-centered has-text-grey fade-in">
+    <div class="hero-body">
+        <span class="icon is-large has-text-grey-lighter"><i class="fas {{ icon }} fa-4x"></i></span>
+        <p class="title is-4 has-text-grey mt-4">{{ title }}</p>
+        <p class="subtitle is-6">{{ subtitle }}</p>
+        {% if action_href %}
+        <a class="button is-primary mt-3" href="{{ action_href }}"><i class="fas {{ action_icon }} mr-1"></i>{{ action_label }}</a>
+        {% endif %}
+    </div>
+</div>
+{% endmacro empty_state %}
+
+{# Appointment lifecycle badge — mirrors `Appointment::status_badge_class()`
+   in src/appointments/models/appointment.rs exactly (scheduled=is-info,
+   completed=is-success, cancelled=is-danger), so the two can never drift
+   apart the way they briefly did before this macro existed. `capitalize`
+   matches the detail page's title-row styling; the list page's compact
+   table badge has never capitalized the raw lowercase status text, so the
+   default keeps that as-is. #}
+{% macro appointment_status_tag(status, size="", capitalize=false) %}
+<span class="tag {{ size }}
+    {% if status == 'scheduled' %}is-info
+    {% elif status == 'completed' %}is-success
+    {% else %}is-danger{% endif %} is-light">
+    <i class="fas
+        {% if status == 'scheduled' %}fa-hourglass-half
+        {% elif status == 'completed' %}fa-check-circle
+        {% else %}fa-times-circle{% endif %} mr-1"></i>
+    {% if capitalize %}<span style="text-transform: capitalize;">{{ status }}</span>{% else %}{{ status }}{% endif %}
+</span>
+{% endmacro appointment_status_tag %}
+
+{# Invoice status badge (plain table/inline variant) — mirrors
+   `Invoice::status_badge_class()` in src/billing/models.rs
+   (pending=is-warning, paid=is-success, cancelled=is-danger). #}
+{% macro invoice_status_tag(status) %}
+<span class="tag {% if status == 'paid' %}is-success{% elif status == 'pending' %}is-warning{% else %}is-danger{% endif %}">
+    {{ status }}
+</span>
+{% endmacro invoice_status_tag %}
+
+{# Invoice status badge (header/hero variant, with icon and capitalization)
+   — same color mapping as `invoice_status_tag`, used on the invoice detail
+   page's title row. #}
+{% macro invoice_status_tag_header(status) %}
+<span class="tag is-medium
+    {% if status == 'paid' %}is-success
+    {% elif status == 'pending' %}is-warning
+    {% else %}is-danger{% endif %} is-light">
+    <i class="fas
+        {% if status == 'paid' %}fa-check-circle
+        {% elif status == 'pending' %}fa-clock
+        {% else %}fa-ban{% endif %} mr-1"></i>
+    <span style="text-transform: capitalize;">{{ status }}</span>
+</span>
+{% endmacro invoice_status_tag_header %}
+
+{# Waitlist status badge — mirrors `WaitlistEntry::status_badge_class()` in
+   src/appointments/models/waitlist.rs (waiting=is-info, offered=is-warning,
+   accepted=is-success, expired=is-light). #}
+{% macro waitlist_status_tag(status) %}
+<span class="tag
+    {% if status == 'waiting' %}is-info
+    {% elif status == 'offered' %}is-warning
+    {% elif status == 'accepted' %}is-success
+    {% else %}is-light{% endif %}">{{ status }}</span>
+{% endmacro waitlist_status_tag %}

@@ -1,6 +1,5 @@
-//! HTTP request/response DTOs for the appointment handlers. Each form owns its
-//! own validation so nothing reaches the service or DB until the input rules
-//! pass (Route -> Validation -> Business Logic -> DB).
+// HTTP request/response DTOs for the appointment handlers. Each form
+// validates itself before anything reaches the service or the DB.
 
 use crate::traits::Priority;
 use serde::{Deserialize, Serialize};
@@ -10,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// layer and `services::resolve_booking_target` applies the business rules:
 ///   patient → themselves + their chosen doctor, always Normal priority;
 ///   doctor  → their chosen patient + themselves (a doctor never books
-///             another doctor's schedule — reassignment is a separate flow);
+///             another doctor's schedule, reassignment is a separate flow);
 ///   admin   → their chosen patient + their chosen doctor.
 #[derive(Debug, Deserialize)]
 pub struct BookRequestForm {
@@ -25,7 +24,7 @@ pub struct BookRequestForm {
 
 /// A fully-resolved booking: every role question already answered, so the
 /// booking services stay role-agnostic. Room is auto-assigned from the
-/// doctor's daily room allocation — nobody selects a room manually.
+/// doctor's daily room allocation, nobody selects a room manually.
 #[derive(Debug, Deserialize)]
 pub struct BookAppointmentForm {
     pub doctor_id: i64,
@@ -58,7 +57,7 @@ impl BookAppointmentForm {
 /// Form submitted when moving an existing appointment to a new date/time.
 ///
 /// Deliberately carries only the fields a reschedule may change (date + slot).
-/// The doctor and room stay as they were — changing the doctor is a separate
+/// The doctor and room stay as they were, changing the doctor is a separate
 /// concern already handled by `reassign_appointment` (Algorithm 4), so leaving
 /// them out here keeps the two features from overlapping and keeps the form
 /// the minimum a reschedule needs.
@@ -84,7 +83,7 @@ impl RescheduleForm {
 /// Form a doctor submits to assign (or change) an appointment's room.
 ///
 /// `room_id` is a plain `i64` (not optional): the assign UI always offers a
-/// concrete room, so there is no empty value to mis-parse — the same reason the
+/// concrete room, so there is no empty value to mis-parse, the same reason the
 /// staff booking form dropped its blank "no room" option.
 #[derive(Debug, Deserialize)]
 pub struct AssignRoomForm {
@@ -99,7 +98,7 @@ pub struct SetPriorityForm {
     pub priority: i32,
 }
 
-/// Form for the "suggest slot" feature — find next available time.
+/// Form for the "suggest slot" feature, find next available time.
 /// Room is auto-assigned from the doctor's daily room allocation.
 #[derive(Debug, Deserialize)]
 pub struct SuggestSlotForm {

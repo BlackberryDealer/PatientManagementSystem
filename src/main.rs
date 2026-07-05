@@ -149,7 +149,7 @@ fn render_error_page<B>(
     ))
 }
 
-/// 404 handler — styled "page not found" screen.
+/// 404 handler, styled "page not found" screen.
 fn handle_not_found<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
     render_error_page(
         res,
@@ -158,7 +158,7 @@ fn handle_not_found<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B
     )
 }
 
-/// 500 handler — styled "internal server error" screen (hides internal details).
+/// 500 handler, styled "internal server error" screen (hides internal details).
 fn handle_internal_error<B>(
     res: ServiceResponse<B>,
 ) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
@@ -169,7 +169,7 @@ fn handle_internal_error<B>(
     )
 }
 
-/// 400 handler — dresses up plain-text 400s that don't come from `AppError`
+/// 400 handler, dresses up plain-text 400s that don't come from `AppError`
 /// (typically a form the framework could not deserialize). `AppError` 400s
 /// already carry a styled page with the specific message and pass through.
 fn handle_bad_request<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
@@ -180,7 +180,7 @@ fn handle_bad_request<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse
     )
 }
 
-/// 403 handler — same pass-through rule as `handle_bad_request`.
+/// 403 handler, same pass-through rule as `handle_bad_request`.
 fn handle_forbidden<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>, actix_web::Error> {
     render_error_page(
         res,
@@ -228,7 +228,7 @@ async fn main() -> std::io::Result<()> {
 
     info!("============================================");
     info!("  Patient Management System");
-    info!("  University of Glasgow — CSC1106");
+    info!("  University of Glasgow, CSC1106");
     info!("  Server: http://0.0.0.0:8080");
     info!("============================================");
 

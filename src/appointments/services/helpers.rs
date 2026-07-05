@@ -23,6 +23,23 @@ pub(super) async fn load_appointment(
     .ok_or_else(|| AppError::NotFound("Appointment not found".into()))
 }
 
+/// Persist an appointment's current status. Shared by every call site that
+/// just drove `Appointment` through a guarded transition (`cancel()`,
+/// `complete()`) and now needs the new value written. The SQL is identical
+/// everywhere, only the executor (a pool or an already-open transaction)
+/// differs, so this is generic over `sqlx::Executor`.
+pub(super) async fn persist_status<'e, E>(executor: E, appt: &Appointment) -> Result<(), AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
+        .bind(appt.current_status())
+        .bind(appt.id)
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
 /// Translate a slot-insert failure: a UNIQUE-index violation means another
 /// booking grabbed the slot first (a race we lost), surfaced as a clean 400.
 pub(super) fn map_slot_conflict(e: sqlx::Error) -> AppError {
@@ -80,11 +97,7 @@ pub(super) async fn bump_conflict(
     .fetch_one(&mut **tx)
     .await?;
     bumped.cancel()?;
-    sqlx::query("UPDATE appointments SET status = ? WHERE id = ?")
-        .bind(bumped.current_status())
-        .bind(bumped.id)
-        .execute(&mut **tx)
-        .await?;
+    persist_status(&mut **tx, &bumped).await?;
 
     sqlx::query("DELETE FROM appointment_slots WHERE appointment_id = ?")
         .bind(conflict_id)
@@ -126,9 +139,9 @@ pub(super) async fn insert_slots(
 }
 
 /// The full contents of a new appointment row: one named bundle instead of
-/// nine loose positional arguments, shared by every path that books —
-/// standard, priority override, and waitlist promotion. Field names make the
-/// call sites self-documenting and impossible to transpose.
+/// nine loose positional arguments, shared by every path that books an
+/// appointment (standard, priority override, and waitlist promotion). Field
+/// names make the call sites self-documenting and impossible to transpose.
 pub(super) struct NewAppointment<'a> {
     pub(super) patient_id: i64,
     pub(super) doctor_id: i64,

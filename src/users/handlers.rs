@@ -4,14 +4,16 @@ use tera::Context;
 
 use crate::auth::{require_admin, require_self_or_admin, AuthUser, OptionalAuthUser};
 use crate::errors::AppError;
-use crate::users::models::{CreateStaffForm, EditProfileForm, LoginForm, Patient, RegisterForm};
+use crate::users::models::{
+    ChangePasswordForm, CreateStaffForm, EditProfileForm, LoginForm, Patient, RegisterForm,
+};
 use crate::users::services;
 
 // ============================================================
 // Registration
 // ============================================================
 
-/// GET /users/register — show registration form
+/// GET /users/register: show registration form
 pub async fn register_form(
     tera: web::Data<tera::Tera>,
     user: OptionalAuthUser,
@@ -23,7 +25,7 @@ pub async fn register_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /users/register — process registration
+/// POST /users/register: process registration
 pub async fn register(
     pool: web::Data<sqlx::SqlitePool>,
     session: Session,
@@ -31,9 +33,18 @@ pub async fn register(
 ) -> Result<HttpResponse, AppError> {
     let user = services::register_user(pool.get_ref(), &form).await?;
     crate::audit::services::record_raw(
-        pool.get_ref(), Some(user.id), &user.username, user.role_str(),
-        "user.registered", "user", Some(user.id), "",
-    ).await;
+        pool.get_ref(),
+        crate::audit::services::NewAuditEntry {
+            user_id: Some(user.id),
+            username: &user.username,
+            role: user.role_str(),
+            action: "user.registered",
+            entity: "user",
+            entity_id: Some(user.id),
+            details: "",
+        },
+    )
+    .await;
 
     // Auto-login after registration. `renew()` first: the freshly
     // authenticated session must never continue an anonymous one
@@ -52,7 +63,7 @@ pub async fn register(
 // Login / Logout
 // ============================================================
 
-/// GET /users/login — show login form
+/// GET /users/login: show login form
 pub async fn login_form(
     tera: web::Data<tera::Tera>,
     user: OptionalAuthUser,
@@ -64,7 +75,7 @@ pub async fn login_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /users/login — process login
+/// POST /users/login: process login
 pub async fn login(
     pool: web::Data<sqlx::SqlitePool>,
     session: Session,
@@ -82,9 +93,18 @@ pub async fn login(
             session.insert("role", user.role().as_str())?;
 
             crate::audit::services::record_raw(
-                pool.get_ref(), Some(user.id), &user.username, user.role_str(),
-                "user.login", "user", Some(user.id), "",
-            ).await;
+                pool.get_ref(),
+                crate::audit::services::NewAuditEntry {
+                    user_id: Some(user.id),
+                    username: &user.username,
+                    role: user.role_str(),
+                    action: "user.login",
+                    entity: "user",
+                    entity_id: Some(user.id),
+                    details: "",
+                },
+            )
+            .await;
 
             Ok(HttpResponse::SeeOther()
                 .append_header(("Location", "/appointments"))
@@ -103,7 +123,7 @@ pub async fn login(
     }
 }
 
-/// POST /users/logout — clear session and redirect to login.
+/// POST /users/logout: clear session and redirect to login.
 /// POST (not GET) because logout changes server-visible state: a GET logout
 /// can be triggered by any cross-site image/link (CSRF-style forced logout)
 /// and may be prefetched by browsers.
@@ -118,7 +138,7 @@ pub async fn logout(session: Session) -> Result<HttpResponse, AppError> {
 // Staff creation (admin only)
 // ============================================================
 
-/// GET /users/new — show the "add staff" form (admin only)
+/// GET /users/new: show the "add staff" form (admin only)
 pub async fn create_staff_form(
     tera: web::Data<tera::Tera>,
     user: AuthUser,
@@ -132,7 +152,7 @@ pub async fn create_staff_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /users/new — create a doctor/admin account (admin only)
+/// POST /users/new: create a doctor/admin account (admin only)
 pub async fn create_staff(
     pool: web::Data<sqlx::SqlitePool>,
     user: AuthUser,
@@ -155,7 +175,7 @@ pub async fn create_staff(
 // User listing & profile
 // ============================================================
 
-/// GET /users — list all users (admin only)
+/// GET /users: list all users (admin only)
 pub async fn list_users(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -172,7 +192,7 @@ pub async fn list_users(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// GET /users/{id} — view a user's profile (with patient/doctor details)
+/// GET /users/{id}: view a user's profile (with patient/doctor details)
 pub async fn user_profile(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -207,10 +227,34 @@ pub async fn user_profile(
 }
 
 // ============================================================
+// Deletion (admin only)
+// ============================================================
+
+/// POST /users/{id}/delete: permanently remove a user account (admin only)
+pub async fn delete_user(
+    pool: web::Data<sqlx::SqlitePool>,
+    path: web::Path<i64>,
+    user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    require_admin(&user)?;
+    let target_id = path.into_inner();
+
+    let deleted = services::delete_user(pool.get_ref(), user.user_id, target_id).await?;
+    crate::audit::services::record(
+        pool.get_ref(), &user, "user.deleted", "user", Some(target_id),
+        &format!("Deleted {} account: {}", deleted.role_str(), deleted.username),
+    ).await;
+
+    Ok(HttpResponse::SeeOther()
+        .append_header(("Location", "/users"))
+        .finish())
+}
+
+// ============================================================
 // Profile editing
 // ============================================================
 
-/// GET /users/{id}/edit — show edit profile form
+/// GET /users/{id}/edit: show edit profile form
 pub async fn edit_profile_form(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,
@@ -228,7 +272,7 @@ pub async fn edit_profile_form(
     ctx.insert("profile_user", &profile_user);
     ctx.insert("patient", &patient);
     ctx.insert("doctor", &doctor);
-    // Canonical blood-group options for the dropdown — same list the
+    // Canonical blood-group options for the dropdown, same list the
     // domain validates against, so the two never drift apart.
     ctx.insert("blood_groups", &Patient::BLOOD_GROUPS);
     ctx.insert("title", "Edit Profile");
@@ -236,7 +280,7 @@ pub async fn edit_profile_form(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /users/{id}/edit — process profile update
+/// POST /users/{id}/edit: process profile update
 pub async fn edit_profile(
     pool: web::Data<sqlx::SqlitePool>,
     path: web::Path<i64>,
@@ -247,8 +291,74 @@ pub async fn edit_profile(
     require_self_or_admin(&current_user, profile_id)?;
 
     services::update_profile(pool.get_ref(), profile_id, &form).await?;
+    crate::audit::services::record(
+        pool.get_ref(), &current_user, "user.profile_updated", "user", Some(profile_id), "",
+    ).await;
 
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/users/{}", profile_id)))
         .finish())
+}
+
+// ============================================================
+// Password change
+// ============================================================
+
+/// GET /users/{id}/change-password: show the change-password form
+pub async fn change_password_form(
+    pool: web::Data<sqlx::SqlitePool>,
+    tera: web::Data<tera::Tera>,
+    path: web::Path<i64>,
+    current_user: AuthUser,
+) -> Result<HttpResponse, AppError> {
+    let profile_id = path.into_inner();
+    require_self_or_admin(&current_user, profile_id)?;
+    let profile_user = services::get_user_by_id(pool.get_ref(), profile_id).await?;
+
+    let mut ctx = Context::new();
+    ctx.insert("user", &current_user);
+    ctx.insert("profile_user", &profile_user);
+    ctx.insert("title", "Change Password");
+    let rendered = tera.render("users/change_password.html.tera", &ctx)?;
+    Ok(HttpResponse::Ok().body(rendered))
+}
+
+/// POST /users/{id}/change-password: process a password change.
+/// Changing your own password requires the current one; an admin resetting
+/// someone else's account does not (they can't know it).
+pub async fn change_password(
+    pool: web::Data<sqlx::SqlitePool>,
+    tera: web::Data<tera::Tera>,
+    path: web::Path<i64>,
+    current_user: AuthUser,
+    form: web::Form<ChangePasswordForm>,
+) -> Result<HttpResponse, AppError> {
+    let profile_id = path.into_inner();
+    require_self_or_admin(&current_user, profile_id)?;
+    let is_self = current_user.user_id == profile_id;
+
+    let (msg, mut builder) = match services::change_password(pool.get_ref(), profile_id, is_self, &form).await {
+        Ok(()) => {
+            let action = if is_self { "user.password_changed" } else { "user.password_reset" };
+            crate::audit::services::record(
+                pool.get_ref(), &current_user, action, "user", Some(profile_id), "",
+            ).await;
+
+            return Ok(HttpResponse::SeeOther()
+                .append_header(("Location", format!("/users/{}", profile_id)))
+                .finish());
+        }
+        Err(AppError::BadRequest(msg)) => (msg, HttpResponse::BadRequest()),
+        Err(AppError::Unauthorized(msg)) => (msg, HttpResponse::Unauthorized()),
+        Err(e) => return Err(e),
+    };
+
+    let profile_user = services::get_user_by_id(pool.get_ref(), profile_id).await?;
+    let mut ctx = Context::new();
+    ctx.insert("user", &current_user);
+    ctx.insert("profile_user", &profile_user);
+    ctx.insert("error", &msg);
+    ctx.insert("title", "Change Password");
+    let rendered = tera.render("users/change_password.html.tera", &ctx)?;
+    Ok(builder.body(rendered))
 }

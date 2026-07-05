@@ -36,6 +36,7 @@ pub fn test_tera() -> Tera {
         ("users/profile.html.tera", "<html><body>Profile: {{ profile_user.full_name }}</body></html>"),
         ("users/new.html.tera", "<html><body>Add Staff</body></html>"),
         ("users/edit.html.tera", "<html><body>Edit: {{ profile_user.full_name }}</body></html>"),
+        ("users/change_password.html.tera", "<html><body>Change Password: {{ profile_user.username }}</body></html>"),
         ("appointments/list.html.tera", "<html><body>Apps: {{ appointments | length }}</body></html>"),
         ("appointments/book.html.tera", "<html><body>Book form</body></html>"),
         ("appointments/detail.html.tera", "<html><body>Appt #{{ appointment.id }}</body></html>"),

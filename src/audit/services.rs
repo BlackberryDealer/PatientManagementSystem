@@ -16,42 +16,54 @@ pub async fn record(
     entity_id: Option<i64>,
     details: &str,
 ) {
-    record_raw(pool, Some(user.user_id), &user.username, user.role.as_str(), action, entity, entity_id, details)
-        .await;
+    record_raw(
+        pool,
+        NewAuditEntry {
+            user_id: Some(user.user_id),
+            username: &user.username,
+            role: user.role.as_str(),
+            action,
+            entity,
+            entity_id,
+            details,
+        },
+    )
+    .await;
 }
 
-/// Record an audit entry with explicit actor fields — for flows where no
+/// One `audit_log` row's actor + action fields, named rather than positional
+/// so a call site reads as `action: "user.login"` instead of an easily
+/// misordered string of bare `&str`s.
+pub struct NewAuditEntry<'a> {
+    pub user_id: Option<i64>,
+    pub username: &'a str,
+    pub role: &'a str,
+    pub action: &'a str,
+    pub entity: &'a str,
+    pub entity_id: Option<i64>,
+    pub details: &'a str,
+}
+
+/// Record an audit entry with explicit actor fields, for flows where no
 /// `AuthUser` extractor exists yet (e.g. registration and login, where the
 /// session is created in the same request).
-// One positional argument per audit_log column, in schema order — bundling
-// them into a struct would just restate the table for a single caller pair.
-#[allow(clippy::too_many_arguments)]
-pub async fn record_raw(
-    pool: &SqlitePool,
-    user_id: Option<i64>,
-    username: &str,
-    role: &str,
-    action: &str,
-    entity: &str,
-    entity_id: Option<i64>,
-    details: &str,
-) {
+pub async fn record_raw(pool: &SqlitePool, entry: NewAuditEntry<'_>) {
     let result = sqlx::query(
         "INSERT INTO audit_log (user_id, username, role, action, entity, entity_id, details)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(user_id)
-    .bind(username)
-    .bind(role)
-    .bind(action)
-    .bind(entity)
-    .bind(entity_id)
-    .bind(details)
+    .bind(entry.user_id)
+    .bind(entry.username)
+    .bind(entry.role)
+    .bind(entry.action)
+    .bind(entry.entity)
+    .bind(entry.entity_id)
+    .bind(entry.details)
     .execute(pool)
     .await;
 
     if let Err(e) = result {
-        log::warn!("Failed to write audit log entry for action '{}': {}", action, e);
+        log::warn!("Failed to write audit log entry for action '{}': {}", entry.action, e);
     }
 }
 

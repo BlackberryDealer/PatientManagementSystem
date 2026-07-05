@@ -1,19 +1,13 @@
-//! Scheduling algorithms for the appointments module.
-//!
-//! Each algorithm lives in its own file so a future maintainer can open exactly
-//! the one they need. All of them are the *orchestration* layer: they fetch rows
-//! and translate results, while the pure, database-free maths lives on the
-//! domain objects in `appointments::models` (`DaySchedule` for Algorithm 2,
-//! `CostMatrix` for Algorithm 5) so it stays unit-testable in isolation.
-//!
-//! | File                 | Algorithm                                            |
-//! |----------------------|------------------------------------------------------|
-//! | `conflict.rs`        | 1 — time-interval overlap detection                  |
-//! | `earliest_slot.rs`   | 2 — earliest available slot (gap walking)            |
-//! | `priority_queue.rs`  | 3 support — `BinaryHeap` waitlist priority queue     |
-//! | `reassign.rs`        | 4 — greedy, load-balanced single-appointment move    |
-//! | `batch_reassign.rs`  | 5 — optimal whole-day batch reassignment (Hungarian) |
-//! | `free_slots.rs`      | live free-slot lookup that drives the booking form   |
+// Scheduling algorithms for the appointments module, one file per algorithm
+// so a maintainer can open exactly the one they need: conflict.rs is
+// Algorithm 1 (overlap detection), earliest_slot.rs Algorithm 2 (gap
+// walking), priority_queue.rs the BinaryHeap behind Algorithm 3,
+// reassign.rs Algorithm 4 (greedy single-appointment move), batch_reassign.rs
+// Algorithm 5 (Hungarian whole-day reassignment), and free_slots.rs the live
+// free-slot lookup that drives the booking form. All of them are the
+// orchestration layer, fetching rows and translating results, while the
+// pure database-free maths lives on the domain objects in
+// appointments::models (DaySchedule, CostMatrix) so it stays unit-testable.
 
 mod batch_reassign;
 mod conflict;

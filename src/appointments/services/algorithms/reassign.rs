@@ -1,7 +1,6 @@
-//! Algorithm 4: Doctor Reassignment (greedy, load-balanced).
-//!
-//! Moves a *single* scheduled appointment to the best available colleague. The
-//! whole-day, provably-optimal counterpart is Algorithm 5 in `batch_reassign`.
+// Algorithm 4: Doctor Reassignment (greedy, load-balanced). Moves a single
+// scheduled appointment to the best available colleague. The whole-day,
+// optimal counterpart is Algorithm 5 in batch_reassign.
 
 use crate::appointments::models::Appointment;
 use crate::availability::services::ensure_doctor_available;
@@ -13,17 +12,13 @@ use super::super::helpers::{insert_slots, load_appointment};
 use super::super::rooms::resolve_room;
 use super::check_conflict;
 
-/// Find the best alternative doctor for a given slot.
-///
-/// ## Greedy selection strategy
-/// Candidates are every other doctor, ranked by:
-/// 1. Same specialization as the current doctor first (continuity of care)
-/// 2. Fewest scheduled appointments on that date (load balancing)
-///
-/// The first candidate that is both available and conflict-free is chosen.
+/// Find the best alternative doctor for a given slot. Candidates are every
+/// other doctor, ranked by same specialization first (continuity of care),
+/// then fewest scheduled appointments on that date (load balancing). The
+/// first candidate that is both available and conflict-free is chosen.
 ///
 /// Private to this module: the only caller is `reassign_appointment` below.
-/// The batch equivalent (Algorithm 5) does not reuse it — it scores every
+/// The batch equivalent (Algorithm 5) doesn't reuse it, it scores every
 /// colleague at once in a cost matrix rather than picking the first feasible one.
 async fn find_alternative_doctor(
     pool: &SqlitePool,

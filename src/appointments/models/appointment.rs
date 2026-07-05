@@ -1,5 +1,5 @@
-//! The core scheduling entity: `Appointment`, its lifecycle status enum, and the
-//! joined read-model (`AppointmentView`) the list/detail pages render.
+// The core scheduling entity: Appointment, its lifecycle status enum, and the
+// joined read model (AppointmentView) the list/detail pages render.
 
 use crate::traits::{Prioritized, Priority, Reportable, StatusManaged, TimeSlotted};
 use serde::{Deserialize, Serialize};
@@ -20,8 +20,8 @@ pub enum AppointmentStatus {
 }
 
 impl AppointmentStatus {
-    /// Canonical lowercase string — matches the DB CHECK values and the strings
-    /// the templates compare against.
+    /// Canonical lowercase string, matches the DB CHECK values and the
+    /// strings the templates compare against.
     pub fn as_str(&self) -> &'static str {
         match self {
             AppointmentStatus::Scheduled => "scheduled",
@@ -31,7 +31,7 @@ impl AppointmentStatus {
     }
 }
 
-/// The core scheduling entity: a patient–doctor meeting at a specific
+/// The core scheduling entity: a patient-doctor meeting at a specific
 /// date and time window in an auto-assigned room. Status and priority
 /// are private with guarded accessors so state transitions (cancel,
 /// reassign, reschedule, assign_room) live on the struct itself.
@@ -51,18 +51,13 @@ pub struct Appointment {
 }
 
 impl Appointment {
-    /// Read-only accessor for the assigned doctor (sibling of
-    /// `current_status`). The field is private so the only way to change it
-    /// is `reassign_to`, which enforces the "only a scheduled appointment may
-    /// be reassigned" rule — no caller can corrupt the assignment by hand.
+    /// Read-only accessor for the assigned doctor. The field is private so the
+    /// only way to change it is `reassign_to`, which keeps the "only a
+    /// scheduled appointment may be reassigned" rule in one place.
     pub fn doctor_id(&self) -> i64 { self.doctor_id }
 
-    /// Cancel this appointment.
-    ///
-    /// Domain rule: only an active (scheduled) appointment may be cancelled —
-    /// completed or already-cancelled appointments are immutable history.
-    /// Mutates internal state, so it requires `&mut self`; callers persist
-    /// the new status afterwards.
+    /// Cancel this appointment. Only an active (scheduled) appointment can be
+    /// cancelled; completed or already-cancelled ones are locked history.
     pub fn cancel(&mut self) -> Result<(), crate::errors::AppError> {
         if !self.is_active() {
             return Err(crate::errors::AppError::BadRequest(
@@ -73,13 +68,9 @@ impl Appointment {
         Ok(())
     }
 
-    /// Mark this appointment as completed (the visit took place).
-    ///
-    /// Domain rule (same family as `cancel`): only an active/scheduled
-    /// appointment can be completed — cancelled appointments never happened
-    /// and completed ones already are. Unlike cancellation, completion keeps
-    /// the appointment's occupancy slots: the time was genuinely used, and
-    /// `check_conflict` counts completed visits as occupying their window.
+    /// Mark this appointment as completed (the visit took place). Unlike
+    /// cancellation, completion keeps the slot occupied: the time was
+    /// genuinely used, so `check_conflict` still counts it as busy.
     pub fn complete(&mut self) -> Result<(), crate::errors::AppError> {
         if !self.is_active() {
             return Err(crate::errors::AppError::BadRequest(
@@ -90,13 +81,8 @@ impl Appointment {
         Ok(())
     }
 
-    /// Reassign this appointment to a different doctor.
-    ///
-    /// Domain rule (same as `cancel`): only an active/scheduled appointment may
-    /// be reassigned — completed or cancelled appointments are immutable
-    /// history. The rule and the state change live on the object, so callers
-    /// can never drive a closed appointment to a new doctor; they persist the
-    /// new `doctor_id` afterwards.
+    /// Move this appointment to a different doctor. Guarded the same way as
+    /// `cancel`, so nothing can hand off a completed or cancelled visit.
     pub fn reassign_to(&mut self, new_doctor_id: i64) -> Result<(), crate::errors::AppError> {
         if !self.is_active() {
             return Err(crate::errors::AppError::BadRequest(
@@ -107,14 +93,9 @@ impl Appointment {
         Ok(())
     }
 
-    /// Reschedule this appointment to a new date and time window, keeping the
-    /// same doctor and room.
-    ///
-    /// Domain rule (same as `cancel`/`reassign_to`): only an active/scheduled
-    /// appointment may move — completed or cancelled appointments are immutable
-    /// history. Keeping the rule *and* the field change on the entity means no
-    /// caller can shuffle a closed appointment's time by hand; the service
-    /// persists the new values and rebuilds the occupancy slots afterwards.
+    /// Move this appointment to a new date and time window, keeping the same
+    /// doctor and room. Changing the doctor is a separate flow
+    /// (`reassign_to`); this only touches when the visit happens.
     pub fn reschedule_to(
         &mut self,
         new_date: chrono::NaiveDate,
@@ -132,14 +113,9 @@ impl Appointment {
         Ok(())
     }
 
-    /// Assign (or change) the consultation room for this appointment.
-    ///
-    /// Domain rule (same family as `cancel`/`reassign_to`): only an
-    /// active/scheduled appointment may have its room set. Rooms are
-    /// auto-assigned at booking from the doctor's daily allocation; this
-    /// method is the staff override for moving a single appointment to a
-    /// different room (e.g. into the procedure room). The caller persists
-    /// the new room on the appointment and its occupancy slots.
+    /// Assign or change the consultation room. Rooms are auto-assigned at
+    /// booking time from the doctor's daily allocation; this is the manual
+    /// override for moving one appointment into a different room.
     pub fn assign_room(&mut self, room_id: i64) -> Result<(), crate::errors::AppError> {
         if !self.is_active() {
             return Err(crate::errors::AppError::BadRequest(
@@ -150,16 +126,13 @@ impl Appointment {
         Ok(())
     }
 
-    /// Read-only accessor for the triage priority as a typed enum.
-    /// The field is private so the only way to change it is through a
-    /// constructor — no caller can write an out-of-range integer by hand.
+    /// Read-only accessor for the triage priority as a typed enum. The field
+    /// stays private so the range check in `set_priority` can't be bypassed.
     pub fn priority(&self) -> Priority { Priority::from_i32(self.priority) }
 
-    /// Re-triage this appointment (staff override, same family as
-    /// `assign_room`): only an active/scheduled appointment may change
-    /// priority. The range is checked explicitly because the fail-safe
-    /// `Priority::from_i32` would silently turn an out-of-range value
-    /// into Normal instead of rejecting it.
+    /// Re-triage this appointment. The 1-4 range is checked explicitly here
+    /// because `Priority::from_i32` fails safe (clamps to Normal) rather than
+    /// rejecting bad input, which is the wrong behaviour for a form submission.
     pub fn set_priority(&mut self, priority: i32) -> Result<(), crate::errors::AppError> {
         if !self.is_active() {
             return Err(crate::errors::AppError::BadRequest(
@@ -177,7 +150,7 @@ impl Appointment {
 }
 
 // ============================================================
-// Trait implementations — OOP via Rust traits (Tutorial 05)
+// Trait implementations (OOP via Rust traits, Tutorial 05)
 // ============================================================
 
 impl TimeSlotted for Appointment {

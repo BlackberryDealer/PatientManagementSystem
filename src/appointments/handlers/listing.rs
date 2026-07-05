@@ -1,5 +1,5 @@
-//! Read-only views: the appointment list, the monthly calendar, and a single
-//! appointment's detail page.
+// Read-only views: the appointment list, the monthly calendar, and a single
+// appointment's detail page.
 
 use actix_web::{web, HttpResponse};
 use tera::Context;
@@ -9,7 +9,7 @@ use crate::appointments::services;
 use crate::auth::{AuthUser, Role};
 use crate::errors::AppError;
 
-/// GET /appointments — list appointments filtered by role.
+/// GET /appointments: list appointments filtered by role.
 /// Patients see their own appointments; doctors see theirs; admins see all.
 /// An optional `?date=YYYY-MM-DD` (the calendar's day links) narrows the
 /// list to that single day; an unparseable date is ignored rather than 400ing.
@@ -41,7 +41,7 @@ pub async fn list_appointments(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// GET /appointments/calendar — render the monthly calendar.
+/// GET /appointments/calendar: render the monthly calendar.
 /// Each day cell shows the count of (non-cancelled) appointments
 /// visible to the authenticated user's role.
 pub async fn calendar_view(
@@ -86,7 +86,7 @@ pub async fn calendar_view(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// GET /appointments/{id} — view a single appointment's detail page.
+/// GET /appointments/{id}: view a single appointment's detail page.
 /// Patients may only view their own appointments; doctors/admins may
 /// view any. A "Create Medical Record" link is shown to staff for
 /// scheduled appointments.

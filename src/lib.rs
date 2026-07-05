@@ -1,5 +1,5 @@
-//! Patient Management System library crate.
-//! Re-exports all modules for integration testing.
+// Patient Management System library crate. Re-exports all modules so the
+// integration tests in tests/ can drive them directly.
 
 pub mod auth;
 pub mod db;

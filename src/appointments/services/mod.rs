@@ -29,7 +29,7 @@ pub use waitlist::{
     promote_from_waitlist, try_rebook_bumped, PromotionOutcome,
 };
 
-// Grid slot options for the booking UI — pure functions, no DB access.
+// Grid slot options for the booking UI, pure functions, no DB access.
 use crate::time::{minutes_to_time, CLINIC_CLOSE_MINUTES, CLINIC_OPEN_MINUTES, SLOT_MINUTES};
 
 pub fn start_time_slots() -> Vec<String> {

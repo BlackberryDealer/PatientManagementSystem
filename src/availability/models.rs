@@ -1,7 +1,7 @@
 use crate::traits::TimeSlotted;
 use serde::{Deserialize, Serialize};
 
-/// Represents a doctor's availability slot — either a recurring
+/// Represents a doctor's availability slot, either a recurring
 /// weekly time window or a one-off blocked/leave date.
 ///
 /// `is_recurring` and `is_blocked` are private so callers use the
@@ -26,7 +26,7 @@ impl DoctorAvailability {
     pub fn blocked(&self) -> bool { self.is_blocked != 0 }
 
     /// An unsaved rule (id 0) used to evaluate "what would the schedule look
-    /// like if this entry existed?" before writing anything — the
+    /// like if this entry existed?" before writing anything. The
     /// stranded-appointment guard simulates the post-change rule set in
     /// memory with these.
     pub fn draft(
@@ -89,7 +89,7 @@ pub struct AvailabilityListItem {
 /// One normalised entry produced from a validated availability form:
 /// either a weekly recurring rule for `day_of_week`, or a one-off rule
 /// pinned to `specific_date` (whose `day_of_week` is *derived from the
-/// date*, never user-supplied — the two can no longer disagree).
+/// date*, never user-supplied, so the two can never disagree).
 #[derive(Debug)]
 pub struct NewAvailabilityEntry {
     pub day_of_week: i32,
@@ -105,10 +105,10 @@ impl NewAvailabilityEntry {
 /// Form submitted by a doctor to set their availability.
 ///
 /// Two mutually exclusive modes, selected by a radio button:
-/// * `recurring` — one or more weekday checkboxes (`day_0`..`day_6`); a
+/// * `recurring`, one or more weekday checkboxes (`day_0`..`day_6`); a
 ///   single submit creates one weekly rule per ticked day, so "Mon–Fri
 ///   9–5" is one form post, not five.
-/// * `oneoff` — a calendar date only. The weekday is computed from the
+/// * `oneoff`, a calendar date only. The weekday is computed from the
 ///   date on the server, so there is no separate day field to fall out
 ///   of sync with the picked date.
 #[derive(Debug, Deserialize)]
@@ -150,7 +150,7 @@ impl SetAvailabilityForm {
 
     /// Validate the form and normalise it into the entries to insert.
     /// Times must be well-formed with start strictly before end (windows
-    /// are not forced onto the 30-minute booking grid — only appointments
+    /// are not forced onto the 30-minute booking grid, only appointments
     /// are). Recurring mode needs at least one day; one-off mode needs a
     /// valid, non-past date.
     pub fn entries(&self) -> Result<Vec<NewAvailabilityEntry>, crate::errors::AppError> {
@@ -233,8 +233,8 @@ pub fn weekday_of(date: chrono::NaiveDate) -> i32 {
     date.weekday().num_days_from_sunday() as i32
 }
 
-/// Parse a required YYYY-MM-DD field and reject dates already in the past —
-/// availability for a day that is over can never affect a booking.
+/// Parse a required YYYY-MM-DD field and reject dates already in the past.
+/// Availability for a day that's over can never affect a booking.
 fn parse_future_date(
     raw: Option<&str>,
 ) -> Result<chrono::NaiveDate, crate::errors::AppError> {

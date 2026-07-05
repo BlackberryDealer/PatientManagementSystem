@@ -14,7 +14,7 @@ pub async fn create_record(
     doctor_user_id: i64,
     form: &CreateRecordForm,
 ) -> Result<MedicalRecord, AppError> {
-    // Validation first — nothing reaches the database until the form's
+    // Validation first, nothing reaches the database until the form's
     // own rules pass (Route -> Validation -> Business Logic -> DB).
     form.validate()?;
 
@@ -193,7 +193,7 @@ pub async fn get_all_patients(pool: &SqlitePool) -> Result<Vec<(i64, String)>, A
 
 /// A patient's appointments as pick-list options for the create-record form,
 /// newest first. Each option carries a ready-made label
-/// ("#12 — 2026-07-01 09:00, Dr. Smith (completed)") so the doctor links a real
+/// ("#12, 2026-07-01 09:00, Dr. Smith (completed)") so the doctor links a real
 /// visit from a dropdown instead of typing an appointment id by hand.
 pub async fn get_patient_appointment_options(
     pool: &SqlitePool,
@@ -215,7 +215,7 @@ pub async fn get_patient_appointment_options(
         .into_iter()
         .map(|(id, date, start, status, doctor)| PatientAppointmentOption {
             id,
-            label: format!("#{id} — {date} {start}, {doctor} ({status})"),
+            label: format!("#{id}, {date} {start}, {doctor} ({status})"),
         })
         .collect())
 }
@@ -253,7 +253,14 @@ pub async fn get_doctor_name(pool: &SqlitePool, doctor_id: i64) -> Result<String
 /// Build a patient's full chronological history: appointments, medical
 /// records, prescriptions, and invoices merged into one timeline, newest
 /// first. Each entity contributes its own summary via the Reportable
-/// trait — the polymorphism the timeline is built on.
+/// trait, the polymorphism the timeline is built on.
+///
+/// Reads `appointments`/`invoices` directly rather than through their own
+/// modules' service functions: this is a read-only, cross-entity merge by
+/// definition (that's the feature), and the row shape it needs (id, dates,
+/// a `Reportable` summary) is narrower than what those modules' own query
+/// functions return, so reusing them would mean fetching full rows and
+/// discarding most of each one.
 pub async fn build_patient_timeline(
     pool: &SqlitePool,
     patient_id: i64,

@@ -1,8 +1,8 @@
-//! Algorithm 3 support: the waitlist priority queue (`BinaryHeap`).
-//!
-//! The priority-based *booking* path (bumping a lower-priority appointment) lives
-//! in `services::booking`; this file owns the queue that decides which waiting
-//! patient is promoted when a slot frees up (see `services::waitlist`).
+// Algorithm 3 support: the waitlist priority queue (BinaryHeap). The
+// priority-based booking path itself (bumping a lower-priority appointment)
+// lives in services::booking; this file just owns the queue that decides
+// which waiting patient gets promoted when a slot frees up, see
+// services::waitlist.
 
 use crate::errors::AppError;
 use crate::traits::Prioritized;
@@ -29,7 +29,7 @@ impl Prioritized for PriorityItem {
 }
 
 // BinaryHeap is a max-heap; `pop` yields the GREATEST element. We want the
-// most urgent (lowest priority number), then the oldest, to pop first — so the
+// most urgent (lowest priority number), then the oldest, to pop first, so the
 // winner must compare as the greatest. BOTH keys are reversed to achieve that.
 impl Ord for PriorityItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -39,7 +39,7 @@ impl Ord for PriorityItem {
         } else if other.is_higher_priority_than(self) {
             Ordering::Less
         } else {
-            // Equal urgency: FIFO — the older entry must pop first.
+            // Equal urgency: FIFO, the older entry must pop first.
             other.created_at.cmp(&self.created_at)
         }
     }

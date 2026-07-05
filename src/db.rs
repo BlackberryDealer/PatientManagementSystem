@@ -39,8 +39,8 @@ pub async fn get_patient_id(pool: &SqlitePool, user_id: i64) -> Result<i64, AppE
 
 /// Resolve the owning user ID from a patient row ID (inverse of
 /// `get_patient_id`). Staff booking forms submit the patient *row* id from a
-/// dropdown, while the booking services identify the patient by user id —
-/// this bridges the two and rejects a non-existent selection as a clean 400.
+/// dropdown, while the booking services identify the patient by user id.
+/// This bridges the two and rejects a non-existent selection as a clean 400.
 pub async fn get_patient_user_id(pool: &SqlitePool, patient_id: i64) -> Result<i64, AppError> {
     sqlx::query_as::<_, (i64,)>("SELECT user_id FROM patients WHERE id = ?")
         .bind(patient_id)
@@ -51,7 +51,7 @@ pub async fn get_patient_user_id(pool: &SqlitePool, patient_id: i64) -> Result<i
 }
 
 /// (patient row id, full name) pairs for the patient dropdowns on the
-/// records, billing, and staff booking forms — one query, three consumers.
+/// records, billing, and staff booking forms, one query, three consumers.
 pub async fn get_all_patients(pool: &SqlitePool) -> Result<Vec<(i64, String)>, AppError> {
     Ok(sqlx::query_as::<_, (i64, String)>(
         "SELECT p.id, u.full_name FROM patients p JOIN users u ON p.user_id = u.id ORDER BY u.full_name",

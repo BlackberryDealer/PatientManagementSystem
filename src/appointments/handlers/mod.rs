@@ -1,14 +1,11 @@
-//! HTTP handlers for the appointments module, grouped by workflow so each file
-//! stays focused. All handlers are re-exported here, so the route table in
-//! `appointments::configure` refers to them as `handlers::<name>` unchanged.
-//!
-//! | File            | Handlers                                                      |
-//! |-----------------|---------------------------------------------------------------|
-//! | `listing.rs`    | list, calendar, single-appointment detail (read views)        |
-//! | `booking.rs`    | booking form + POST, live slot API, slot suggestion           |
-//! | `lifecycle.rs`  | complete / cancel / reschedule / reassign / room / priority   |
-//! | `waitlist.rs`   | waitlist view, join, promote                                   |
-//! | `reassign_day.rs`| batch "cover a doctor's leave" preview + apply (Algorithm 5)  |
+// HTTP handlers for the appointments module, split by workflow so each file
+// stays focused: listing.rs has the read-only views (list, calendar, detail),
+// booking.rs the booking form/POST and the live slot APIs, lifecycle.rs the
+// per-appointment actions (complete, cancel, reschedule, reassign, room,
+// priority), waitlist.rs the waitlist view/join/promote, and reassign_day.rs
+// the batch "cover a doctor's leave" preview and apply (Algorithm 5). Every
+// handler is re-exported here so the route table in appointments::configure
+// can refer to them all as handlers::<name>.
 
 mod booking;
 mod lifecycle;

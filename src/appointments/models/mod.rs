@@ -1,21 +1,11 @@
-//! Domain models for the appointments module, grouped by concern so each file
-//! stays small and focused:
-//!
-//! | File            | Contents                                                     |
-//! |-----------------|--------------------------------------------------------------|
-//! | `appointment.rs`| `Appointment`, its status enum, the joined `AppointmentView` |
-//! | `waitlist.rs`   | `WaitlistEntry`, its status enum, and the join form          |
-//! | `room.rs`       | `Room` and the daily `DoctorRoomAssignment`                  |
-//! | `forms.rs`      | HTTP request/response DTOs for the handlers                  |
-//! | `scheduling.rs` | `DaySchedule` — pure gap-finding maths (Algorithm 2)         |
-//! | `assignment.rs` | `CostMatrix` — pure Hungarian solver + plan types (Algo 5)   |
-//! | `calendar.rs`   | `CalendarMonth` — the monthly calendar business object       |
-//!
-//! Lifecycle status is modelled with typed enums rather than raw strings, so
-//! illegal states are unrepresentable and every `match` on status stays
-//! exhaustive. The pure scheduling maths (`DaySchedule`, `CostMatrix`) lives
-//! here as database-free domain objects so it can be unit-tested in isolation,
-//! mirroring how interval-overlap logic sits on the `TimeSlotted` trait.
+// Domain models for the appointments module, split one file per concern:
+// appointment/waitlist/room hold the entities and their status enums, forms.rs
+// has the handler DTOs, and scheduling/assignment hold the pure gap-finding and
+// Hungarian solver maths (Algorithms 2 and 5) with no database involved, so
+// they can be unit tested on their own.
+//
+// Status fields use typed enums instead of raw strings, so an invalid status
+// can't exist and every match on status stays exhaustive.
 
 mod appointment;
 mod assignment;

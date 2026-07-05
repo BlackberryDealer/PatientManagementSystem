@@ -34,7 +34,7 @@ pub async fn create_invoice(
     // Money math lives on the domain type, not inline here.
     let grand_total = LineItem::grand_total(&line_items);
 
-    // Persist header + items atomically — an invoice can never exist
+    // Persist header + items atomically, an invoice can never exist
     // without its line items.
     let mut tx = pool.begin().await?;
 
@@ -161,19 +161,19 @@ pub async fn get_invoice_payments(
 
 /// Record a payment against an invoice.
 /// Flow: validate the form, check the invoice can accept payments,
-/// then insert the payment and (if settled) flip the status — all in
+/// then insert the payment and (if settled) flip the status, all in
 /// one transaction so the books always balance.
 ///
 /// Partial payments are supported: each call appends a payment row, and the
 /// invoice only flips to `paid` once the accumulated total settles it (see
-/// `Invoice::is_settled_by`). Overpayment is accepted but not auto-refunded —
+/// `Invoice::is_settled_by`). Overpayment is accepted but not auto-refunded,
 /// refund handling is intentionally out of scope for this system.
 pub async fn record_payment(
     pool: &SqlitePool,
     invoice_id: i64,
     form: &RecordPaymentForm,
 ) -> Result<Payment, AppError> {
-    // 1. Validation — nothing touches the database before this passes
+    // 1. Validation, nothing touches the database before this passes
     form.validate()?;
 
     // 2 + 3. Business rule and persistence share one transaction: the invoice
@@ -223,5 +223,29 @@ pub async fn record_payment(
 
     tx.commit().await?;
     Ok(payment)
+}
+
+/// Cancel (void) an invoice. Admin-only, enforced by the caller via
+/// `require_admin`, since voiding a bill is an administrative action, not
+/// something a patient does to their own account. Same transaction shape as
+/// `record_payment`: load, run the guarded state transition, persist.
+pub async fn cancel_invoice(pool: &SqlitePool, invoice_id: i64) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+
+    let mut invoice = sqlx::query_as::<_, Invoice>("SELECT * FROM invoices WHERE id = ?")
+        .bind(invoice_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Invoice not found".into()))?;
+
+    invoice.mark_cancelled()?;
+    sqlx::query("UPDATE invoices SET status = ? WHERE id = ?")
+        .bind(invoice.current_status())
+        .bind(invoice.id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(())
 }
 

@@ -1,10 +1,8 @@
-//! `CostMatrix` — the pure Hungarian (Kuhn–Munkres) assignment solver behind
-//! Algorithm 5, plus the plan types the batch-reassignment preview renders.
-//!
-//! Kept free of any database, exactly like `DaySchedule` holds the pure
-//! gap-finding for Algorithm 2: the service layer builds the costs from the
-//! schedule and interprets the result, while the optimisation itself is
-//! unit-testable in isolation (below, against an exhaustive brute-force optimum).
+// CostMatrix: the pure Hungarian (Kuhn-Munkres) assignment solver behind
+// Algorithm 5, plus the plan types the batch-reassignment preview renders.
+// No database code here, same idea as DaySchedule for Algorithm 2: the
+// service layer builds the cost numbers and the solver just does the maths,
+// which is why the tests below can check it against a brute-force optimum.
 
 use serde::Serialize;
 
@@ -39,10 +37,10 @@ impl CostMatrix {
     /// `rows <= cols` (the caller guarantees this by padding the columns with
     /// enough "unassigned" fallbacks).
     ///
-    /// Implementation: the O(rows² · cols) potentials method (Kuhn–Munkres /
-    /// Hungarian with the Jonker–Volgenant shortest-augmenting-path loop). The
-    /// `u`/`v` arrays are dual potentials, `p[j]` is the row currently matched
-    /// to column `j`, and `way` records the alternating path used to augment.
+    /// Uses the O(rows^2 * cols) potentials method (Kuhn-Munkres / Hungarian
+    /// with the Jonker-Volgenant shortest-augmenting-path loop). `u`/`v` are
+    /// the dual potentials, `p[j]` is the row currently matched to column
+    /// `j`, and `way` records the alternating path used to augment.
     pub fn assign_min_cost(&self) -> Vec<usize> {
         let n = self.rows;
         let m = self.cols;
@@ -150,7 +148,7 @@ pub struct ReassignPlan {
 }
 
 // ============================================================
-// CostMatrix — Hungarian assignment (Algorithm 5)
+// CostMatrix: Hungarian assignment (Algorithm 5)
 // ============================================================
 
 #[cfg(test)]

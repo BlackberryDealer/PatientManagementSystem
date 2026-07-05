@@ -111,7 +111,7 @@ impl CreateInvoiceForm {
 }
 
 // ============================================================
-// InvoiceItem — line items
+// InvoiceItem, line items
 // ============================================================
 
 /// A persisted line-item row belonging to an invoice.
@@ -169,7 +169,7 @@ impl RecordPaymentForm {
 }
 
 // ============================================================
-// Trait implementations — OOP via Rust traits (Tutorial 05)
+// Trait implementations, OOP via Rust traits (Tutorial 05)
 // ============================================================
 
 impl StatusManaged for Invoice {
@@ -196,7 +196,7 @@ impl Reportable for Invoice {
 }
 
 impl Invoice {
-    /// Only a pending invoice can accept payments — paid and cancelled
+    /// Only a pending invoice can accept payments, paid and cancelled
     /// invoices are closed.
     pub fn can_accept_payment(&self) -> bool {
         self.is_active() // StatusManaged: pending == active
@@ -210,7 +210,7 @@ impl Invoice {
     /// State transition to `paid`. Mutates internal state (&mut self);
     /// callers persist the new status afterwards.
     ///
-    /// Domain rule: only a pending invoice may be marked paid — the guard
+    /// Domain rule: only a pending invoice may be marked paid, the guard
     /// lives on the object itself, consistent with `Appointment::cancel`
     /// and `WaitlistEntry::accept`, so no caller can drive a paid/cancelled
     /// invoice into an illegal state.
@@ -221,6 +221,20 @@ impl Invoice {
             ));
         }
         self.status = InvoiceStatus::Paid;
+        Ok(())
+    }
+
+    /// State transition to `cancelled`. Same guard as `mark_paid`: an
+    /// invoice already paid or cancelled cannot be voided, only a pending
+    /// one. Existing payments (if any were recorded before cancellation)
+    /// are left as-is; the ledger stays append-only.
+    pub fn mark_cancelled(&mut self) -> Result<(), crate::errors::AppError> {
+        if !self.can_accept_payment() {
+            return Err(crate::errors::AppError::BadRequest(
+                "Only a pending invoice can be cancelled".into(),
+            ));
+        }
+        self.status = InvoiceStatus::Cancelled;
         Ok(())
     }
 }

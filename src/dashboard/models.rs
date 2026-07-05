@@ -39,7 +39,7 @@ impl DashboardStats {
         }
     }
 
-    /// Money billed but not yet collected (never negative — overpayments
+    /// Money billed but not yet collected (never negative, overpayments
     /// don't create phantom debt).
     pub fn outstanding_amount(&self) -> f64 {
         (self.billed_total - self.collected_total).max(0.0)

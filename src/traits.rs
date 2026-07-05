@@ -1,5 +1,5 @@
 // ============================================================
-// Domain Traits — OOP Abstractions for Patient Management System
+// Domain Traits, OOP Abstractions for Patient Management System
 // ============================================================
 // Rust uses traits (instead of classical inheritance) to share
 // behaviour across types. These traits apply the OOP principles
@@ -7,14 +7,14 @@
 // polymorphism.
 
 // ============================================================
-// TimeSlotted — Abstraction over any time-windowed entity
+// TimeSlotted, Abstraction over any time-windowed entity
 // ============================================================
 
 /// Any entity that occupies a contiguous time window (an appointment,
 /// a doctor availability slot, or a waitlist request).
 ///
 /// The default `overlaps_with` and `duration_minutes` methods give every
-/// implementing type the same scheduling logic for free — this is the
+/// implementing type the same scheduling logic for free, this is the
 /// Rust equivalent of inheriting shared behaviour through a base class.
 pub trait TimeSlotted {
     fn start_time(&self) -> &str;
@@ -29,7 +29,7 @@ pub trait TimeSlotted {
     }
 
     /// Returns `true` when [other_start, other_end) sits entirely inside this
-    /// slot — i.e. this window fully covers the requested one. Encapsulates the
+    /// slot, i.e. this window fully covers the requested one. Encapsulates the
     /// containment rule that constrains a booking to a doctor's declared working
     /// window, so the availability service no longer compares raw fields by hand.
     /// (Zero-padded "HH:MM" strings compare correctly.)
@@ -51,7 +51,7 @@ pub trait TimeSlotted {
 
 /// Check whether `new_slot` conflicts with any entry in `existing`.
 /// Demonstrates polymorphism: works for Appointment, WaitlistEntry, or
-/// DoctorAvailability — any type that implements TimeSlotted. The
+/// DoctorAvailability, any type that implements TimeSlotted. The
 /// availability engine uses it to test a requested booking window against
 /// a doctor's blocked entries (see `ensure_doctor_available`, Rule 1).
 pub fn any_conflict<'a, T, I>(new_slot: &impl TimeSlotted, existing: I) -> bool
@@ -66,8 +66,8 @@ where
 
 /// The simplest `TimeSlotted` implementor: a bare start/end pair.
 ///
-/// Adapts a requested booking window — which arrives as two loose `&str`s
-/// from a form — into the trait's world, so the same polymorphic checks
+/// Adapts a requested booking window, which arrives as two loose `&str`s
+/// from a form, into the trait's world, so the same polymorphic checks
 /// (`any_conflict`, `overlaps_with`, `contains`) that run on stored entities
 /// also run on a request that has no entity yet.
 pub struct TimeWindow<'a> {
@@ -87,13 +87,13 @@ impl TimeSlotted for TimeWindow<'_> {
 }
 
 // ============================================================
-// StatusManaged — Abstraction over lifecycle status
+// StatusManaged, Abstraction over lifecycle status
 // ============================================================
 
 /// Any entity with a lifecycle status (scheduled/cancelled, pending/paid…).
 ///
 /// Polymorphism: Appointment interprets "scheduled" as active; Invoice
-/// interprets "pending" as active — the same interface behaves differently
+/// interprets "pending" as active, the same interface behaves differently
 /// per concrete type.
 pub trait StatusManaged {
     fn current_status(&self) -> &str;
@@ -104,7 +104,7 @@ pub trait StatusManaged {
     fn status_badge_class(&self) -> &str;
 
     /// The bare colour name behind the status badge (e.g. "info", "danger"),
-    /// for consumers that need a colour without the Bulma `is-` prefix — such
+    /// for consumers that need a colour without the Bulma `is-` prefix, such
     /// as the timeline marker. Keeping this here means the prefix-stripping
     /// detail lives with the badge logic, not inlined in the service layer.
     fn status_color(&self) -> &str {
@@ -113,7 +113,7 @@ pub trait StatusManaged {
 }
 
 // ============================================================
-// Reportable — Abstraction over summary generation
+// Reportable, Abstraction over summary generation
 // ============================================================
 
 /// Any entity that can produce a human-readable, single-line summary.
@@ -125,7 +125,7 @@ pub trait Reportable {
 }
 
 // ============================================================
-// Priority Levels — single source of truth for triage mapping
+// Priority Levels, single source of truth for triage mapping
 // ============================================================
 
 /// Priority levels matching hospital triage standards.
@@ -191,12 +191,12 @@ impl Priority {
 }
 
 // ============================================================
-// Prioritized — Abstraction over numeric priority
+// Prioritized, Abstraction over numeric priority
 // ============================================================
 
 /// Any entity with a 1–4 priority level (1 = Emergency, 4 = Follow-up).
 ///
-/// All label/badge logic delegates to the `Priority` enum — the single
+/// All label/badge logic delegates to the `Priority` enum, the single
 /// source of truth for the priority→display mapping. Concrete types
 /// supply only their own priority field via `priority_level`.
 pub trait Prioritized {
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn no_overlap_adjacent() {
-        // A ends exactly when B starts — boundary is exclusive
+        // A ends exactly when B starts, boundary is exclusive
         let a = Slot { start: "10:00", end: "10:30" };
         assert!(!a.overlaps_with("10:30", "11:00"));
     }

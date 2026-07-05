@@ -119,3 +119,67 @@ async fn test_settled_invoice_rejects_further_payment() {
         assert_eq!(resp.status().as_u16(), 400, "paid invoice must not accept more payments");
     });
 }
+
+#[actix_web::test]
+async fn test_cancel_invoice_admin() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pcookie = register_and_login!(app, "billpatient8", "patient");
+        let cookie = seed_and_login!(app, pool, "billadmin6", "admin");
+        let _ = test::call_service(&app, auth_post("/billing/create", &cookie, serde_json::json!({
+            "patient_id": 1,
+            "due_date": "2026-07-01",
+            "items": "Consultation|1|50.00",
+        })).to_request()).await;
+
+        let resp = test::call_service(&app, auth_post("/billing/1/cancel", &cookie, serde_json::json!({})).to_request()).await;
+        assert!(resp.status().is_redirection(), "admin cancelling a pending invoice should succeed");
+
+        // A cancelled invoice can no longer accept payment.
+        let resp = test::call_service(&app, auth_post("/billing/1/pay", &cookie, serde_json::json!({
+            "amount": 50.0, "payment_method": "Cash", "transaction_ref": "T1",
+        })).to_request()).await;
+        assert_eq!(resp.status().as_u16(), 400, "cancelled invoice must not accept payment");
+
+        // Cancelling it again is rejected too.
+        let resp = test::call_service(&app, auth_post("/billing/1/cancel", &cookie, serde_json::json!({})).to_request()).await;
+        assert_eq!(resp.status().as_u16(), 400, "an already-cancelled invoice cannot be cancelled again");
+    });
+}
+
+#[actix_web::test]
+async fn test_cancel_invoice_requires_admin() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let pcookie = register_and_login!(app, "billpatient9", "patient");
+        let admin_cookie = seed_and_login!(app, pool, "billadmin7", "admin");
+        let _ = test::call_service(&app, auth_post("/billing/create", &admin_cookie, serde_json::json!({
+            "patient_id": 1,
+            "due_date": "2026-07-01",
+            "items": "Consultation|1|50.00",
+        })).to_request()).await;
+
+        let resp = test::call_service(&app, auth_post("/billing/1/cancel", &pcookie, serde_json::json!({})).to_request()).await;
+        assert!(resp.status().is_client_error(), "a patient must not be able to cancel an invoice");
+    });
+}
+
+#[actix_web::test]
+async fn test_cancel_paid_invoice_rejected() {
+    let pool = test_db_pool().await;
+    with_test_app!(pool, app, {
+        let _pcookie = register_and_login!(app, "billpatient10", "patient");
+        let cookie = seed_and_login!(app, pool, "billadmin8", "admin");
+        let _ = test::call_service(&app, auth_post("/billing/create", &cookie, serde_json::json!({
+            "patient_id": 1,
+            "due_date": "2026-07-01",
+            "items": "Consultation|1|50.00",
+        })).to_request()).await;
+        let _ = test::call_service(&app, auth_post("/billing/1/pay", &cookie, serde_json::json!({
+            "amount": 50.0, "payment_method": "Cash", "transaction_ref": "T1",
+        })).to_request()).await;
+
+        let resp = test::call_service(&app, auth_post("/billing/1/cancel", &cookie, serde_json::json!({})).to_request()).await;
+        assert_eq!(resp.status().as_u16(), 400, "a paid invoice cannot be cancelled");
+    });
+}

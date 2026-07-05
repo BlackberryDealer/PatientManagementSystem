@@ -1,5 +1,5 @@
-//! The waitlist entity: a patient queued for a slot to open up, its lifecycle
-//! status enum, and the form patients submit to join.
+// The waitlist entity: a patient queued for a slot to open up, its lifecycle
+// status enum, and the form patients submit to join.
 
 use crate::traits::{Prioritized, Priority, StatusManaged, TimeSlotted};
 use serde::{Deserialize, Serialize};

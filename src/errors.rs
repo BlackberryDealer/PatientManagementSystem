@@ -42,6 +42,19 @@ impl AppError {
         }
         AppError::DatabaseError(e)
     }
+
+    /// Translate a FOREIGN KEY violation into a clean 400 with the given
+    /// message; any other database error passes through as a 500. Use this on
+    /// DELETEs where the row still has dependents the caller must resolve
+    /// first, a data-integrity refusal, not a server fault.
+    pub fn bad_request_on_fk_violation(e: sqlx::Error, msg: &str) -> AppError {
+        if let sqlx::Error::Database(db) = &e {
+            if db.is_foreign_key_violation() {
+                return AppError::BadRequest(msg.to_string());
+            }
+        }
+        AppError::DatabaseError(e)
+    }
 }
 
 /// Minimal HTML-escape for user-facing messages interpolated into error pages.
@@ -58,7 +71,7 @@ fn escape_html(s: &str) -> String {
 /// Self-contained, Bulma-styled error page (same look as `error.html.tera`).
 ///
 /// Built without Tera because `ResponseError::error_response` has no access to
-/// application state — the page must render even where the template engine is
+/// application state, the page must render even where the template engine is
 /// unreachable. Unlike the generic 404/500 middleware pages, this preserves the
 /// *specific* domain message (e.g. "slot conflicts with an existing
 /// appointment"), HTML-escaped, with a Go Back button so form errors are not a
@@ -71,7 +84,7 @@ fn error_page(status: u16, title: &str, message: &str) -> String {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{status} — {title}</title>
+    <title>{status}, {title}</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>

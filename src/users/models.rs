@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 // ============================================================
-// User — core authentication entity
+// User, core authentication entity
 // ============================================================
 
 /// Core authentication entity. Every user (patient, doctor, or admin)
@@ -12,8 +12,8 @@ pub struct User {
     pub username: String,
     pub email: String,
     #[serde(skip_serializing)]
-    password_hash: String,  // private — accessed only through verify_password()
-    role: String,           // private — accessed only through role() / role_str()
+    password_hash: String,  // private, accessed only through verify_password()
+    role: String,           // private, accessed only through role() / role_str()
     pub full_name: String,
     pub created_at: chrono::NaiveDateTime,
 }
@@ -27,7 +27,7 @@ impl User {
         crate::auth::Role::from_session(&self.role)
     }
 
-    /// The raw role string — only for code that must write a `&str` directly
+    /// The raw role string, only for code that must write a `&str` directly
     /// (session storage, audit log). Prefer `role()` for all comparisons.
     pub fn role_str(&self) -> &str {
         &self.role
@@ -50,32 +50,47 @@ pub struct RegisterForm {
     pub role: String, // "patient", "doctor", or "admin"
 }
 
+/// Shared account-field rules for `RegisterForm` and `CreateStaffForm` (both
+/// create a `users` row with the same core columns, only the role-eligibility
+/// rule differs). One place to change the username/email/password/full_name
+/// rules instead of two.
+fn validate_account_fields(
+    username: &str,
+    email: &str,
+    password: &str,
+    full_name: &str,
+) -> Result<(), crate::errors::AppError> {
+    use crate::errors::AppError;
+    if username.trim().len() < 3 {
+        return Err(AppError::BadRequest(
+            "Username must be at least 3 characters".into(),
+        ));
+    }
+    if !email.contains('@') {
+        return Err(AppError::BadRequest(
+            "A valid email address is required".into(),
+        ));
+    }
+    if password.len() < 8 {
+        return Err(AppError::BadRequest(
+            "Password must be at least 8 characters".into(),
+        ));
+    }
+    if full_name.trim().is_empty() {
+        return Err(AppError::BadRequest("Full name is required".into()));
+    }
+    Ok(())
+}
+
 impl RegisterForm {
     /// All registration input rules in one place, checked before any
     /// hashing or database work happens.
     pub fn validate(&self) -> Result<(), crate::errors::AppError> {
         use crate::errors::AppError;
-        if self.username.trim().len() < 3 {
-            return Err(AppError::BadRequest(
-                "Username must be at least 3 characters".into(),
-            ));
-        }
-        if !self.email.contains('@') {
-            return Err(AppError::BadRequest(
-                "A valid email address is required".into(),
-            ));
-        }
-        if self.password.len() < 8 {
-            return Err(AppError::BadRequest(
-                "Password must be at least 8 characters".into(),
-            ));
-        }
-        if self.full_name.trim().is_empty() {
-            return Err(AppError::BadRequest("Full name is required".into()));
-        }
+        validate_account_fields(&self.username, &self.email, &self.password, &self.full_name)?;
         // Public self-registration is restricted to patients. Staff accounts
         // (doctor/admin) are provisioned by an administrator or the seed script
-        // — never chosen by the registrant. Otherwise anyone could submit
+        //, never chosen by the registrant. Otherwise anyone could submit
         // `role=admin` and grant themselves full access to the whole system.
         if self.role != "patient" {
             return Err(AppError::BadRequest(
@@ -111,7 +126,7 @@ impl LoginForm {
     }
 }
 
-/// Form an administrator uses to create a staff (doctor/admin) account — the
+/// Form an administrator uses to create a staff (doctor/admin) account, the
 /// privileged counterpart to `RegisterForm`, which is restricted to patients.
 #[derive(Debug, Deserialize)]
 pub struct CreateStaffForm {
@@ -128,25 +143,8 @@ pub struct CreateStaffForm {
 impl CreateStaffForm {
     pub fn validate(&self) -> Result<(), crate::errors::AppError> {
         use crate::errors::AppError;
-        if self.username.trim().len() < 3 {
-            return Err(AppError::BadRequest(
-                "Username must be at least 3 characters".into(),
-            ));
-        }
-        if !self.email.contains('@') {
-            return Err(AppError::BadRequest(
-                "A valid email address is required".into(),
-            ));
-        }
-        if self.password.len() < 8 {
-            return Err(AppError::BadRequest(
-                "Password must be at least 8 characters".into(),
-            ));
-        }
-        if self.full_name.trim().is_empty() {
-            return Err(AppError::BadRequest("Full name is required".into()));
-        }
-        // Only staff roles may be created here — patients self-register.
+        validate_account_fields(&self.username, &self.email, &self.password, &self.full_name)?;
+        // Only staff roles may be created here, patients self-register.
         if !["doctor", "admin"].contains(&self.role.as_str()) {
             return Err(AppError::BadRequest(
                 "Role must be either doctor or admin".into(),
@@ -201,7 +199,45 @@ impl EditProfileForm {
 }
 
 // ============================================================
-// Patient — extended profile for patient-role users
+// Change password form
+// ============================================================
+
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordForm {
+    pub current_password: String,
+    pub new_password: String,
+    pub confirm_password: String,
+}
+
+impl ChangePasswordForm {
+    /// Same length rule as registration; confirmation must match and the
+    /// new password must actually be different from the old one.
+    /// `current_password` is checked separately in the service layer, since
+    /// that check needs the loaded `User` (an admin resetting someone else's
+    /// password skips it entirely).
+    pub fn validate(&self) -> Result<(), crate::errors::AppError> {
+        use crate::errors::AppError;
+        if self.new_password.len() < 8 {
+            return Err(AppError::BadRequest(
+                "New password must be at least 8 characters".into(),
+            ));
+        }
+        if self.new_password != self.confirm_password {
+            return Err(AppError::BadRequest(
+                "New password and confirmation do not match".into(),
+            ));
+        }
+        if self.new_password == self.current_password {
+            return Err(AppError::BadRequest(
+                "New password must be different from the current password".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+// ============================================================
+// Patient, extended profile for patient-role users
 // ============================================================
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -219,7 +255,7 @@ impl Patient {
     /// The eight ABO+Rh blood groups, in display order. Single source of
     /// truth shared by `is_valid_blood_group` (validation) and the
     /// edit-profile dropdown (presentation), mirroring how
-    /// `appointments::services::start_time_slots` feeds the booking form —
+    /// `appointments::services::start_time_slots` feeds the booking form:
     /// the canonical list is never duplicated in a template.
     pub const BLOOD_GROUPS: [&'static str; 8] =
         ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
@@ -233,7 +269,7 @@ impl Patient {
 }
 
 // ============================================================
-// Doctor — extended profile for doctor-role users
+// Doctor, extended profile for doctor-role users
 // ============================================================
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]

@@ -5,7 +5,7 @@ use crate::auth::{require_admin, AuthUser};
 use crate::dashboard::services;
 use crate::errors::AppError;
 
-/// GET /dashboard — operational analytics overview (admin only)
+/// GET /dashboard: operational analytics overview (admin only)
 pub async fn show_dashboard(
     pool: web::Data<sqlx::SqlitePool>,
     tera: web::Data<tera::Tera>,

@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 
 /// Deserialize an optional numeric form field that may arrive as an empty value.
 ///
-/// An HTML form submits an unset optional field as `key=` (empty string), which
-/// `serde_urlencoded` cannot parse straight into `Option<i64>` — it errors on
-/// the empty string rather than yielding `None`, which 400s the whole
+/// An HTML form submits an unset optional field as `key=` (empty string).
+/// `serde_urlencoded` can't parse that straight into `Option<i64>`, it errors
+/// on the empty string rather than yielding `None`, which would 400 the whole
 /// submission. Treating a missing key or an empty/whitespace value as `None`
 /// makes an "optional appointment link" genuinely optional.
 fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
@@ -35,7 +35,7 @@ pub struct MedicalRecord {
 }
 
 // ============================================================
-// Trait implementations — OOP via Rust traits (Tutorial 05)
+// Trait implementations, OOP via Rust traits (Tutorial 05)
 // ============================================================
 
 impl Reportable for MedicalRecord {
@@ -61,7 +61,7 @@ pub struct CreateRecordForm {
 }
 
 impl CreateRecordForm {
-    /// A record must carry a diagnosis and a treatment — checked before
+    /// A record must carry a diagnosis and a treatment, checked before
     /// anything touches the database, mirroring `PrescriptionForm::validate`.
     pub fn validate(&self) -> Result<(), crate::errors::AppError> {
         use crate::errors::AppError;
@@ -78,8 +78,8 @@ impl CreateRecordForm {
 /// One option for the create-record form's "link to appointment" dropdown: a
 /// patient's appointment plus a ready-made label the JS drops straight into a
 /// `<select>`. Populated on the fly when the doctor picks a patient, so a visit
-/// is chosen from a list instead of an appointment id being typed by hand — the
-/// same "no id typing" guard the patient dropdown already gives.
+/// is chosen from a list instead of an appointment id typed by hand, the same
+/// "no id typing" guard the patient dropdown already gives.
 #[derive(Debug, Serialize)]
 pub struct PatientAppointmentOption {
     pub id: i64,
@@ -104,7 +104,7 @@ pub struct Prescription {
 impl Reportable for Prescription {
     fn generate_summary(&self) -> String {
         format!(
-            "{} — {}, {}{}",
+            "{}, {}, {}{}",
             self.medication_name,
             self.dosage,
             self.frequency,
@@ -130,8 +130,8 @@ pub struct PrescriptionForm {
 }
 
 impl PrescriptionForm {
-    /// A prescription must name the medication, dose, and frequency —
-    /// checked before anything touches the database.
+    /// A prescription must name the medication, dose, and frequency.
+    /// Checked before anything touches the database.
     pub fn validate(&self) -> Result<(), crate::errors::AppError> {
         use crate::errors::AppError;
         if self.medication_name.trim().is_empty() {
@@ -153,7 +153,7 @@ impl PrescriptionForm {
 
 /// Semantic kind of a timeline event. Each variant knows its own
 /// Font Awesome icon and default Bulma colour, so the service layer
-/// never hardcodes presentation strings — it picks the variant and the
+/// never hardcodes presentation strings, it picks the variant and the
 /// kind supplies the display details.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -206,7 +206,7 @@ pub struct TimelineEvent {
     pub event_type: String,      // appointment | record | prescription | invoice
     pub icon: String,            // Font Awesome icon class
     pub color: String,           // Bulma colour class for the marker
-    pub when: String,            // "YYYY-MM-DD HH:MM" — also the sort key
+    pub when: String,            // "YYYY-MM-DD HH:MM", also the sort key
     pub title: String,
     pub summary: String,
     pub link: Option<String>,    // detail page, when one exists
@@ -239,7 +239,7 @@ impl TimelineEvent {
 }
 
 /// Joined view: a medical record plus its resolved patient/doctor display
-/// names, for the detail page. Mirrors `RecordReportData` — the service layer
+/// names, for the detail page. Mirrors `RecordReportData`, the service layer
 /// owns every name lookup so the route handler only extracts inputs and
 /// renders (it never queries the database itself).
 #[derive(Debug, Serialize)]

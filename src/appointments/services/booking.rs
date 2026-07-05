@@ -19,16 +19,16 @@ use super::waitlist::try_rebook_bumped;
 /// Apply the role rules to a raw booking request, producing the patient's
 /// user id plus a fully-resolved `BookAppointmentForm`:
 ///
-/// * **Patient** — books for themselves with the doctor they picked. The
+/// * **Patient**, books for themselves with the doctor they picked. The
 ///   priority field is discarded: triage is a clinical decision, so a
 ///   patient booking is always Normal no matter what the request claims
 ///   (the UI never shows patients a priority field, but a hand-crafted
 ///   POST must not bypass that either).
-/// * **Doctor** — books a chosen patient into *their own* schedule. Any
+/// * **Doctor**, books a chosen patient into *their own* schedule. Any
 ///   submitted doctor_id is ignored: a doctor never books another
 ///   doctor's clinic (moving a visit between doctors is the separate
 ///   reassignment flow).
-/// * **Admin** — books a chosen patient with a chosen doctor (front-desk
+/// * **Admin**, books a chosen patient with a chosen doctor (front-desk
 ///   booking on a patient's behalf).
 pub async fn resolve_booking_target(
     pool: &SqlitePool,
@@ -41,7 +41,7 @@ pub async fn resolve_booking_target(
         Role::Patient => (
             user.user_id,
             form.doctor_id.ok_or_else(|| need("doctor"))?,
-            None, // patients cannot self-triage — Normal priority
+            None, // patients cannot self-triage, Normal priority
         ),
         Role::Doctor => {
             let patient_id = form.patient_id.ok_or_else(|| need("patient"))?;
@@ -88,7 +88,7 @@ pub async fn book_appointment(
     form.validate()?;
     // Canonical zero-padded "HH:MM": the UI's dropdowns always send padded
     // values, but a hand-crafted "9:00" parses fine while breaking the lexical
-    // time comparisons in the conflict/availability checks — so everything
+    // time comparisons in the conflict/availability checks, so everything
     // downstream uses the re-rendered canonical form, never the raw input.
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
     let (start, end) = (minutes_to_time(start_mins), minutes_to_time(end_mins));
@@ -139,7 +139,7 @@ pub async fn book_with_priority(
     form: &BookAppointmentForm,
 ) -> Result<(Appointment, Vec<Appointment>), AppError> {
     form.validate()?;
-    // Canonical zero-padded "HH:MM" — same normalisation as book_appointment.
+    // Canonical zero-padded "HH:MM", same normalisation as book_appointment.
     let (start_mins, end_mins) = parse_slot(&form.start_time, &form.end_time)?;
     let (start, end) = (minutes_to_time(start_mins), minutes_to_time(end_mins));
     ensure_doctor_available(pool, form.doctor_id, &form.appointment_date, &start, &end).await?;

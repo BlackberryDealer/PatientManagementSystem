@@ -1,32 +1,30 @@
-//! Algorithm 5: Optimal Batch Doctor Reassignment
-//!             (Hungarian / Kuhn–Munkres assignment problem).
-//!
-//! When a doctor goes on leave for a whole day, every one of their scheduled
-//! appointments must be handed to a colleague. Algorithm 4 does this greedily,
-//! one appointment at a time, so an early appointment can grab the only
-//! same-specialisation colleague and leave later ones worse off. Algorithm 5
-//! instead assigns the *whole day at once* and is provably optimal: it minimises
-//! the total reassignment cost across every appointment simultaneously.
-//!
-//! Modelling. Rows are the leaving doctor's appointments; columns are capacity
-//! slots on candidate colleagues plus "unassigned" fallbacks. The cost of giving
-//! appointment i to colleague c is:
-//!     INFEASIBLE                if c is on leave / outside hours / already busy
-//!     spec_penalty + load_cost  otherwise
-//! where spec_penalty favours the same specialisation (continuity of care) and
-//! load_cost grows with how many appointments c is already carrying — and with
-//! each *extra* one taken today (the k-th capacity copy costs more). That convex
-//! load term is what balances the load instead of dumping everyone on one
-//! colleague.
-//!
-//! Why capacity duplication is sound here: a doctor's own appointments never
-//! overlap each other, so a colleague can safely absorb several of them and each
-//! pairing's feasibility depends only on that colleague's *existing* schedule —
-//! there is no coupling between two reassigned appointments. That is the property
-//! that lets a pure assignment solver model a many-to-one redistribution.
-//!
-//! The pure Hungarian solver itself is `CostMatrix` in `appointments::models`,
-//! kept database-free and unit-tested against a brute-force optimum.
+// Algorithm 5: Optimal Batch Doctor Reassignment (Hungarian / Kuhn-Munkres
+// assignment problem).
+//
+// When a doctor goes on leave for a whole day, every one of their scheduled
+// appointments has to go to a colleague. Algorithm 4 does this greedily, one
+// appointment at a time, so an early appointment can grab the only
+// same-specialisation colleague and leave the rest worse off. This solves the
+// whole day as one assignment problem instead, which is provably optimal: it
+// minimises the total reassignment cost across every appointment at once.
+//
+// Rows are the leaving doctor's appointments, columns are capacity slots on
+// candidate colleagues plus "unassigned" fallbacks. The cost of giving
+// appointment i to colleague c is INFEASIBLE if c is on leave, outside hours,
+// or already busy, otherwise spec_penalty + load_cost. spec_penalty favours
+// matching specialisation (continuity of care), and load_cost grows with how
+// many appointments c already has plus how many they've picked up so far
+// today (each extra one costs a bit more), which is what spreads the load
+// instead of dumping everyone on the first free colleague.
+//
+// Capacity duplication works here because a doctor's own appointments never
+// overlap each other, so a colleague can absorb several of them and each
+// pairing's feasibility only depends on that colleague's existing schedule,
+// there's no coupling between two reassigned appointments. That's what lets
+// a plain assignment solver model a many-to-one redistribution.
+//
+// The solver itself is CostMatrix in appointments::models, kept free of any
+// database code and unit-tested against a brute-force optimum.
 
 use crate::appointments::models::{CostMatrix, ReassignPlan, ReassignRow};
 use crate::availability::models::DoctorAvailability;
@@ -41,7 +39,7 @@ use super::super::rooms::resolve_room;
 
 /// Cost of a pairing the schedule forbids (colleague unavailable or already
 /// booked over the slot). Far above any feasible cost, so the optimiser only
-/// ever chooses it when literally nothing else is free — and even then prefers
+/// ever chooses it when literally nothing else is free, and even then prefers
 /// an "unassigned" column, which is cheaper.
 const INFEASIBLE_COST: i64 = 1_000_000;
 /// Cost of leaving an appointment unplaced. Below `INFEASIBLE_COST` (so it is
@@ -82,12 +80,12 @@ fn overlaps_any(intervals: Option<&Vec<(i32, i32)>>, start: i32, end: i32) -> bo
 }
 
 /// Build a fresh reassignment plan for `source_doctor_id` on `date` without
-/// changing anything — the preview the staff approve before applying.
+/// changing anything. This is the preview staff review before applying it.
 ///
-/// Steps: gather the leaving doctor's appointments and every colleague's
-/// availability and existing load, build the cost matrix above, solve it with
-/// the Hungarian algorithm, then translate the column each appointment won back
-/// into "moved to Dr X" or "could not place".
+/// Gathers the leaving doctor's appointments and every colleague's
+/// availability and current load, builds the cost matrix described above,
+/// solves it, then translates the column each appointment won back into
+/// "moved to Dr X" or "could not place".
 pub async fn plan_day_reassignment(
     pool: &SqlitePool,
     source_doctor_id: i64,
@@ -130,7 +128,7 @@ pub async fn plan_day_reassignment(
 
     let n = appts.len();
     if n == 0 {
-        // Nothing scheduled — an empty but valid plan.
+        // Nothing scheduled, an empty but valid plan.
         return Ok(ReassignPlan {
             source_doctor_id,
             source_doctor_name: source_name,
@@ -251,10 +249,10 @@ pub async fn plan_day_reassignment(
 
 /// Recompute the optimal plan against the current schedule and apply it.
 ///
-/// Rooms are resolved up front (same as Algorithm 4), then every move — the
-/// `doctor_id`/`room_id` update and the rebuilt occupancy ledger — runs inside
-/// a single transaction, so the whole redistribution commits together or not at
-/// all. The `appointment_slots` UNIQUE index remains the concurrency backstop:
+/// Rooms are resolved up front (same as Algorithm 4). Every move then runs
+/// inside a single transaction (the `doctor_id`/`room_id` update plus the
+/// rebuilt occupancy ledger), so the whole redistribution commits together or
+/// not at all. The `appointment_slots` UNIQUE index remains the concurrency backstop:
 /// if a colleague's slot was taken between preview and apply, that insert fails
 /// and the batch rolls back cleanly. Returns `(source doctor name, moved,
 /// unplaced)`.

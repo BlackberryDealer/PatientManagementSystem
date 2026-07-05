@@ -1,16 +1,14 @@
-//! PDF generation for printable medical reports (advanced feature,
-//! project spec: "medical report generation").
-//!
-//! Renders a [`RecordReportData`] bundle into a self-contained A4 PDF using the
-//! pure-Rust `printpdf` crate and the standard built-in Helvetica fonts. There
-//! are no external binaries (no wkhtmltopdf/Chrome) and no font files to ship,
-//! so `cargo run` still works out of the box. The result is a `Vec<u8>` that the
-//! handler streams back with `Content-Type: application/pdf`.
-//!
-//! Layout is built from a single primitive — `use_text` — tracked by a cursor
-//! that walks down the page and starts a new page when it runs out of room, so
-//! long records (lots of notes or prescriptions) paginate cleanly. Body text is
-//! word-wrapped to the page width by [`wrap`].
+// PDF generation for printable medical reports (project spec: "medical
+// report generation"). Renders a RecordReportData bundle into a
+// self-contained A4 PDF using the pure-Rust printpdf crate and the built-in
+// Helvetica fonts, no external binaries and no font files to ship, so
+// `cargo run` still works out of the box. The handler streams the resulting
+// Vec<u8> back with Content-Type: application/pdf.
+//
+// Layout is built from a single primitive, use_text, tracked by a cursor
+// that walks down the page and starts a new page when it runs out of room,
+// so long records paginate cleanly. Body text is word-wrapped to the page
+// width by wrap() below.
 
 use printpdf::{
     BuiltinFont, IndirectFontRef, Mm, PdfDocument, PdfDocumentReference, PdfLayerReference,

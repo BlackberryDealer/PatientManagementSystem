@@ -1,5 +1,5 @@
-//! Waitlist handlers: the role-filtered view, the patient-only join form, and
-//! staff-only promotion of a waiting entry into a real appointment.
+// Waitlist handlers: the role-filtered view, the patient-only join form, and
+// staff-only promotion of a waiting entry into a real appointment.
 
 use actix_web::{web, HttpResponse};
 use tera::Context;
@@ -11,7 +11,7 @@ use crate::auth::{require_doctor, AuthUser, Role};
 use crate::errors::AppError;
 use crate::traits::Priority;
 
-/// GET /appointments/waitlist — view waitlist filtered by role.
+/// GET /appointments/waitlist: view waitlist filtered by role.
 /// Patients see their own entries; doctors see their patients;
 /// admins see all. Entries ordered by urgency (priority ASC).
 ///
@@ -63,11 +63,11 @@ pub async fn list_waitlist(
     Ok(HttpResponse::Ok().body(rendered))
 }
 
-/// POST /appointments/waitlist/join — add the current patient to the
+/// POST /appointments/waitlist/join: add the current patient to the
 /// waitlist for a specific doctor, date, and time window. Patient-only:
 /// staff have no patient profile to waitlist, and appointments bumped by a
 /// priority booking reach the waitlist automatically. The priority is
-/// forced to Normal — triage is a clinical decision, so a patient cannot
+/// forced to Normal, triage is a clinical decision, so a patient cannot
 /// jump the queue by self-reporting an emergency.
 pub async fn join_waitlist(
     pool: web::Data<sqlx::SqlitePool>,
@@ -88,12 +88,12 @@ pub async fn join_waitlist(
         .finish())
 }
 
-/// POST /appointments/waitlist/{id}/promote — promote a waitlist entry to a
+/// POST /appointments/waitlist/{id}/promote: promote a waitlist entry to a
 /// real appointment. Doctor/admin only. If the slot is free it is booked; if it
 /// is occupied by strictly lower-priority appointments they are bumped to the
 /// waitlist and the entry takes the slot (a priority override). If the override
 /// cannot proceed (equal/higher-priority holder, or the doctor is unavailable),
-/// the user is redirected back with a notice explaining why — never a silent
+/// the user is redirected back with a notice explaining why, never a silent
 /// no-op.
 pub async fn promote_waitlist(
     pool: web::Data<sqlx::SqlitePool>,

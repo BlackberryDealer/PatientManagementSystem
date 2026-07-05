@@ -21,6 +21,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/new", web::post().to(handlers::create_staff))
             .route("/{id}", web::get().to(handlers::user_profile))
             .route("/{id}/edit", web::get().to(handlers::edit_profile_form))
-            .route("/{id}/edit", web::post().to(handlers::edit_profile)),
+            .route("/{id}/edit", web::post().to(handlers::edit_profile))
+            .route("/{id}/change-password", web::get().to(handlers::change_password_form))
+            .route("/{id}/change-password", web::post().to(handlers::change_password))
+            .route("/{id}/delete", web::post().to(handlers::delete_user)),
     );
 }

@@ -17,8 +17,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             // for patients, every slot (marked free/occupied) for staff overrides.
             .route("/availability", web::get().to(handlers::available_slots_api))
             .route("/all-slots", web::get().to(handlers::all_slots_api))
-            // Batch reassignment (Algorithm 5) — registered before `/{id}` so
-            // the static path is not captured by the dynamic id route.
+            // Batch reassignment (Algorithm 5), registered before `/{id}` so
+            // the static path isn't swallowed by the dynamic id route.
             .route("/reassign-day", web::get().to(handlers::reassign_day_form))
             .route("/reassign-day", web::post().to(handlers::reassign_day_preview))
             .route("/reassign-day/apply", web::post().to(handlers::reassign_day_apply))

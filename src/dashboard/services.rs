@@ -1,3 +1,13 @@
+// Read-only cross-cutting analytics for the admin dashboard: aggregates over
+// patients, doctors, appointments, invoices, and payments. Queries those
+// tables directly with COUNT/SUM/GROUP BY instead of going through
+// users/appointments/billing's own service functions on purpose, those
+// modules expose entity CRUD, not the ad-hoc aggregates a reporting page
+// needs, and pulling every row through a sibling service just to sum them in
+// memory would waste a perfectly good SQL aggregate. Read-only reporting code
+// crossing module boundaries like this is fine since it never writes and has
+// no invariant of its own to protect.
+
 use crate::dashboard::models::{DashboardStats, DoctorLoad};
 use crate::errors::AppError;
 use sqlx::SqlitePool;
