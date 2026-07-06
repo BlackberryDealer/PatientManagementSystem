@@ -204,6 +204,7 @@ fn booking_form_renders_with_live_slots_scaffolding() {
     ctx.insert("self_doctor_id", &Option::<i64>::None);
     ctx.insert("start_slots", &vec!["08:00", "08:30", "09:00"]);
     ctx.insert("end_slots", &vec!["08:30", "09:00", "09:30"]);
+    ctx.insert("today", "2026-01-01");
     ctx.insert("title", "Book Appointment");
     let html = tera.render("appointments/book.html.tera", &ctx).expect("renders");
     // The dynamic-slot hooks the JS relies on must be present.

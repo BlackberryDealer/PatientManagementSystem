@@ -59,7 +59,7 @@
                     <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Appointment Date</label>
                     <div class="control">
                         <input class="input" type="date" name="appointment_date" id="appointment_date" required
-                               min="2026-01-01" placeholder="YYYY-MM-DD">
+                               min="{{ today }}" placeholder="YYYY-MM-DD">
                     </div>
                     <p class="help">Select a future date. Only days with published working hours for the chosen doctor can be booked.</p>
                 </div>

@@ -45,7 +45,7 @@ where
 pub(super) fn map_slot_conflict(e: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(db) = &e {
         if db.is_unique_violation() {
-            return AppError::BadRequest(
+            return AppError::SlotConflict(
                 "That time slot has just been taken. Please choose another slot.".into(),
             );
         }
@@ -106,6 +106,21 @@ pub(super) async fn bump_conflict(
     Ok(waitlist_id)
 }
 
+/// One appointment currently occupying a slot a priority override is
+/// contesting. Named fields replace a raw `(i64, i32, String, String, String)`
+/// tuple so call sites read `c.id`/`c.priority` instead of positional
+/// destructuring.
+#[derive(sqlx::FromRow)]
+pub(super) struct ScheduledConflict {
+    pub(super) id: i64,
+    pub(super) priority: i32,
+    #[allow(dead_code)]
+    pub(super) start_time: String,
+    #[allow(dead_code)]
+    pub(super) end_time: String,
+    pub(super) notes: String,
+}
+
 /// Fetch every *scheduled* appointment occupying `doctor_id`'s or `room_id`'s
 /// calendar that overlaps `[start, end)` on `date`, the same doctor-OR-room
 /// criteria `check_conflict` uses. A priority override can only bump what is
@@ -121,8 +136,8 @@ pub(super) async fn fetch_scheduled_conflicts(
     date: &str,
     start: &str,
     end: &str,
-) -> Result<Vec<(i64, i32, String, String, String)>, AppError> {
-    Ok(sqlx::query_as::<_, (i64, i32, String, String, String)>(
+) -> Result<Vec<ScheduledConflict>, AppError> {
+    Ok(sqlx::query_as::<_, ScheduledConflict>(
         "SELECT id, priority, start_time, end_time, notes FROM appointments
          WHERE (doctor_id = ? OR room_id = ?) AND appointment_date = ? AND status = 'scheduled'
            AND start_time < ? AND end_time > ?",
@@ -140,13 +155,10 @@ pub(super) async fn fetch_scheduled_conflicts(
 /// then may a priority override bump them; a tie or a higher-priority
 /// occupant blocks the override entirely. Shared by `book_with_priority` and
 /// `promote_from_waitlist`.
-pub(super) fn all_outranked(
-    new_priority: Priority,
-    conflicts: &[(i64, i32, String, String, String)],
-) -> bool {
+pub(super) fn all_outranked(new_priority: Priority, conflicts: &[ScheduledConflict]) -> bool {
     conflicts
         .iter()
-        .all(|(_, pri, _, _, _)| new_priority.outranks(Priority::from_i32(*pri)))
+        .all(|c| new_priority.outranks(Priority::from_i32(c.priority)))
 }
 
 /// Bump every conflicting occupant onto the waitlist inside `tx`, returning
@@ -154,11 +166,11 @@ pub(super) fn all_outranked(
 /// by both priority-override booking paths.
 pub(super) async fn bump_all_conflicts(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    conflicts: &[(i64, i32, String, String, String)],
+    conflicts: &[ScheduledConflict],
 ) -> Result<Vec<i64>, AppError> {
     let mut bumped_waitlist_ids = Vec::new();
-    for (conflict_id, _, _, _, c_notes) in conflicts {
-        bumped_waitlist_ids.push(bump_conflict(tx, *conflict_id, c_notes).await?);
+    for c in conflicts {
+        bumped_waitlist_ids.push(bump_conflict(tx, c.id, &c.notes).await?);
     }
     Ok(bumped_waitlist_ids)
 }

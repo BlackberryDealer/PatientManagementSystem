@@ -99,6 +99,48 @@ pub async fn get_rules_for_day(
     .await?)
 }
 
+/// Same rule set as `get_rules_for_day`, batched across several doctors for
+/// one date in a single query instead of one round-trip per doctor. Used by
+/// the batch-reassignment feasibility matrix, which needs every candidate
+/// colleague's rules for the same day at once.
+pub async fn get_rules_for_doctors(
+    pool: &SqlitePool,
+    doctor_ids: &[i64],
+    appointment_date: &str,
+) -> Result<std::collections::HashMap<i64, Vec<DoctorAvailability>>, AppError> {
+    let mut by_doctor: std::collections::HashMap<i64, Vec<DoctorAvailability>> =
+        doctor_ids.iter().map(|&id| (id, Vec::new())).collect();
+    if doctor_ids.is_empty() {
+        return Ok(by_doctor);
+    }
+
+    let date = chrono::NaiveDate::parse_from_str(appointment_date, "%Y-%m-%d")
+        .map_err(|_| AppError::BadRequest("Invalid appointment date".into()))?;
+    let day_of_week = date.weekday().num_days_from_sunday() as i32;
+
+    let placeholders = doctor_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT id, doctor_id, day_of_week, start_time, end_time, is_recurring, specific_date, is_blocked
+         FROM doctor_availability
+         WHERE doctor_id IN ({placeholders})
+           AND ((is_recurring = 1 AND day_of_week = ?) OR specific_date = ?)"
+    );
+    let mut query = sqlx::query_as::<_, DoctorAvailability>(&sql);
+    for id in doctor_ids {
+        query = query.bind(id);
+    }
+    let rows = query
+        .bind(day_of_week)
+        .bind(appointment_date)
+        .fetch_all(pool)
+        .await?;
+
+    for rule in rows {
+        by_doctor.entry(rule.doctor_id).or_default().push(rule);
+    }
+    Ok(by_doctor)
+}
+
 /// Pure, in-memory version of the availability gate: does the window
 /// `[start_time, end_time)` satisfy this doctor's rules for the day?
 ///

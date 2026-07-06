@@ -27,8 +27,7 @@
 // database code and unit-tested against a brute-force optimum.
 
 use crate::appointments::models::{build_cost_matrix, Candidate, ReassignPlan, ReassignRow, SourceAppointment};
-use crate::availability::models::DoctorAvailability;
-use crate::availability::services::get_rules_for_day;
+use crate::availability::services::get_rules_for_doctors;
 use crate::errors::AppError;
 use crate::time::{parse_slot, time_to_minutes};
 use sqlx::SqlitePool;
@@ -134,12 +133,10 @@ pub async fn plan_day_reassignment(
         }
     }
 
-    // Each colleague's availability rules for the day (leave / working windows).
-    let mut rules_by_doctor: HashMap<i64, Vec<DoctorAvailability>> = HashMap::new();
-    for cand in &candidates {
-        let rules = get_rules_for_day(pool, cand.doctor_id, date).await?;
-        rules_by_doctor.insert(cand.doctor_id, rules);
-    }
+    // Each colleague's availability rules for the day (leave / working windows),
+    // fetched in one batched query rather than one round-trip per candidate.
+    let candidate_ids: Vec<i64> = candidates.iter().map(|c| c.doctor_id).collect();
+    let rules_by_doctor = get_rules_for_doctors(pool, &candidate_ids, date).await?;
 
     // Column layout: for each colleague c, `n` capacity copies at columns
     // [c*n, c*n + n); then `n` "unassigned" fallback columns. Width guarantees

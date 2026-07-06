@@ -15,6 +15,33 @@ const BCRYPT_COST: u32 = 10;
 // Registration & Authentication
 // ============================================================
 
+/// Insert the shared `users` row. `register_user` and `create_staff_user`
+/// both create an account this way and only diverge in which profile row
+/// follows it, so the identical `INSERT ... RETURNING` lives here once.
+async fn insert_user_row(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    username: &str,
+    email: &str,
+    password_hash: &str,
+    role: &str,
+    full_name: &str,
+) -> Result<User, AppError> {
+    sqlx::query_as::<_, User>(
+        "INSERT INTO users (username, email, password_hash, role, full_name)
+         VALUES (?, ?, ?, ?, ?)
+         RETURNING id, username, email, password_hash, role, full_name, created_at",
+    )
+    .bind(username)
+    .bind(email)
+    .bind(password_hash)
+    .bind(role)
+    .bind(full_name)
+    .fetch_one(&mut **tx)
+    .await
+    // A duplicate username/email is a user mistake (400), not a server fault
+    .map_err(|e| AppError::bad_request_on_unique(e, "That username or email is already taken."))
+}
+
 /// Register a new user. Automatically creates a Patient or Doctor
 /// profile row depending on the selected role. Passwords are hashed
 /// with bcrypt (cost factor 10).
@@ -32,22 +59,10 @@ pub async fn register_user(
     // id-lookups. Both inserts commit atomically (like invoice header + items).
     let mut tx = pool.begin().await?;
 
-    let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users (username, email, password_hash, role, full_name)
-         VALUES (?, ?, ?, ?, ?)
-         RETURNING id, username, email, password_hash, role, full_name, created_at",
+    let user = insert_user_row(
+        &mut tx, &form.username, &form.email, &password_hash, &form.role, &form.full_name,
     )
-    .bind(&form.username)
-    .bind(&form.email)
-    .bind(&password_hash)
-    .bind(&form.role)
-    .bind(&form.full_name)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| {
-        // A duplicate username/email is a user mistake (400), not a server fault
-        AppError::bad_request_on_unique(e, "That username or email is already taken.")
-    })?;
+    .await?;
 
     // Create corresponding profile row. Matched on the typed `Role` (via the
     // just-inserted row's own accessor) rather than the raw form string, so
@@ -92,19 +107,10 @@ pub async fn create_staff_user(
     // can never leave an orphaned staff account behind.
     let mut tx = pool.begin().await?;
 
-    let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users (username, email, password_hash, role, full_name)
-         VALUES (?, ?, ?, ?, ?)
-         RETURNING id, username, email, password_hash, role, full_name, created_at",
+    let user = insert_user_row(
+        &mut tx, &form.username, &form.email, &password_hash, &form.role, &form.full_name,
     )
-    .bind(&form.username)
-    .bind(&form.email)
-    .bind(&password_hash)
-    .bind(&form.role)
-    .bind(&form.full_name)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| AppError::bad_request_on_unique(e, "That username or email is already taken."))?;
+    .await?;
 
     if user.role() == Role::Doctor {
         let specialization = form

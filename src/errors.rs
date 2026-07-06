@@ -6,6 +6,12 @@ use std::fmt;
 #[derive(Debug)]
 pub enum AppError {
     BadRequest(String),
+    /// A booking write lost a race against another request for the same
+    /// slot (translated from a `appointment_slots` UNIQUE-index violation).
+    /// Renders identically to `BadRequest`, but as its own variant so callers
+    /// that need to detect "lost the race" (e.g. a best-effort rebook retry)
+    /// can match on it directly instead of sniffing the message text.
+    SlotConflict(String),
     Unauthorized(String),
     Forbidden(String),
     NotFound(String),
@@ -19,6 +25,7 @@ impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AppError::BadRequest(msg) => write!(f, "Bad Request: {}", msg),
+            AppError::SlotConflict(msg) => write!(f, "Bad Request: {}", msg),
             AppError::Unauthorized(msg) => write!(f, "Unauthorized: {}", msg),
             AppError::Forbidden(msg) => write!(f, "Forbidden: {}", msg),
             AppError::NotFound(msg) => write!(f, "Not Found: {}", msg),
@@ -120,7 +127,7 @@ impl ResponseError for AppError {
         // Client errors keep their specific domain message (it is the user's
         // feedback); server errors hide internals behind a generic line.
         let (mut builder, status, title, message) = match self {
-            AppError::BadRequest(msg) => {
+            AppError::BadRequest(msg) | AppError::SlotConflict(msg) => {
                 (HttpResponse::BadRequest(), 400, "Bad Request", msg.as_str())
             }
             AppError::Unauthorized(msg) => {

@@ -127,6 +127,34 @@ pub async fn get_appointment_by_id(
     .ok_or_else(|| AppError::NotFound("Appointment not found".into()))
 }
 
+/// Enforce that a patient may only act on their own appointment (a no-op for
+/// staff roles). Shared by every patient-facing appointment action
+/// (view/cancel/reschedule) so the "do you own this" check lives in one
+/// place instead of being copied per action.
+async fn ensure_patient_owns_appointment(
+    pool: &SqlitePool,
+    appointment_id: i64,
+    user_id: i64,
+    role: Role,
+    forbidden_msg: &str,
+) -> Result<(), AppError> {
+    if role != Role::Patient {
+        return Ok(());
+    }
+    let patient_id = db::get_patient_id(pool, user_id).await?;
+    let owns: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
+    )
+    .bind(appointment_id)
+    .bind(patient_id)
+    .fetch_one(pool)
+    .await?;
+    if owns.0 == 0 {
+        return Err(AppError::Forbidden(forbidden_msg.into()));
+    }
+    Ok(())
+}
+
 /// Get a single appointment, enforcing that a patient may only view their own.
 pub async fn get_appointment_by_id_checked(
     pool: &SqlitePool,
@@ -135,21 +163,10 @@ pub async fn get_appointment_by_id_checked(
     role: Role,
 ) -> Result<AppointmentView, AppError> {
     let appointment = get_appointment_by_id(pool, appointment_id).await?;
-    if role == Role::Patient {
-        let patient_id = db::get_patient_id(pool, user_id).await?;
-        let owns: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
-        )
-        .bind(appointment_id)
-        .bind(patient_id)
-        .fetch_one(pool)
-        .await?;
-        if owns.0 == 0 {
-            return Err(AppError::Forbidden(
-                "You can only view your own appointments.".into(),
-            ));
-        }
-    }
+    ensure_patient_owns_appointment(
+        pool, appointment_id, user_id, role,
+        "You can only view your own appointments.",
+    ).await?;
     Ok(appointment)
 }
 
@@ -240,22 +257,10 @@ pub async fn cancel_appointment_checked(
     user_id: i64,
     role: Role,
 ) -> Result<(), AppError> {
-    if role == Role::Patient {
-        let patient_id = crate::db::get_patient_id(pool, user_id).await?;
-        let owns: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
-        )
-        .bind(appointment_id)
-        .bind(patient_id)
-        .fetch_one(pool)
-        .await?;
-
-        if owns.0 == 0 {
-            return Err(AppError::Forbidden(
-                "You can only cancel your own appointments.".into(),
-            ));
-        }
-    }
+    ensure_patient_owns_appointment(
+        pool, appointment_id, user_id, role,
+        "You can only cancel your own appointments.",
+    ).await?;
     cancel_appointment(pool, appointment_id).await
 }
 
@@ -345,21 +350,10 @@ pub async fn reschedule_appointment_checked(
     role: Role,
     form: &RescheduleForm,
 ) -> Result<Appointment, AppError> {
-    if role == Role::Patient {
-        let patient_id = crate::db::get_patient_id(pool, user_id).await?;
-        let owns: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM appointments WHERE id = ? AND patient_id = ?",
-        )
-        .bind(appointment_id)
-        .bind(patient_id)
-        .fetch_one(pool)
-        .await?;
-        if owns.0 == 0 {
-            return Err(AppError::Forbidden(
-                "You can only reschedule your own appointments.".into(),
-            ));
-        }
-    }
+    ensure_patient_owns_appointment(
+        pool, appointment_id, user_id, role,
+        "You can only reschedule your own appointments.",
+    ).await?;
     reschedule_appointment(pool, appointment_id, form).await
 }
 

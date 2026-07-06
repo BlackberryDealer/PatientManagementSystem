@@ -191,12 +191,7 @@ pub async fn auto_promote_waitlist(
                     notes: &entry.notes,
                 }).await?;
 
-                entry.accept()?;
-                sqlx::query("UPDATE waitlist SET status = ? WHERE id = ?")
-                    .bind(entry.current_status())
-                    .bind(entry.id)
-                    .execute(pool)
-                    .await?;
+                mark_entry_accepted(pool, &mut entry).await?;
 
                 return Ok(Some(appt));
             }
@@ -441,7 +436,7 @@ pub async fn try_rebook_bumped(
         }
         // Another booking grabbed it between find_earliest_slot's check and
         // this insert (a real race, not a bug), leave the entry waiting.
-        Err(AppError::BadRequest(msg)) if msg.contains("just been taken") => Ok(None),
+        Err(AppError::SlotConflict(_)) => Ok(None),
         Err(e) => Err(e),
     }
 }

@@ -268,6 +268,8 @@ The schema is fully normalized with 15 tables across 8 migrations:
 
 See `migrations/001_initial_schema.sql` through `migrations/008_add_missing_indexes_and_payment_cascade.sql` for the full DDL and data migrations.
 
+SQLite disables foreign-key enforcement per connection by default, so `create_pool()` (`src/db.rs`) explicitly opens every connection with `PRAGMA foreign_keys = ON`. Without this, the `ON DELETE CASCADE`/`SET NULL` behaviour declared above would never actually run.
+
 ---
 
 ## 📝 Development Notes
@@ -313,7 +315,8 @@ Demonstrating Rust's trait-based polymorphism for the OOP marking criteria:
 - **Monthly Calendar View**: `GET /appointments/calendar` renders a month grid (`CalendarMonth`, `src/appointments/models/calendar.rs`) with one cell per day showing that day's appointment count, scoped to the signed-in role. Each day links back to the list view filtered to that date (`GET /appointments?date=YYYY-MM-DD`).
 - **Persistent Sessions**: Session encryption key is auto-generated once and saved to `.env` as `SESSION_SECRET`. Survives server restarts, no forced re-login. See `get_or_create_secret_key()` in `main.rs`.
 - **Role-Based Access**: `AuthUser` extractor with `require_role()`, `require_admin()`, `require_doctor()` guards. Type-level role enforcement prevents accidental privilege escalation.
-- **Frontend Polish**: Font Awesome 6 icons, Bulma components, mobile-responsive navbar with hamburger toggle, fade-in animations, hero-style empty states, breadcrumbs on detail pages.
+- **Frontend Polish**: Font Awesome 6 icons, Bulma components, mobile-responsive navbar with hamburger toggle, fade-in animations, hero-style empty states, breadcrumbs on detail pages. Icon-only row actions (edit/delete) carry an `aria-label` alongside their `title`, so screen readers announce the action instead of nothing.
+- **Fail-Fast Startup**: connection, migration, and template-loading failures at boot log a clear error and exit (`std::process::exit(1)`) instead of panicking, so a misconfigured `DATABASE_URL` or a broken template fails with a readable message rather than a Rust backtrace.
 - **Database**: SQLite for zero-config setup. 15 tables across 8 migrations. Switch to PostgreSQL via `DATABASE_URL` and `sqlx` features in `Cargo.toml`.
 - **Styled Error Pages**: every error status (400/401/403/404/500) renders a consistent Bulma error screen. Domain rejections (e.g. a booking conflict) keep their specific message and offer a "Go Back" button; server errors hide internals behind a generic line. `AppError` renders its own page in `error_response()`; the `ErrorHandlers` middleware dresses up only *plain* error bodies (unmatched routes, malformed forms) and passes already-styled HTML through.
 - **Server-Side Clinic Hours**: `parse_slot()` rejects any slot outside 08:00–17:00, so the booking form's slot grid is enforced on the server too, a hand-crafted POST cannot book a doctor at 02:00, no matter how wide the doctor's declared availability windows are.

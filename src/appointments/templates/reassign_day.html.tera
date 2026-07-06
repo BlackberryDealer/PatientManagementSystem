@@ -18,10 +18,10 @@
         <div class="columns">
             <div class="column is-5">
                 <div class="field">
-                    <label class="label"><i class="fas fa-user-md mr-1"></i>Doctor on Leave</label>
+                    <label class="label" for="reassign-doctor-id"><i class="fas fa-user-md mr-1"></i>Doctor on Leave</label>
                     <div class="control has-icons-left">
                         <div class="select is-fullwidth">
-                            <select name="doctor_id" required>
+                            <select id="reassign-doctor-id" name="doctor_id" required>
                                 <option value="">-- Choose a doctor --</option>
                                 {% for d in doctors %}
                                 <option value="{{ d.0 }}" {% if form_doctor_id is defined and form_doctor_id == d.0 %}selected{% endif %}>{{ d.1 }}</option>
@@ -34,9 +34,9 @@
             </div>
             <div class="column is-4">
                 <div class="field">
-                    <label class="label"><i class="fas fa-calendar-alt mr-1"></i>Date</label>
+                    <label class="label" for="reassign-appointment-date"><i class="fas fa-calendar-alt mr-1"></i>Date</label>
                     <div class="control">
-                        <input class="input" type="date" name="appointment_date" required
+                        <input class="input" type="date" id="reassign-appointment-date" name="appointment_date" required
                                {% if form_date is defined %}value="{{ form_date }}"{% endif %}>
                     </div>
                 </div>

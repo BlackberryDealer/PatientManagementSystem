@@ -1,25 +1,39 @@
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
-use log::info;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use log::{error, info};
+use std::str::FromStr;
 
 use crate::errors::AppError;
 
 /// Create a connection pool for the SQLite database.
+///
+/// Explicitly enables `foreign_keys`: SQLite disables FK enforcement per
+/// connection by default, so without this every `ON DELETE CASCADE`/
+/// `SET NULL` declared in the migrations would silently not run.
 pub async fn create_pool(database_url: &str) -> SqlitePool {
     info!("Connecting to database: {}", database_url);
-    SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(database_url)
-        .await
-        .expect("Failed to create database pool. Is the DATABASE_URL correct?")
+    let options = match SqliteConnectOptions::from_str(database_url) {
+        Ok(opts) => opts.foreign_keys(true),
+        Err(e) => {
+            error!("Invalid DATABASE_URL '{}': {}", database_url, e);
+            std::process::exit(1);
+        }
+    };
+    match SqlitePoolOptions::new().max_connections(5).connect_with(options).await {
+        Ok(pool) => pool,
+        Err(e) => {
+            error!("Failed to create database pool: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Run all pending SQLx migrations from the `migrations/` directory.
 pub async fn run_migrations(pool: &SqlitePool) {
     info!("Running database migrations...");
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await
-        .expect("Failed to run database migrations. Check your migration SQL files.");
+    if let Err(e) = sqlx::migrate!("./migrations").run(pool).await {
+        error!("Failed to run database migrations: {}", e);
+        std::process::exit(1);
+    }
     info!("Database migrations completed successfully.");
 }
 

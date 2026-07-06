@@ -108,10 +108,13 @@ pub async fn get_invoices_for_patient_id(
     pool: &SqlitePool,
     patient_id: i64,
 ) -> Result<Vec<Invoice>, AppError> {
-    Ok(sqlx::query_as::<_, Invoice>("SELECT * FROM invoices WHERE patient_id = ?")
-        .bind(patient_id)
-        .fetch_all(pool)
-        .await?)
+    Ok(sqlx::query_as::<_, Invoice>(
+        "SELECT id, patient_id, invoice_date, due_date, total_amount, status, created_at
+         FROM invoices WHERE patient_id = ?",
+    )
+    .bind(patient_id)
+    .fetch_all(pool)
+    .await?)
 }
 
 /// Get a single invoice by ID.
@@ -223,13 +226,13 @@ pub async fn record_payment(
     .fetch_one(&mut *tx)
     .await?;
 
-    let total_paid: (Option<f64>,) =
-        sqlx::query_as("SELECT SUM(amount) FROM payments WHERE invoice_id = ?")
+    let total_paid: Option<f64> =
+        sqlx::query_scalar("SELECT SUM(amount) FROM payments WHERE invoice_id = ?")
             .bind(invoice.id)
             .fetch_one(&mut *tx)
             .await?;
 
-    if invoice.is_settled_by(total_paid.0.unwrap_or(0.0)) {
+    if invoice.is_settled_by(total_paid.unwrap_or(0.0)) {
         invoice.mark_paid()?; // encapsulated, self-guarding state transition (&mut self)
         sqlx::query("UPDATE invoices SET status = ? WHERE id = ?")
             .bind(invoice.current_status())

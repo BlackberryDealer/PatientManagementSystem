@@ -22,7 +22,7 @@
                             <select name="doctor_id" required>
                                 <option value="">-- Choose a doctor --</option>
                                 {% for d in doctors %}
-                                <option value="{{ d.0 }}" {% if form_doctor_id and form_doctor_id == d.0 %}selected{% endif %}>{{ d.1 }}</option>
+                                <option value="{{ d.0 }}" {% if form_doctor_id is defined and form_doctor_id == d.0 %}selected{% endif %}>{{ d.1 }}</option>
                                 {% endfor %}
                             </select>
                         </div>

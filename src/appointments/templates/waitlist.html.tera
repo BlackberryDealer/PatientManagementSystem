@@ -89,10 +89,10 @@
         <div class="columns">
             <div class="column is-3">
                 <div class="field">
-                    <label class="label is-small">Doctor</label>
+                    <label class="label is-small" for="waitlist-doctor-id">Doctor</label>
                     <div class="control">
                         <div class="select is-fullwidth is-small">
-                            <select name="doctor_id" required>
+                            <select id="waitlist-doctor-id" name="doctor_id" required>
                                 <option value="">-- Choose a doctor --</option>
                                 {% for d in doctors %}
                                 <option value="{{ d.0 }}">{{ d.1 }}</option>
@@ -104,18 +104,18 @@
             </div>
             <div class="column is-3">
                 <div class="field">
-                    <label class="label is-small">Date</label>
+                    <label class="label is-small" for="waitlist-appointment-date">Date</label>
                     <div class="control">
-                        <input class="input is-small" type="date" name="appointment_date" required>
+                        <input class="input is-small" type="date" id="waitlist-appointment-date" name="appointment_date" required>
                     </div>
                 </div>
             </div>
             <div class="column is-2">
                 <div class="field">
-                    <label class="label is-small">From</label>
+                    <label class="label is-small" for="waitlist-requested-start">From</label>
                     <div class="control">
                         <div class="select is-fullwidth is-small">
-                            <select name="requested_start" required>
+                            <select id="waitlist-requested-start" name="requested_start" required>
                                 {% for s in start_slots %}
                                 <option value="{{ s }}">{{ s }}</option>
                                 {% endfor %}
@@ -126,10 +126,10 @@
             </div>
             <div class="column is-2">
                 <div class="field">
-                    <label class="label is-small">To</label>
+                    <label class="label is-small" for="waitlist-requested-end">To</label>
                     <div class="control">
                         <div class="select is-fullwidth is-small">
-                            <select name="requested_end" required>
+                            <select id="waitlist-requested-end" name="requested_end" required>
                                 {% for e in end_slots %}
                                 <option value="{{ e }}">{{ e }}</option>
                                 {% endfor %}
@@ -151,9 +151,9 @@
         </div>
         <input type="hidden" name="priority" value="3">
         <div class="field">
-            <label class="label is-small">Notes <span class="has-text-grey">(optional)</span></label>
+            <label class="label is-small" for="waitlist-notes">Notes <span class="has-text-grey">(optional)</span></label>
             <div class="control">
-                <input class="input is-small" type="text" name="notes" placeholder="Reason for the visit...">
+                <input class="input is-small" type="text" id="waitlist-notes" name="notes" placeholder="Reason for the visit...">
             </div>
         </div>
     </form>

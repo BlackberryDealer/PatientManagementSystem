@@ -59,12 +59,12 @@
                 </td>
                 <td>
                     <div class="buttons are-small">
-                        <a class="button is-info is-light" href="/availability/{{ s.id }}/edit" title="Edit this slot">
+                        <a class="button is-info is-light" href="/availability/{{ s.id }}/edit" title="Edit this slot" aria-label="Edit this slot">
                             <i class="fas fa-pen"></i>
                         </a>
                         <form method="POST" action="/availability/{{ s.id }}/delete"
                               onsubmit="return confirm('Delete this availability slot? Days left without published hours cannot be booked.');">
-                            <button class="button is-danger is-light" type="submit" title="Delete this slot">
+                            <button class="button is-danger is-light" type="submit" title="Delete this slot" aria-label="Delete this slot">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </form>

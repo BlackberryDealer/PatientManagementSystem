@@ -79,7 +79,10 @@ fn get_or_create_secret_key() -> Key {
 
     // Generate 64 random bytes → 128 hex chars
     let mut bytes = [0u8; 64];
-    getrandom::getrandom(&mut bytes).expect("Failed to generate random bytes for session key");
+    if let Err(e) = getrandom::getrandom(&mut bytes) {
+        log::error!("Failed to generate random bytes for session key: {}", e);
+        std::process::exit(1);
+    }
     let new_secret: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
 
     // Append to .env file for persistence across restarts
@@ -216,7 +219,10 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    load_module_templates(&mut tera).expect("Failed to load module templates");
+    if let Err(e) = load_module_templates(&mut tera) {
+        log::error!("Failed to load module templates: {}", e);
+        std::process::exit(1);
+    }
 
     // Auto-register tera in debug mode for easy template debugging
     // Enable auto-escaping for all .tera templates to prevent XSS.

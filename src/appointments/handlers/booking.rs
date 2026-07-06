@@ -49,6 +49,7 @@ pub async fn book_form(
     ctx.insert("self_doctor_id", &self_doctor_id);
     ctx.insert("start_slots", &services::start_time_slots());
     ctx.insert("end_slots", &services::end_time_slots());
+    ctx.insert("today", &chrono::Utc::now().date_naive().to_string());
     ctx.insert("title", "Book Appointment");
     let rendered = tera.render("appointments/book.html.tera", &ctx)?;
     Ok(HttpResponse::Ok().body(rendered))
@@ -133,13 +134,7 @@ pub async fn book_appointment(
             appointment.end_time, appointment.doctor_id(),
             appointment.patient_id, appointment.priority().label()),
     ).await;
-    for r in &rescheduled {
-        audit::record(
-            pool.get_ref(), &user, "appointment.auto_rescheduled", "appointment", Some(r.id),
-            &format!("Auto-rescheduled to {} {}–{} after a priority override bumped the original slot",
-                r.appointment_date, r.start_time, r.end_time),
-        ).await;
-    }
+    super::audit_rescheduled_bumps(pool.get_ref(), &user, &rescheduled).await;
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", format!("/appointments/{}", appointment.id)))
         .finish())

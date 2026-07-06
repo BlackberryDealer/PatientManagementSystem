@@ -45,7 +45,7 @@
                         {% if u.id != user.user_id %}
                         <form method="POST" action="/users/{{ u.id }}/delete"
                               onsubmit="return confirm('Permanently delete {{ u.full_name }}&#39;s account? This cannot be undone. Accounts with existing appointments, records, invoices, or waitlist entries cannot be deleted until that history is resolved.');">
-                            <button class="button is-danger is-light" type="submit" title="Delete this account">
+                            <button class="button is-danger is-light" type="submit" title="Delete this account" aria-label="Delete this account">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </form>

@@ -272,7 +272,24 @@ pub async fn build_patient_timeline(
         .into_iter()
         .collect();
 
-    // 1. Appointments
+    push_appointment_events(pool, patient_id, &doctor_names, &mut events).await?;
+    push_record_events(pool, patient_id, &mut events).await?;
+    push_prescription_events(pool, patient_id, &mut events).await?;
+    push_invoice_events(pool, patient_id, &mut events).await?;
+
+    // Newest first. ISO "YYYY-MM-DD HH:MM" strings sort chronologically.
+    events.sort_by(|a, b| b.when.cmp(&a.when));
+    Ok(events)
+}
+
+/// Timeline entry 1/4: this patient's appointments, titled with the doctor's
+/// display name resolved from `doctor_names`.
+async fn push_appointment_events(
+    pool: &SqlitePool,
+    patient_id: i64,
+    doctor_names: &std::collections::HashMap<i64, String>,
+    events: &mut Vec<TimelineEvent>,
+) -> Result<(), AppError> {
     let appointments =
         crate::appointments::services::get_appointments_for_patient_id(pool, patient_id).await?;
 
@@ -290,8 +307,15 @@ pub async fn build_patient_timeline(
             Some(format!("/appointments/{}", appt.id)),
         ));
     }
+    Ok(())
+}
 
-    // 2. Medical records
+/// Timeline entry 2/4: this patient's medical records.
+async fn push_record_events(
+    pool: &SqlitePool,
+    patient_id: i64,
+    events: &mut Vec<TimelineEvent>,
+) -> Result<(), AppError> {
     let records = sqlx::query_as::<_, MedicalRecord>(
         "SELECT * FROM medical_records WHERE patient_id = ?",
     )
@@ -309,8 +333,15 @@ pub async fn build_patient_timeline(
             Some(format!("/records/{}", record.id)),
         ));
     }
+    Ok(())
+}
 
-    // 3. Prescriptions
+/// Timeline entry 3/4: this patient's prescriptions.
+async fn push_prescription_events(
+    pool: &SqlitePool,
+    patient_id: i64,
+    events: &mut Vec<TimelineEvent>,
+) -> Result<(), AppError> {
     let prescriptions = sqlx::query_as::<_, Prescription>(
         "SELECT * FROM prescriptions WHERE patient_id = ?",
     )
@@ -328,8 +359,15 @@ pub async fn build_patient_timeline(
             None,
         ));
     }
+    Ok(())
+}
 
-    // 4. Invoices
+/// Timeline entry 4/4: this patient's invoices.
+async fn push_invoice_events(
+    pool: &SqlitePool,
+    patient_id: i64,
+    events: &mut Vec<TimelineEvent>,
+) -> Result<(), AppError> {
     let invoices = crate::billing::services::get_invoices_for_patient_id(pool, patient_id).await?;
 
     for invoice in invoices {
@@ -342,10 +380,7 @@ pub async fn build_patient_timeline(
             Some(format!("/billing/{}", invoice.id)),
         ));
     }
-
-    // Newest first. ISO "YYYY-MM-DD HH:MM" strings sort chronologically.
-    events.sort_by(|a, b| b.when.cmp(&a.when));
-    Ok(events)
+    Ok(())
 }
 
 // ============================================================

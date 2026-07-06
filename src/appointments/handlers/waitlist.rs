@@ -109,13 +109,7 @@ pub async fn promote_waitlist(
                 pool.get_ref(), &user, "waitlist.promoted", "appointment", Some(appt.id),
                 &format!("Waitlist entry #{} promoted to appointment", waitlist_id),
             ).await;
-            for r in &rescheduled {
-                audit::record(
-                    pool.get_ref(), &user, "appointment.auto_rescheduled", "appointment", Some(r.id),
-                    &format!("Auto-rescheduled to {} {}–{} after a priority override bumped the original slot",
-                        r.appointment_date, r.start_time, r.end_time),
-                ).await;
-            }
+            super::audit_rescheduled_bumps(pool.get_ref(), &user, &rescheduled).await;
             Ok(HttpResponse::SeeOther()
                 .append_header(("Location", format!("/appointments/{}", appt.id)))
                 .finish())

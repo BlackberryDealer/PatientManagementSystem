@@ -24,3 +24,20 @@ pub use lifecycle::{
 pub use listing::{appointment_detail, calendar_view, list_appointments};
 pub use reassign_day::{reassign_day_apply, reassign_day_form, reassign_day_preview};
 pub use waitlist::{join_waitlist, list_waitlist, promote_waitlist};
+
+/// Audit-log every appointment that was auto-rescheduled after a priority
+/// override bumped its original slot. Shared by the booking and waitlist
+/// promotion handlers, which both produce this same kind of side-effect list.
+async fn audit_rescheduled_bumps(
+    pool: &sqlx::SqlitePool,
+    user: &crate::auth::AuthUser,
+    rescheduled: &[crate::appointments::models::Appointment],
+) {
+    for r in rescheduled {
+        crate::audit::services::record(
+            pool, user, "appointment.auto_rescheduled", "appointment", Some(r.id),
+            &format!("Auto-rescheduled to {} {}–{} after a priority override bumped the original slot",
+                r.appointment_date, r.start_time, r.end_time),
+        ).await;
+    }
+}
